@@ -1,0 +1,13 @@
+name = "aquifer-mcp"
+main = "src/index.ts"
+compatibility_date = "2025-03-14"
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+AQUIFER_ORG = "BibleAquifer"
+DOCS_REPO = "docs"
+
+[[kv_namespaces]]
+binding = "AQUIFER_CACHE"
+id = "placeholder-create-via-wrangler-kv-namespace-create"
+preview_id = "placeholder-preview"

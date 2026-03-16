@@ -1,0 +1,7 @@
+{
+  "mcpServers": {
+    "aquifer-mcp": {
+      "url": "http://localhost:8787/mcp"
+    }
+  }
+}

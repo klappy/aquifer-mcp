@@ -1,0 +1,635 @@
+{
+    "$schema": "http://json-schema.org/draft-06/schema#",
+    "$ref": "#/definitions/AquiferResource",
+    "$schemaVersion": "1.1.2",
+    "definitions": {
+        "AquiferResource": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "resource_metadata": {
+                    "$ref": "#/definitions/ResourceMetadata"
+                },
+                "scripture_burrito": {
+                    "$ref": "#/definitions/ScriptureBurrito"
+                },
+                "article_metadata": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "$ref": "#/definitions/ArticleMetadatum"
+                    }
+                },
+				"alignment_metadata": {
+                    "$ref": "#/definitions/AlignmentMetadata"
+				}
+            },
+            "required": [
+                "article_metadata",
+                "resource_metadata",
+                "scripture_burrito"
+            ],
+            "title": "AquiferResource"
+        },
+        "ArticleMetadatum": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "content_id": {
+                    "type": ["string","integer"]
+                },
+                "reference_id": {
+                    "type": "integer"
+                },
+                "index_reference": {
+                    "type": "string"
+                },
+                "localizations": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "$ref": "#/definitions/Localization"
+                    }
+                }
+            },
+            "required": [
+                "content_id",
+                "index_reference",
+                "localizations",
+                "reference_id"
+            ],
+            "title": "ArticleMetadatum"
+        },
+        "Localization": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "content_id": {
+                    "type": ["string","integer"]
+                },
+                "language": {
+                    "type": "string",
+                    "pattern": "^[a-z]{3}$"
+                },
+                "title": {
+                    "type": "string"
+                }
+            },
+            "required": [
+                "content_id",
+                "language",
+                "title"
+            ],
+            "title": "Localization"
+        },
+        "ResourceMetadata": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "version": {
+                    "type": "string",
+                    "enum": ["1.0.0", "1.0.1", "1.0.2", "1.1.0"]
+                },
+                "aquifer_type": {
+                    "type": "string",
+                    "enum": ["Bible","Images","Videos", "StudyNotes", "Dictionary", "Guide"]
+                },
+                "resource_type": {
+                    "type": "string",
+                    "enum": ["Bible","Translation Glossary", "Comprehension Testing", "Translation Guide", "Foundational Bible Stories","Images, Maps, Videos","Study Notes","Bible Dictionary","Bible Translation Manual"]
+                },
+                "title": {
+                    "type": "string"
+                },
+                "aquifer_name": {
+                    "type": "string"
+                },
+                "collection_title": {
+                    "type": "string"
+                },
+                "short_name": {
+                    "type": "string"
+                },
+                "license_info": {
+                    "$ref": "#/definitions/LicenseInfo"
+                },
+                "adaptation_notice": {
+                    "type": "string"
+                },
+                "resource_code": {
+                    "type": "string"
+                },
+                "date_created": {
+                    "type": "string",
+                    "format": "date"
+                },
+                "language": {
+                    "type": "string"
+                },
+                "localizations": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "order": {
+                    "type": "string",
+                    "enum": ["alphabetical", "canonical", "monograph"]
+                },
+                "content_type": {
+                    "type": "string",
+                    "enum": ["Html", "Json", "Bible"]
+                }
+            },
+            "required": [
+                "version",
+                "adaptation_notice",
+                "aquifer_name",
+                "aquifer_type",
+                "collection_title",
+                "content_type",
+                "date_created",
+                "language",
+                "license_info",
+                "localizations",
+                "order",
+                "resource_code",
+                "resource_type",
+                "short_name",
+                "title"
+            ],
+            "title": "ResourceMetadata"
+        },
+        "LicenseInfo": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "title": {
+                    "type": "string"
+                },
+                "copyright": {
+                    "$ref": "#/definitions/LicenseInfoCopyright"
+                },
+                "licenses": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/LicenseInfoLicense"
+                    }
+                },
+                "showAdaptationNoticeForEnglish": {
+                    "type": "boolean"
+                },
+                "showAdaptationNoticeForNonEnglish": {
+                    "type": "boolean"
+                }
+            },
+            "required": [
+                "copyright",
+                "licenses",
+                "showAdaptationNoticeForEnglish",
+                "showAdaptationNoticeForNonEnglish",
+                "title"
+            ],
+            "title": "LicenseInfo"
+        },
+        "LicenseInfoCopyright": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "dates": {
+                    "type":["string", "null"]
+                },
+                "holder": {
+                    "$ref": "#/definitions/Holder"
+                },
+                "statement": {
+                    "type": "string",
+                    "description": "Optional copyright/license statement provided by the content owner. When present, used directly in rendered outputs in place of a generated statement."
+                }
+            },
+            "required": [
+                "dates",
+                "holder"
+            ],
+            "title": "LicenseInfoCopyright"
+        },
+        "Holder": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "name": {
+                    "type": "string"
+                },
+                "url": {
+                    "type": "string",
+                    "format": "uri",
+                    "qt-uri-protocols": [
+                        "https"
+                    ],
+                    "qt-uri-extensions": [
+                        ".en"
+                    ]
+                }
+            },
+            "required": [
+                "name",
+                "url"
+            ],
+            "title": "Holder"
+        },
+        "LicenseInfoLicense": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "eng": {
+                    "$ref": "#/definitions/Holder"
+                }
+            },
+            "required": [
+                "eng"
+            ],
+            "title": "LicenseInfoLicense"
+        },
+        "ScriptureBurrito": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "format": {
+                    "type": "string",
+                    "enum": ["scripture burrito"]
+                },
+                "meta": {
+                    "$ref": "#/definitions/Meta"
+                },
+                "idAuthorities": {
+                    "$ref": "#/definitions/IDAuthorities"
+                },
+                "identification": {
+                    "$ref": "#/definitions/Identification"
+                },
+                "languages": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/Language"
+                    }
+                },
+                "type": {
+                    "$ref": "#/definitions/Type"
+                },
+                "ingredients": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "$ref": "#/definitions/Ingredient"
+                    }
+                },
+                "copyright": {
+                    "$ref": "#/definitions/ScriptureBurritoCopyright"
+                }
+            },
+            "required": [
+                "copyright",
+                "format",
+                "idAuthorities",
+                "identification",
+                "ingredients",
+                "languages",
+                "meta",
+                "type"
+            ],
+            "title": "ScriptureBurrito"
+        },
+        "ScriptureBurritoCopyright": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "licenses": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/CopyrightLicense"
+                    }
+                },
+                "shortStatements": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/ShortStatement"
+                    }
+                }
+            },
+            "required": [
+                "licenses",
+                "shortStatements"
+            ],
+            "title": "ScriptureBurritoCopyright"
+        },
+        "CopyrightLicense": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "url": {
+                    "type": "string",
+                    "format": "uri",
+                    "qt-uri-protocols": [
+                        "https"
+                    ],
+                    "qt-uri-extensions": [
+                        ".en"
+                    ]
+                }
+            },
+            "required": [
+                "url"
+            ],
+            "title": "CopyrightLicense"
+        },
+        "ShortStatement": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "statement": {
+                    "type": "string"
+                },
+                "mimetype": {
+                    "type": "string"
+                },
+                "lang": {
+                    "type": "string"
+                }
+            },
+            "required": [
+                "lang",
+                "mimetype",
+                "statement"
+            ],
+            "title": "ShortStatement"
+        },
+        "IDAuthorities": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "aquifer": {
+                    "$ref": "#/definitions/IDAuthoritiesAquifer"
+                }
+            },
+            "required": [
+                "aquifer"
+            ],
+            "title": "IDAuthorities"
+        },
+        "IDAuthoritiesAquifer": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "id": {
+                    "type": "string",
+                    "format": "uri",
+                    "qt-uri-protocols": [
+                        "https"
+                    ]
+                },
+                "name": {
+                    "$ref": "#/definitions/Abbreviation"
+                }
+            },
+            "required": [
+                "id",
+                "name"
+            ],
+            "title": "IDAuthoritiesAquifer"
+        },
+        "Abbreviation": {
+            "type": "object",
+            "additionalProperties": false,
+              "patternProperties": {
+                "^[a-z]{2,3}$": {
+                  "type": "string"
+                }
+              },
+            "minProperties": 1,
+            "title": "Abbreviation"
+        },
+        "Identification": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "primary": {
+                    "$ref": "#/definitions/Primary"
+                },
+                "name": {
+                    "$ref": "#/definitions/Abbreviation"
+                },
+                "abbreviation": {
+                    "$ref": "#/definitions/Abbreviation"
+                }
+            },
+            "required": [
+                "abbreviation",
+                "name",
+                "primary"
+            ],
+            "title": "Identification"
+        },
+        "Primary": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "aquifer": {
+                    "$ref": "#/definitions/PrimaryAquifer"
+                }
+            },
+            "required": [
+                "aquifer"
+            ],
+            "title": "Primary"
+        },
+        "PrimaryAquifer": {
+            "type": "object",
+            "additionalProperties": {
+                    "$ref": "#/definitions/AquiferContent"
+                },
+            "title": "PrimaryAquifer"
+        },
+        "AquiferContent": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "timestamp": {
+                    "type": "string",
+                    "format": "date-time"
+                }
+            },
+            "required": [
+                "timestamp"
+            ],
+            "title": "AquiferContent"
+        },
+        "Ingredient": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "mimeType": {
+                "type": "string",
+                "enum": ["text/json", "text/markdown", "application/pdf", "application/docx", "application/xml", "text/plain", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"]
+              },
+              "size": {
+                "type": "integer"
+              },
+              "scope": {
+                "type": "object",
+                "patternProperties": {
+                  "^[A-Z123]{3}$": {
+                    "type": "array",
+                    "items": {}
+                  }
+                }
+              }
+            },
+            "required": [
+                "mimeType",
+                "size"
+            ],
+            "title": "Ingredient"
+        },
+        "Language": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "tag": {
+                    "type": "string"
+                },
+                "name": {
+                    "$ref": "#/definitions/Abbreviation"
+                }
+            },
+            "required": [
+                "name",
+                "tag"
+            ],
+            "title": "Language"
+        },
+        "Meta": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "version": {
+                    "type": "string"
+                },
+                "category": {
+                    "type": "string"
+                },
+                "defaultLocale": {
+                    "type": "string"
+                },
+                "dateCreated": {
+                    "type": "string",
+                    "format": "date-time"
+                }
+            },
+            "required": [
+                "category",
+                "dateCreated",
+                "defaultLocale",
+                "version"
+            ],
+            "title": "Meta"
+        },
+        "Type": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "flavorType": {
+                    "$ref": "#/definitions/FlavorType"
+                }
+            },
+            "required": [
+                "flavorType"
+            ],
+            "title": "Type"
+        },
+        "FlavorType": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "name": {
+                    "type": "string"
+                },
+                "flavor": {
+                    "$ref": "#/definitions/Flavor"
+                },
+                "currentScope": {
+                    "$ref": "#/definitions/CurrentScope"
+                }
+            },
+            "required": [
+                "currentScope",
+                "flavor",
+                "name"
+            ],
+            "title": "FlavorType"
+        },
+        "CurrentScope": {
+            "type": "object",
+            "patternProperties": {
+              "^[A-Z123]{3}$": {
+                "type": "array",
+                "items": {}
+              }},
+            "title": "CurrentScope"
+        },
+        "Flavor": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "name": {
+                    "type": "string"
+                },
+                "audience": {
+                    "type": "string"
+                }
+            },
+            "required": [
+                "audience",
+                "name"
+            ],
+            "title": "Flavor"
+        },
+		"AlignmentMetadata": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "alignment_source": {
+                    "type": "string"
+                },
+				"alignment_ot_basis": {
+					"type": "string",
+					"enum": ["WLCM", "WLC"]
+				},
+				"alignment_nt_basis": {
+					"type": "string",
+					"enum": ["SBLGNT", "GNTB"]
+				},
+                "licenses": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/LicenseInfoLicense"
+                    }
+                },
+				"target_token_differences": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "$ref": "#/definitions/TargetTokenDifference"
+					}
+				}
+			}
+		},
+		"TargetTokenDifference": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+				"Clear-Bible": {
+					"type": "string"
+				},
+				"Aquifer": {
+					"type": "string"
+				}
+			}
+		}
+    }
+}

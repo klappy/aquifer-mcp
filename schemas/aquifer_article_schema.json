@@ -1,0 +1,175 @@
+{
+    "$schema": "http://json-schema.org/draft-06/schema#",
+    "$schemaVersion": "1.0.3",
+    "type": "array",
+    "items": {
+        "$ref": "#/definitions/AquiferArticle"
+    },
+    "definitions": {
+        "AquiferArticle": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "version": {
+                    "type": "string",
+                    "enum": ["1.0.0", "1.0.1", "1.0.2", "1.0.3", "1.1.2"]
+                },
+                "content_id": {
+                    "type": ["string","integer"]
+                },
+                "reference_id": {
+                    "type": "integer"
+                },
+                "title": {
+                    "type": "string"
+                },
+                "media_type": {
+                    "type": "string"
+                },
+                "index_reference": {
+                    "type": "string"
+                },
+                "language": {
+                    "type": "string"
+                },
+                "review_level": {
+                    "type": "string",
+                    "enum": ["None", "Community", "Professional"]
+                },
+                "content": {
+                    "type": "string"
+                },
+                "associations": {
+                    "$ref": "#/definitions/Associations"
+                }
+            },
+            "required": [
+                "version",
+                "content",
+                "content_id",
+                "index_reference",
+                "language",
+                "media_type",
+                "title"
+            ],
+            "title": "AquiferArticle"
+        },
+        "Associations": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "passage": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/Passage"
+                    }
+                },
+                "resource": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/Resource"
+                    }
+                },
+                "acai": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/AcaiMatch"
+                    }
+                }
+            },
+            "required": [
+                "passage",
+                "resource"
+            ],
+            "title": "Associations"
+        },
+        "AcaiMatch": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "id": {
+                    "type": "string"
+                },
+                "type": {
+                    "type": "string"
+                },
+                "preferred_label": {
+                    "type": "string"
+                },
+                "confidence": {
+                    "type": "number",
+                    "minimum": 0.0,
+                    "maximum": 1.0
+                },
+                "match_method": {
+                    "type": "string",
+                    "enum": ["content_id", "scored", "canonical", "embedding"]
+                }
+            },
+            "required": [
+                "id",
+                "type",
+                "preferred_label",
+                "confidence",
+                "match_method"
+            ],
+            "title": "AcaiMatch"
+        },
+        "Passage": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "start_ref": {
+                    "type": "string",
+                    "format": "integer"
+                },
+                "start_ref_usfm": {
+                    "type": "string"
+                },
+                "end_ref": {
+                    "type": "string",
+                    "format": "integer"
+                },
+                "end_ref_usfm": {
+                    "type": "string"
+                }
+            },
+            "required": [
+                "end_ref",
+                "end_ref_usfm",
+                "start_ref",
+                "start_ref_usfm"
+            ],
+            "title": "Passage"
+        },
+        "Resource": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "reference_id": {
+                    "type": "integer"
+                },
+                "content_id": {
+                    "type": ["string","integer"]
+                },
+                "resource_code": {
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "language": {
+                    "type": "string"
+                }
+            },
+            "required": [
+                "content_id",
+                "label",
+                "language",
+                "reference_id",
+                "resource_code"
+            ],
+            "title": "Resource"
+        }
+    }
+}

@@ -1,0 +1,1157 @@
+GitHub Bible Resource Pipeline Discussion
+=========================================
+Date: March 9, 2026
+Time: 4:05 PM – 5:10 PM EDT
+Location: 4108 13th St, Saint Cloud, FL 34769
+
+
+OVERVIEW
+--------
+Chris joined a meeting with Rick and Joel to discuss Rick's work on the Bible translation data pipeline project. The meeting began with Chris camped out at a Starbucks, noting he might move outside for better audio. Rick presented his comprehensive GitHub-based pipeline system that exports data from the Aquifer API, processes it through multiple stages (export, update, render), and outputs structured content in JSON, Markdown, PDF, and DOCX formats. Rick walked through the repository architecture where each resource lives in its own repo, organized by language code with JSON as the single source of truth. The system now contains 48 resource repositories including Bibles, study notes, maps, and dictionaries. Joel highlighted the vision of making static GitHub files the foundation for API access, reducing software complexity and putting content developers in control. Chris expressed enthusiasm for collaborating on AI-powered projections of this data and suggested using Cloudflare for more flexible triggering beyond GitHub Actions' limitations. The group scheduled a follow-up for March 16th to explore Chris's work on flat-file AI integration.
+
+
+ATMOSPHERE
+----------
+Collaborative, technical, and mission-aligned with a sense of shared purpose around open Bible translation resources. The tone was respectful and exploratory—Chris positioned himself as learning from Rick's extensive groundwork, while Joel facilitated with a strategic eye toward broader organizational adoption. There was genuine appreciation for Rick's persistence where others had failed, and excitement about the potential for AI to simplify access to these resources.
+
+
+KEY TAKEAWAYS
+-------------
+  - Rick has built a robust Python pipeline that pulls from Aquifer API and generates versioned, multi-format outputs (JSON/Markdown/PDF/DOCX) across 48 resource repositories
+  - Repository structure: each resource = separate repo, language codes at root level, JSON as canonical source with derived formats
+  - Metadata system uses Scripture Burrito as foundation with extensions, includes resource-level and article-level schemas with versioning for anticipated changes
+  - Rick identified Typst as a promising solution for print-ready PDF generation that could work in GitHub Actions, solving the current Word-dependent workflow
+  - Chris proposed Cloudflare's cron jobs and triggers as alternatives to GitHub Actions for non-standard workflows
+  - Joel articulated vision: static GitHub files as primary source, API as optional projection, enabling parallel content addition without bottlenecks
+  - Chris plans to develop MCP-based AI tooling that reads Rick's documentation to project repository data without requiring full clones
+  - Next meeting scheduled March 16, 12-1pm Pacific / 3-4pm Eastern, with standing biweekly meetings to continue
+
+
+ACTION ITEMS
+------------
+  → Joel to schedule March 16 follow-up meeting and add Chris to standing biweekly meetings
+  → Rick to add Chris to relevant repositories for direct access
+  → Chris to prepare demonstration of his flat-file AI projection work for next meeting
+  → Rick to explore Typst for PDF generation in GitHub Actions environment
+  → Group to investigate Cloudflare alternatives for pipeline triggering and automation
+
+
+TRANSCRIPT
+----------
+Unknown: Yeah, you're welcome.
+
+Chris: Hopefully uh Rick's available as well.
+
+Unknown: Mm-hmm.
+
+Unknown: Well good.
+
+Chris: Overall it looks like it and feels like it's going well.
+
+Unknown: Um, good.
+
+Chris: So hopefully Rick will be able to join soon.
+
+Chris: Um I may move outside so it's easier to talk.
+
+Chris: Um since I'm sorry, I'm camped out at a at Starbucks.
+
+Unknown: Okay.
+
+Unknown: Okay.
+
+Unknown: So uh this way for him.
+
+Unknown: He shared this l link in the meanwhile.
+
+Unknown: Uh let me put it here.
+
+Unknown: So you know how he's been working on the GitHub repository?
+
+Unknown: Yeah.So he just added Biblica open bible maps.
+
+Unknown: Sweet.That's exciting.
+
+Unknown: It's all on GitHub.
+
+Unknown: It's marked down files.
+
+Unknown: It's got images in there.
+
+Unknown: It's just pair now.
+
+Chris: That's exciting.
+
+Chris: So um what I'd love to do for today is just listen and let him show me everything he's been working on.
+
+Unknown: Yeah, sure.
+
+Chris: And then if we have time, I'm happy to show him like the stuff I've done with flat files on GitHub.
+
+Chris: Right.If if we have time.
+
+Chris: I'd rather listen and see all he's been up to first for the first round.
+
+Chris: Because he's been up to way more than I realized.
+
+Chris: In I think more than I can like if I were just looking at the GitHub repo, I don't or the owner, I don't think I'd be able to cap catch up with everything without his guidance.
+
+Unknown: Totally.I agree with that.
+
+Unknown: Hey Rick.
+
+Unknown: Hey everybody.
+
+Unknown: Thanks for giving me a few minutes.
+
+Chris: Dude, you uh you've been busy.
+
+Chris: Well I was just telling Joel like uh you know, today I'm I'm looking forward to just getting some uh just a tour of everything you've been busy on working on in the GitHub owner of Bible and all the repos you've been, you know, maintaining and updating and um then if we have time I can maybe show you the types of things I've done on top of flat files on GitHub, but first I'd just rather catch up with all the all the good stuff you've been up to.
+
+Unknown: So I I I think that's really good.
+
+Unknown: And we don't need to have to meet only once, we can meet you know, as many times we think is needed to do to do this.
+
+Unknown: That sounds good.
+
+Unknown: Yeah, that'd great.
+
+Unknown: Father, I thank you for this opportunity for us to discuss, um, for all that you are doing uh in and through these projects and work.
+
+Unknown: Um for your kingdom I pray that you would give us the grace to be faithful in the calling that you give in us and complete what you have for us, Lord.
+
+Unknown: Um bless our conversation today.
+
+Unknown: Use it for your glory.
+
+Unknown: In Jesus' name we pray. Amen. Amen. Okay, um so yeah, I've been working on the whole problem of pulling down uh data from the Aquifer API and getting into something that we can shut up to GitHub since like I think November of last year.
+
+Unknown: So it really started um super prototypey, um, just trying to figure out, okay, well how do we like get data from the what's that API?
+
+Unknown: Um just a bunch of stuff like that.
+
+Unknown: So I ended up cobbling together a few different scripts that then became sort of the basis of a pipeline.
+
+Unknown: Um and so then I it's probably in about its third or fourth form now, where I can basically I've got a pipeline I can type in some commands that run some Python.
+
+Unknown: And you know, I can say, Hey, I need to take this resource and I need to run it through these pipeline stages and go.
+
+Unknown: And then it does it.
+
+Unknown: Um there are a few hitches in that where where I'd like to get with that is I'd like to at some point get it completely running and like GitHub actions.
+
+Unknown: Yeah.So that it can like be just you can like schedule it, like set it and forget it, like have the process check the logs to make sure things are okay.
+
+Unknown: Right?There are a few hitches getting there.
+
+Unknown: Um so basically there's a few different things I do.
+
+Unknown: So step one would be like, hey, let's just export this resource entirely from the aquifer, right?
+
+Unknown: And for some resources that's pretty quick, and for other resources it takes for stinking ever, um just because of the way data works there.
+
+Unknown: Um the unfolding words the translator notes are the worst because there's like seventy thousand of them at this point.
+
+Unknown: Yeah.And so that takes hours upon hours 'cause the way the aquifer works is you get one note at a time.
+
+Unknown: Like it'll give you a group of a thousand and then you can cycle through one note at a time.
+
+Unknown: 'Cause it's built to say, you know, I want the note on, you know, first Thessalonians ten.
+
+Unknown: Tell me what you need to know about that.
+
+Unknown: So it's really good about getting data that way, right?
+
+Unknown: But it's really bad about saying, I wanted all of these.
+
+Unknown: So for big stuff, I should say not even necessarily big, but for things that have a lot of records in the database, I'm just gonna cycle through it all and works in the public API.
+
+Chris: And I'm sure there's rate limiters that prevent you from doing bulk, right?
+
+Unknown: Yeah, I mean there's there's no in the public API, maybe there's a private API that I've learned about that I still don't know anything about.
+
+Unknown: Um but there's there's 'cause believe it or not, the Bible will use the private API, not the public API, so it can do things that nobody else in the world can do, even though it's an example application showing you what you can do with the API.
+
+Unknown: Um so it's a little frustrating there.
+
+Unknown: Have we spoken on the public API?
+
+Unknown: Um so one step would be exporting the whole thing from the another.
+
+Unknown: Yeah.So it's really easy to add an update phase on there now.
+
+Unknown: So now like I just ran an update for the Tyndale study notes, which are the open study notes in the repo.
+
+Unknown: And the past two weeks haven't got pulled in an updated twelve hundred notes from a couple of different languages, rebuilt the whole thing and shipped up to them.
+
+Unknown: That was like two that was like two commands to do all of that.
+
+Unknown: It was wonderful.
+
+Unknown: Um so let's see the stages would be like export and then update.
+
+Unknown: And then I've got a stage that we'll do a render.
+
+Unknown: And what render means is take this information that I've downloaded from the aquifer, or that downloaded information that gets sort of updated that's in a JSON form that I don't even push up to GIF because it's large.
+
+Chris: It's just raw, right?
+
+Unknown: And then render it as JSON.
+
+Unknown: That's kind of like my head, I think if somebody's gonna be using this data, they're probably gonna want to use the JSON form.
+
+Unknown: From the JSON, we can create some markdowns so you can kinda get an idea what it looks like.
+
+Unknown: I find that um it's really easy to shove up JSON and nobody can like get a conception of what's in there.
+
+Unknown: Right?I mean you can document it, you can tell people what it's about, but you need some sort of visualization.
+
+Unknown: So there's another stage another stage creates some look down and then one of the more complicated stages um creates PDF, DocX and PDF.
+
+Unknown: Um and I'm using pretty standard Python stuff for most of that, um, to create the document.
+
+Unknown: But the reason I went that way, there's other stuff we could do to create PDF that would probably be more efficient, but it didn't make it look like a page.
+
+Unknown: It didn't make it look like something somebody could read.
+
+Unknown: Right?Um even like the standard HTML, it's a PDF stuff that you can kind of throw at it.
+
+Unknown: It still is kind of um it looks just not right.
+
+Unknown: You can't have page headers, it makes setting up columns a little harder, things like that.
+
+Chris: Oh yeah, it's a nightmare to take HTML to PDF without it looking like it was rendered for a website with a infinite scroll that just somehow got truncated per page.
+
+Chris: Joel and I have been fighting that battle for like ten years.
+
+Unknown: You want it to look like a page, you want it to have page numbers, you want to have especially for Bible stuff, if there's more than three pages, you want to think what verse or chapter you're on, right?
+
+Unknown: So I went with the Word to do that, and then I was pretty much stuck.
+
+Unknown: Um and what I do right now to make PDFs is I actually have a process that went through Word on my local machine to save it as PDF and then we'll shut up PDF.
+
+Unknown: But that's never gonna work in a GitHub action.
+
+Chris: Right?You know what's funny is that was that's the big differentiator between Claude and Chat GPT.
+
+Chris: You ask ChatGPT to take a markdown file and give it to you as a clean PDF, it looks terrible.
+
+Chris: But you go over to Claude, it like renders it as a word file in the background or even uses that as like a native tool, and then outputs a PDF and it looks gorgeous.
+
+Chris: So yeah, that simple little work first step that Claude is doing, it sounds just like what you're doing, is like, well, I get a nice clean rendered output if I just open it in Word first and then print it.
+
+Unknown: Yeah, I just use the WordPress driver whatever it does.
+
+Unknown: Um but there's apparently I did some research on this, and I think there might be a path there.
+
+Unknown: There's technology that will let you do that inside of a GitHub action.
+
+Unknown: You have to like because I don't know if it's I think it's from the Word doc that you can do this.
+
+Unknown: Um and it doesn't require anything else, but you have to sort of template it, and the the problem is gonna be to make it the template, but it seems doable.
+
+Unknown: I just need to spend some time to actually do it.
+
+Unknown: If I can solve that and then get rid of like work out some of the um the timing things, like some processes just run a long time and they might be too long for a good of action, so might even try find ways to break them up.
+
+Unknown: Um, just even today I there's some like the biblica study, the biblica open bible maps, which I just recently shoved on to get out of.
+
+Unknown: Um It's exciting by the way.
+
+Unknown: Like about fifty or sixty new testament apps.
+
+Unknown: So there's also localizations for Indonesian and Russian and Chinese.
+
+Unknown: Um they've got localizations for we don't technically support that in the aquifer yet, so I haven't really gone down that road.
+
+Unknown: But still, I mean that's cool.
+
+Unknown: But anyway, so I'm just trying to work through some of the problems of the next phase, which will be how can we move this up to the cloud?
+
+Unknown: Yeah.How can we schedule it?
+
+Unknown: Um it might be something to where like I mean Bible's not gonna there's probably gonna be a difference in thinking about running non Bibles through this process, which will happen freak not frequently, but all the time.
+
+Unknown: And non-bibles probably don't might not even need it.
+
+Unknown: Um 'cause if they just don't update frequently.
+
+Chris: Yeah.Um there's Yeah, some of the tensions you're describing I I've had with um GitHub Actions can only do so much and it can't fit everything and even the triggers for it, like yeah you could almost force it to be a reverse action, like you're if you're querying something to then make a commit or or append and create updates to your repository.
+
+Chris: It's almost like a uh a backflow, right?
+
+Chris: 'Cause normally it's trul triggered and designed to be off of I have this PR, do what you can off of like this commit got pushed here, we submitted a PR, then it triggers everything.
+
+Chris: That is so well oiled for for GitHub actions, but anything else you try to do, it's like it's so close if I could just get it to trigger reliably off these other things.
+
+Chris: Yeah.But uh yeah, I I ended up and we can explore this later, but just to put a little um a pen or not a pen, but um a teaser for later of something we can talk about, is uh using Cloudflare.
+
+Chris: Um they have like a wealth of different options available to us for monitoring and triggering, whether it's through cron jobs or or just um a myriad of ways to run on um non conventional Git flows, if you will.
+
+Unknown: Yeah, well I'm totally happy to look into anything that works.
+
+Unknown: Um I'm much more of a pragmatic, how do I get this done unless it's up here but it must be pure Python or oh my gosh, it's gonna be C sharp and you need to use Microsoft tools.
+
+Unknown: Let's do this.
+
+Unknown: I'm not like ideologically pure in a way, it's usually pregnant pragmatic.
+
+Unknown: So I'm gonna try to figure out the best way to get done and you get it done once but then you can make it better.
+
+Unknown: Yeah, I agree, agree.
+
+Chris: You can always iterate.
+
+Unknown: Totally.Uh I think just a quick note about converting to PDF.
+
+Unknown: Um, are you familiar with Pandot?
+
+Unknown: Yeah.And it didn't did it not satisfy your needs there or?
+
+Unknown: I don't believe that it allowed me to pay chutters.
+
+Unknown: Okay, so here's the thing.
+
+Unknown: Um the standard for a lot of this stuff in terms of being programmatic is tech D X tech. Um which I do not recommend generally getting into.
+
+Unknown: It it is uh I I think it's a world of its own that probably is better left um alone at this point for now.
+
+Unknown: At least for now you it's very valuable for its for different purposes.
+
+Unknown: But uh there is a new contender which we've been I mean uh looking at and has been promising called types.
+
+Unknown: I don't know exactly how to pronounce it.
+
+Unknown: That is the one that uh I've been looking at.
+
+Unknown: I couldn't remember the name of it.
+
+Unknown: You have to sort of make your own templating stuff or stuff that isn't normally handled.
+
+Unknown: But it sounded promising.
+
+Unknown: I just haven't done the work to try to figure out if it really is promising.
+
+Unknown: Okay, so I can tell you it it'll solve the problem.
+
+Unknown: You know, with some template.
+
+Unknown: And you can do complicated stuff.
+
+Unknown: I mean I can show you a PDF of what it came out to be and we're improving on that.
+
+Unknown: But it's really promising.
+
+Unknown: You can do page numbers, you can even do like how yeah, that's the line. Okay. Uh you can even do like automatic which you know how bible archives usually have on your left top left corner, which is a starting chapter on the verse, starting chapter and verse.
+
+Unknown: So if you're on Matthew five, three, they'll say that on the top left header, and they'll say the ending chapter and verse on the top right corner.
+
+Unknown: You can do that automatically.
+
+Unknown: And let the f te I mean dynamically just hit run once you have the template.
+
+Unknown: And it allows you to code go complex with different sorts of formatting, conditional formatting.
+
+Unknown: I mean it's pretty it's a whole of its own.
+
+Unknown: Um so I I recommend it um and it'll it'll work well.
+
+Unknown: And it's print ready PDFs that you can literally print off and make a book out of.
+
+Unknown: Um Yeah, it's sort of like it was it was close or if not right at what I thought I needed for the problem.
+
+Unknown: Yeah.On top of at least from what I can tell, being able to run the GitHub action somewhere else. Yeah. Um because I was specifically looking at the GitHub machine and then that's just this looks like it so that's good for that.
+
+Unknown: Oh that's that's that's kinda where I where I went in large where I've been and what I've been doing.
+
+Unknown: And I've just been sort of iterating on all these stages as I've got the pipeline put together to spring things together.
+
+Unknown: Now it's all in actually the pipeline's in really good shape.
+
+Unknown: I've been using it with just a few little tweaks, but using it with a pipeline for over a month.
+
+Unknown: Um, just to update stuff.
+
+Unknown: Actually a month and a half about probably.
+
+Unknown: Just to just to keep things going.
+
+Unknown: And it's a whole lot easier than running, you know, five or six different scripts and remembering where I was, e with all the prototypes, right?
+
+Unknown: Um it just strings together nicely and I'm I'm actually happy with the way this has worked out.
+
+Chris: Okay, sorry, cut out for a second.
+
+Chris: Yours what what strings things together nicely?
+
+Unknown: Oh, um the pipeline that I put together that's now actually working well.
+
+Unknown: So no, now I gotta run that script.
+
+Unknown: Oh my gosh, and now it's gotta run this one.
+
+Unknown: And I then I forgot the thing because it's the special thing.
+
+Unknown: Um it's pretty simple to add new things and to just kinda make it work.
+
+Unknown: So you could maybe share a screen and show a couple repositories of how it's set up for uh and show it on on GitHub.
+
+Chris: You know, how the files are structured.
+
+Chris: Then there's the third, which is the outcomes, the outputs from those repositories.
+
+Chris: And um to me I feel like if we can explore, or at least Joe, you correct me if I'm wrong, if we're s we can explore the flat files and how we might I'm gonna think about how we can simulate the files that we have and the formats that we existing have on the repositor
+
+Chris: How to make things API accessible
+
+Chris: But on a sustainable infrastructure that costs pennies and we'd have a a way to maintain them moving forward.
+
+Chris: And the single source of truth would be the GitHub repositories and the API is optional.
+
+Chris: Does that make sense?
+
+Unknown: Yeah totally.
+
+Unknown: No, that's that's exactly what we want.
+
+Unknown: In fact, I think the pipelines to in bring things onto GitHub are not probably gonna live forever, mainly because maybe the GitHub becomes so much more richer than the database at some point in the future, not today.
+
+Unknown: Um that it probably doesn't make sense to keep the database around if we can just base things off in GitHub, especially for the API.
+
+Unknown: I'm not gonna say for everything, maybe we have to think so.
+
+Unknown: But for the API it would be important that we are a little more dynamic in how we can add content, change content, update content rather than have it go through some technical team that has to decide um to update a database through certain specific, you know, bespoke scripts, etcetera.
+
+Unknown: That's kind of uh I feel the nimble architecture we want to be in. Um I mean I'm already like so because the maps are a good example of pulling in something that has absolutely nothing to do with the API.
+
+Unknown: Um essentially I just wrote some code to take all the map data I could get from Biblica and structure it like the JSON that I staged for and then just wrote everything else on that.
+
+Chris: Exactly.Then we have new pipelines in that. Yeah. Yeah.
+
+Unknown: So it's just gonna get in the right form and that's so I mean that was easy.
+
+Unknown: So I I'm confused.
+
+Unknown: Do you want me to uh like share my screen with the repo and walk through how it's structured?
+
+Chris: Yeah, I know that may sound boring, but that's exciting to me.
+
+Chris: And Joel if you can record it, I'd love to like just kinda have some visual markers so when I review it and um so I can see what he's talking about.
+
+Chris: Recording in progress along with the transcription because to me better understanding the organization and the file formats yeah, like I said, may sound boring to many people, but to me that's that's that's the meat of what what I'd love to see.
+
+Unknown: Alright, so this is just the Bioperg, um, with just a simple README for the organization.
+
+Unknown: Um telling you a little bit about what's there, um pointing to documentation and schemas.
+
+Unknown: They're in a repo called docs.
+
+Unknown: So here we've got um JSON schemas for articles and resources so we can validate things, make sure they're okay.
+
+Unknown: Um I also got some pretty scant but existing documentation.
+
+Unknown: So there's a readme inside of the file that says what's here and what might be coming.
+
+Unknown: It might be a little bit out of date.
+
+Unknown: Um but this is relatively up to date.
+
+Unknown: This is about the JSON for the for the articles, like what is in it, what are some terminology that we use here?
+
+Unknown: What is the schema basically?
+
+Unknown: This sort of documents the schema at every level.
+
+Unknown: Um, with just a short explanation of what's going on.
+
+Unknown: And then that's all uh sorry to interrupt, but I I I think uh if correct me if I'm wrong, Rick, but you base this JSON for the metadata.
+
+Unknown: So w what Rick did was come up with a metadata for every type of content that we're gonna put in the in the GitHub.
+
+Chris: Great.That's that's excellent.
+
+Unknown: And and he based it off of or he used the scripture burrito as a starting point.
+
+Unknown: No scripture burrito doesn't bless you.
+
+Unknown: Yeah, there's there's two kind of things going on there.
+
+Unknown: Um because there's some so there's there's metadata for what I would call a resource, which would be like the biblical bible maps.
+
+Unknown: That's a resource.
+
+Unknown: And then there's also metadata, there's also a scheme for an article.
+
+Unknown: That would be a map inside of the resource.
+
+Unknown: They're kind of in two different spots.
+
+Unknown: Um and I'll show you.
+
+Unknown: Let's go back here and let's find, let's just look at the Aquifer Open Bible Dictionary.
+
+Unknown: So the way the repo is organized is there are language codes at the root of the repo for each language edition.
+
+Unknown: Uh and then inside of each language edition, okay just to make sure one adds with metadata that sort of represents the whole thing.
+
+Chris: Sorry, well just to make sure I understand each resource is in its own explicit repository.
+
+Chris: And then the first level, just so my transcriber knows what we're looking at.
+
+Chris: Um each language is then further subdividing each repository.
+
+Chris: So we have a language folder and then that resource is a basically a self-contained copy of that resource in that language.
+
+Unknown: Yes, in a number of different formats with resource level metadata.
+
+Chris: Okay, okay.
+
+Chris: Now uh which one which one of those formats do you typically consider the single source of truth if there are discrepancies or an error in that?
+
+Chris: That would be the JSON?
+
+Unknown: That would be the JSON because the the markdown and the doc and the PDF are all generated from the JSON.
+
+Chris: Okay, yeah, that's good to know because that's gonna be what everything would need to be derived from in a pipeline.
+
+Chris: Um for consistency or for once again, single source of truth to make sure if something got corrupted along the way, we know we can always trust the JSON.
+
+Unknown: Great, thanks.
+
+Unknown: No, that's fine.
+
+Unknown: Um please interrupt and ask clarifying questions.
+
+Unknown: That's totally awesome.
+
+Unknown: So inside the JSON folder, um if we look at content, this JSON cloud, so one of the problems that I had with the aquifer is that everything was an article.
+
+Chris: Yeah and that's even the tiny little tiny pieces, right?
+
+Unknown: Right.But even more so there was no sort of order of the whole thing.
+
+Unknown: Oh well.
+
+Unknown: Like if um so for instance for a while there they would want to do everything in Mark, they would only import part of Mark.
+
+Unknown: Well if that was the first thing imported for a Bible, then the first thing in the Bible would be MARC because that was the earliest ID of the database.
+
+Unknown: And there was no way to say, I need this in my order.
+
+Unknown: So I had to try to put some order to it.
+
+Unknown: Um it probably ends up short in the peak of prices, but essentially I derived three different types of water to a resource.
+
+Unknown: One would be like a Bible dictionary, would be alphabetical, one like a Bible set of Bible notes where a Bible is canonical.
+
+Unknown: Um and then the other is just sort of monograph.
+
+Unknown: It's gonna be in the words.
+
+Unknown: Um an example of that last one with the the unfolding word translation guide translation men.
+
+Unknown: It's not canonically ordered.
+
+Chris: It isn't ordered alphabetically, it's in its own.
+
+Chris: It has its own weird table of contents.
+
+Unknown: Yeah.But inside of the aquifer, it was just a series of particles.
+
+Unknown: I know.
+
+Unknown: And this was maximum distance previous, it was just articles.
+
+Unknown: So I had to basically pull it out in its order and say, I guess that's the order it's in. Somebody's got to tell me different.
+
+Unknown: Um but anyway, I say that say there's there's three different three different orders and that has to do with how I've named files here.
+
+Unknown: Um because this is a dictionary.
+
+Unknown: The first file is technically like the first letter of the alphabet as you would structure a dictionary.
+
+Unknown: Right?So these are the A's.
+
+Unknown: We start with N.
+
+Unknown: It's sorted.
+
+Unknown: Um each one of these has got like an index reference.
+
+Unknown: Yeah.So it's sorted in the the articles are all sorted in the order of the index reference.
+
+Unknown: Um to try to give us something that we can actually like look at in order.
+
+Unknown: If I'm gonna page through a dictionary, I need to know what the order is.
+
+Unknown: Um the content inside of all these articles is basically an HTML fragment.
+
+Unknown: Um it's a pretty simple HTML, it should be well formed HTML.
+
+Unknown: Um, but it's HTML.
+
+Unknown: Um there's some information about passages.
+
+Unknown: These are from the aquifer.
+
+Unknown: These are basically references that occur inside of the arc.
+
+Unknown: Not every day not every article inside of the aquifer did this.
+
+Unknown: Not all of them actually tag the references and then export extract them out of these passage references.
+
+Unknown: Um, I think they largely relied on material that had already done that.
+
+Unknown: That had already been done in the Tyndale study notes and the files that they started.
+
+Unknown: So for some of them there's a lot of uh Bible references that are tagged.
+
+Unknown: There's a another gosh, sorry.
+
+Unknown: Didn't make mean to make you dizzy there.
+
+Unknown: No, no, it's fine.
+
+Chris: Um so I noticed there's HTML.
+
+Chris: What was this resource again?
+
+Chris: And was the source HTML or was HTML injected in at some point in the API or the aquiferization of it?
+
+Unknown: So yeah, good question.
+
+Unknown: In the aquifer um stuff is technically in a JSON format.
+
+Unknown: Um if you just pull it, it'll pull out this tip tap tip tapp I think is the name of the thing they use, um, which is JSON, but it can convert to HTML or to Markdown.
+
+Unknown: Um and the JSON was just difficult.
+
+Chris: But there were nice and clean and it nests well to whatever database structure so there's yeah.
+
+Chris: I was just curious.
+
+Unknown: Yeah, I was gonna say yeah.
+
+Unknown: It was simple to convert that.
+
+Unknown: There was even a function I think that I could use.
+
+Unknown: No, I just pulled HTML from the database.
+
+Unknown: I didn't even convert it.
+
+Unknown: I just pulled HTML from the database.
+
+Unknown: Okay, so that's a time what I was pulled.
+
+Unknown: Yeah.It came straight from the database.
+
+Unknown: And when I create the markdown, I basically take this HTML and from it through an HTML markdown conversion.
+
+Unknown: Um I wrote some.
+
+Unknown: Let's see, I use a standard tool to convert HTML to docx for Python.
+
+Unknown: So this is basically what comes out of the database.
+
+Unknown: If it was sourced from the database, in most instances.
+
+Unknown: Um there are some inky places like with graphic resources, like resources where the article is just an image.
+
+Unknown: Um I kind of made up some HTML to go around that, but it should all be relatively consistent.
+
+Unknown: Same thing for videos, like the video vinyl dictionary.
+
+Unknown: Um there's it's a a little hinky like some block type stuff, um, but it should be consistent.
+
+Unknown: And I tried to mirror that for things like the Bible maps, the biblical maps.
+
+Unknown: I tried to use the same HTML.
+
+Unknown: Um but it came from the database, it was sourced from the database, otherwise it was something like together.
+
+Unknown: But it should all be pretty plain plain vanilla, not complicated HTML. Okay.
+
+Unknown: Um all the all the spaces that made it big.
+
+Unknown: Um so inside of the metadata actually it's probably better shown um in the docs.
+
+Chris: Okay, so you have some like uh resource level metadata, but then each article may have some aquiferization additional uh metadata.
+
+Unknown: Yes.In the aquifer metadata there's a top level section called resource metadata.
+
+Unknown: Yeah, got it.
+
+Unknown: This is pretty much straight from the aquaper.
+
+Unknown: A few things added in that were necessary to add in, but this is pretty much straight from the aquifer.
+
+Unknown: Okay.There's also a scripture burrito section.
+
+Chris: Great.That'll probably be what I camp on.
+
+Unknown: Mostly scripture burrito compatible.
+
+Unknown: I'm not gonna say that it's always.
+
+Unknown: I mean I 'm doing my best, but it's kind of a it's kind of a weird target sometimes.
+
+Chris: Or it's it extensible at least to where you feel like you're able to add to the core scripture burrito specification?
+
+Unknown: Um yeah, I mean I've tried to make stuff up when I need it in the spirit of scripture burrito.
+
+Unknown: Um I mean I like that.
+
+Unknown: I don't know if Joe likes that,
+
+Unknown: Yeah.
+
+Unknown: That's exactly how we do it.
+
+Unknown: That's exactly right.
+
+Unknown: Sometimes there are things that are just like even like not clear as to how you would actually put them out, even though there might be values specified for things.
+
+Unknown: Yeah.Like the metadata will have I will have ingredients for the markdown and for the JSON and for the whatever, you know.
+
+Unknown: Um it wasn't necessarily clear what to do with scope all the time, 'cause it's like one of the examples was just like um you know, the US F M abbreviation for the Bible book.
+
+Unknown: It's like is that really what's supposed to be there?
+
+Unknown: Is that enough?
+
+Unknown: Um so when I've sort of expanded or gone off gone off charts, you know, um I hope it's justifiable and if it's needs to change, it can change.
+
+Unknown: We just need to rebuild metadata and update the update the schemas and all that kind of stuff.
+
+Unknown: Right.And so the important point here is actually because we anticipate change, even on the metadata level, Rick has versioned everything.
+
+Unknown: So even the metadata is versioned, the repository itself has a version.
+
+Unknown: So if anything changes, as long as you're tying things to a version like a major version would be a breaking change, etc.
+
+Unknown: We can at least track things.
+
+Unknown: 'Cause we expect change.
+
+Unknown: We expect you know Rick had to move forward, he had to power head.
+
+Chris: I agree, yeah.
+
+Chris: Sounds great.
+
+Unknown: And Joe, you know I was joking.
+
+Chris: I knew you wouldn't mind.
+
+Unknown: Thank you.
+
+Unknown: Yeah, the the JSON schemes have their own version and some of it's a little, but at least it's there.
+
+Unknown: And as that needs to mature, I can mature everything smarter about it.
+
+Unknown: Um but it's there for now.
+
+Unknown: If we make major changes, we can bother version and say we'll know what the differences are.
+
+Unknown: Um so yeah, that's kind of how it's set up.
+
+Unknown: So the stuff that you're looking for is probably mostly in the scripture burrito um area.
+
+Unknown: A lot of the scripture burrito is sort of derived and lunged it from the actual aquifer resource metadata, but there was also in my head the possibility that, hey, we might have to like open this stuff back up into the aquifer database at some point in time, so I wanted to keep all that stuff around too.
+
+Unknown: Um if we needed to channel our inner Einstein and have a brand unification theory of something at some point in time we could probably do that, but it seemed like treating them bold was the best solution for now.
+
+Chris: No, that makes sense.
+
+Chris: And plus you can rectify any changes if you have it properly mapped like that, right?
+
+Chris: Like if there is a diversion of like people writing in two places, you actually have a better chance of being able to bring them back together if you have both of them tied in like that.
+
+Unknown: At least it makes sense to me.
+
+Unknown: Uh so what else?
+
+Unknown: That's um so there's a resource level metadata and then uh Rick you were sharing that every resource itself has its own like specification.
+
+Unknown: Right?Yeah, it's yeah, so that would be the article metadata.
+
+Unknown: Um where done a little bit more messing around as our end of stuff.
+
+Unknown: Um but this is again there's just JSON and it's got simple stuff in it.
+
+Unknown: Like the version of the schema, um identifiers, um the content ID.
+
+Unknown: There's no problem with my documentation, but the content ID is the identifier you want, I will say to everybody in this room.
+
+Unknown: I have no idea what the reference ID is.
+
+Unknown: It's something that was in the aquifer, and chances are it had to do with putting references in the table so I can refer to them in the table instead of as the content ID.
+
+Unknown: Um, but I couldn't find a direct sort of use for it.
+
+Unknown: Um the other thing to mention here that apparently isn't documented is that in the way I've implemented things on the Opera, content ITs are unique within the scope of a resource.
+
+Unknown: Um it's not unique within the scope of everything.
+
+Unknown: Um because that just gets kinda icky to take care of once you're out of the database.
+
+Chris: Yeah, unfolding word does a similar thing with uh their notes.
+
+Chris: They only need to be unique per note or as far as the book of the Bible, but um they don't expect them to be truly a UUID.
+
+Unknown: Yeah, I'll just say that identifiers from my perspective here identifiers should be unique within a language version of a resource.
+
+Unknown: So I could have and do have in the biblical bio maps the same ID for the map in the Indy in the Indonesian as I do for the English.
+
+Unknown: Just because that was the easiest way to work it out.
+
+Unknown: Um and it also fit within the scheme that I already put together, even though I hadn't formerly taken advantage of it anywhere.
+
+Unknown: They should be unique within the language version of a resource.
+
+Unknown: And that sort of reminder to me to document that.
+
+Unknown: Um not a lot of stuff going on here.
+
+Unknown: Uh associations is what I find out with boss references like passage references.
+
+Unknown: There are also resource references.
+
+Unknown: Uh these tend to be within like what I'd call a family of a resource, like um the biblical study notes.
+
+Unknown: They also have got uh a biblical study notes key terms resource, where a study note might say something like angel, and then there's a definition for the key term of angel.
+
+Unknown: The resource association is where that linkage would be fully specified.
+
+Unknown: So that's specified at an article level, it's probably also in the content as well.
+
+Unknown: Um third one is one that I just added within the past two weeks.
+
+Unknown: Um we have this great data set called Psy where I defined a bunch of stuff like people, places, things, all that kind of stuff in the bio.
+
+Chris: Um I was processing your last one and uh so scroll back up.
+
+Chris: It so it sounds like it's almost also deterministic for your resource.
+
+Chris: Mm-hmm.Because of the five items, reference, content, label language, resource code.
+
+Chris: Does that make the lookup deterministic?
+
+Chris: Not just an identifier, but you can also traverse its scope with that, or am I misinterpreting or projecting something onto it that it's not?
+
+Unknown: Um the idea is these are all values that came straight to the database.
+
+Unknown: But the idea is basically yes, you can go look up the identifier here and you would need the resource code, the language, and the content ID to find the right spot in whatever resource you're looking up.
+
+Chris: And then once you found that sure you could evaluate it as context if you needed to.
+
+Chris: This is the resource information for the particular article, correct?
+
+Chris: Right.Okay, all of this would be duplicate for every article.
+
+Chris: Every article file would have this uh replicated across all the files.
+
+Unknown: Um if it was a resource mic, yes.
+
+Chris: If it sorry, help me understand that again.
+
+Unknown: So these are just article associations.
+
+Unknown: Let's say we're, you know, in a study bible, in Revelation, and it's talking about the angels of the seven churches, and it says, and the angel, and it wants to tell you more about the angel 'cause it's a key term, so it's got a key term about the angel.
+
+Unknown: This is an association that lets you go look that up at the other resource.
+
+Chris: Got it, got it.
+
+Chris: Okay, so I misunderstood that.
+
+Chris: That's why I was a little confused on why the same I resource identifier was on every single article and I was like, Well, okay, it seems a little bit redundant, but I understand uh if Okay.
+
+Unknown: Good, good.
+
+Chris: Now I better understand that.
+
+Unknown: I'm glad I asked.
+
+Unknown: Yeah, thank you.
+
+Unknown: Um thanks for clarifying that.
+
+Unknown: The other point there after we get past those, and again this is they sort of like s sort of dependent on the pairs of resources as they were integrated.
+
+Unknown: That's sort of what the next item is about.
+
+Unknown: It's about the SI data set, which I put together my first year at BiblioNexis, which annotates people, places things in the Bible, and gives you a common identifier and then a description about them so that you can sort of annotate them wherever you want to and have a common source to point back to or even aggregate the links from.
+
+Unknown: And try to bubble the more important ones up to the top.
+
+Unknown: If it's a keyword sort of ordered resource, an alphabetical resource, then we compare like keywords against the aside terms, the labels, and score them and try to determine again, hey, which ones of these look like they're kind of useful or they they might sort of look and score them that way.
+
+Unknown: Um it's kind of a way to try to get these sort of other possible and canonically related links out or a way it kind of works out functionally is with uh with the maps, it allows us to have information about a lot of times the who and the where's that are actually represented in the map, but now it's sort of metadata about the map that we can learn more about.
+
+Unknown: Or or things that happen inside of that range that might be relevant for the map we're looking at.
+
+Unknown: Um it's pretty early and I'm sure there's some cruft in there.
+
+Unknown: I'm sure that we can over time probably get these associations a little bit better, but I wanted to start the process because it seemed like this data set wasn't being used to get to use it because it's pretty cool.
+
+Chris: Yeah, that's great.
+
+Unknown: Um so those links are sort of in there too.
+
+Unknown: Um if I can if I go to one of these markdown files for a map, I gotta find a map that actually does it.
+
+Unknown: Let's try this one So this is Galilean's time, but it's not in here.
+
+Unknown: Um I need to find a map that's got scripture references.
+
+Unknown: Let's Black Man, like Black.
+
+Unknown: Yeah, see if I knew I was gonna do a demo, I would have my my map ready to go, Chris.
+
+Unknown: But it kinda just messed me up.
+
+Chris: Um Well when you're you come across 'em they'll probably get in the way and then uh when you actually need to find 'em it's that much harder.
+
+Unknown: So this is a map about see Jesus' third journey.
+
+Unknown: So it's got a passage association with it.
+
+Unknown: But then there are also these icon where we can pull out actual identifiers of the aside concepts that might be relevant to the map.
+
+Unknown: So we've got one for Jesus Lord, we've got key terms from the passage.
+
+Unknown: I just I figured I'd put everything in because I figured that consumer could sort of whittle them down if they wanted to, whether it was by type of link, whether it's a key term link, or by score.
+
+Unknown: These have all got scores and they're in a like a descending order.
+
+Unknown: Um so that if a person was actually processing this, they could say, you know what, I'm only interested in people in places and I only want it above like a point two and just drop the rest of them.
+
+Unknown: I seem at least at this point in time it seemed better to let the processor make that determination of what was relevant than for me to do it and cause them to lose data.
+
+Unknown: Like maybe they really want key terms, even though I don't think they're really that relevant.
+
+Unknown: But that's the kind of data that that site thing will give you for passage ordered books or for um alphabetically ordered books.
+
+Unknown: Do you have a count of that?
+
+Unknown: Um or in even just an order of it.
+
+Unknown: Oh I've got I've got fifty folders.
+
+Unknown: Um that includes the documentation and the size.
+
+Unknown: There are forty eight resource folders.
+
+Unknown: That includes a lot of Bibles.
+
+Unknown: Yeah.Um the other part I haven't showed you is the um the catalog.
+
+Unknown: I don't know if you've seen this or not, but we can select search, we can see that there's a lot of Bibles there.
+
+Unknown: But if we go to something like the Occur Bible dictionary, we can load up a preview and look at like what's there.
+
+Unknown: Um but this is this is another place where you can see well how much stuff is actually there.
+
+Unknown: It's I did the count's forty eight different repositories that are content.
+
+Unknown: Can you maybe say how you're building this website?
+
+Unknown: Um yeah, uh it's just a uh it's just a Python script that basically traverses across all the re all the repositories and builds some information and it shoves all that into a static HTML page.
+
+Unknown: Um and then it shoves that into a separate uh uh separate branch on the repo that it actually runs from.
+
+Unknown: And it I run it every night just because the data updates who knows when.
+
+Unknown: So it gets updated every night um by a GitHub job, by a crown job, uh so that it stays up to date if the new resource gets added or something.
+
+Unknown: Right.So it's a GitHub page just that automatically builds like this.
+
+Chris: Um yeah, this is exciting to see.
+
+Chris: To me, this was inspirational for me to see okay, you get that you can take flat files and project it onto a webpage for people to interact with, right?
+
+Chris: And so as as Joel and I were talking a few months ago, in some ways that was the early initial vision for the Bible well was let's just see what's in the aquifer.
+
+Chris: Let's let people touch and feel and actually see it instead of it just being data behind an API.
+
+Chris: Um so this is kind of where what are we calling it, Joel, the the aquifer window just to kind of peek through to see what's in there without having to worry about having too much expectations on it.
+
+Chris: But you can quickly browse it and see what's in there, which is I think perfect for developers, right?
+
+Chris: People who want to bring this into their web app.
+
+Chris: This is the stuff they need to see, so that okay, now how do I access it?
+
+Unknown: Right, yeah.
+
+Unknown: You can learn one thing from seeing what the repository name is and fighting through the data, but if you can just drop down a few things and get an idea what it's called and what's in there, then you're you know a whole lot more if it's in you want to use, right?
+
+Unknown: As opposed to just downloading the data, cloning the people, going through all the stuff and you're like, Well I don't know what it is.
+
+Chris: You gotta see it visually, you just poke at it and then that that's I would say a hundred times faster than looking at raw data.
+
+Unknown: Yeah, yeah, like we said earlier, it's always nice to have a picture, it's nice to see visualize a good idea of all we can do that with this, right?
+
+Unknown: That's the start of things.
+
+Chris: Great great job, Rick.
+
+Chris: He's done a great job getting this exported.
+
+Chris: I know it's been uh Um I don't know if you know behind the scenes there was probably three other people that attempted this before you.
+
+Unknown: And uh I know of one of them.
+
+Unknown: I know of one of them.
+
+Unknown: Um but I hadn't heard a whole I I I figured some people have tried to do it.
+
+Unknown: It it's not like it was that difficult.
+
+Unknown: You just had to kind of you had to pay the price of understanding how the offer worked.
+
+Unknown: Yeah.In order to do it in a reliable way.
+
+Unknown: And I'll just leave it there.
+
+Chris: Yeah.I appreciate you had the unique position of also having internal connections to be able to help project that out.
+
+Chris: So thank you for all that hard work.
+
+Chris: And continued hard work 'cause I I know it's far from over.
+
+Chris: Yeah, and and I'm hopeful I can come alongside of you and like just kinda glean uh your experience and and uh what what you know about it and taking some of the AI projections of it to let AI kinda help catapult us into uh an MCP based API, just kind of casting a vision for how we might make AI best understand these resources directly off of GitHub, but not have to clone the repo.
+
+Chris: Um and if we can, Joel, if you can help schedule another meeting for the three of us, then I can show Rick some of the projects I've been working on that have taken files on GitHub and made them blazing fast for AI.
+
+Unknown: That's the sort of thing I think we should discuss next now that Rick has kind of got us all on the same page here.
+
+Unknown: Um we have this meeting uh this standing meeting every week every two weeks.
+
+Unknown: Okay.Uh I believe.
+
+Unknown: So the next one is for the twenty third of March.
+
+Unknown: Um I'm I'm happy to find a time before that, if you think that's better, Flappy, or we could just um I don't want to force you guys to uh meet more often than you want to.
+
+Chris: I would love it next Monday.
+
+Chris: If if we could meet every week.
+
+Chris: Just uh um with, you know, Joel with my current shift.
+
+Chris: Yeah uh I just want to keep the ball in movement if you don't mind.
+
+Chris: If that's too much on you, Rick.
+
+Unknown: No, I think I've got this West Coast one to two spot open on every other Monday 'cause I mean I just do I think.
+
+Unknown: So I don't think that's a problem for me.
+
+Unknown: Um I will say it's probably gonna have to be a hard two o'clock stop 'cause a lot of days I gotta go pick my nine year old up from school.
+
+Unknown: Yeah, no worries.
+
+Unknown: Um then they it's of two thirty.
+
+Unknown: Would actually f I um would say twelve to one, uh on Pacific work.
+
+Unknown: Which is three Eastern.
+
+Chris: Yeah, that works perfectly fine for me too.
+
+Chris: Whatever works for you guys I can work around it.
+
+Chris: Uh right now my Mondays are pretty flexible now.
+
+Unknown: So I'm gonna just put a meeting for the March sixteenth, twelve to one East sorry, Pacific, which is three Eastern.
+
+Unknown: We have a the following we already have the standing meeting which I can also add you on there, Clappy.
+
+Unknown: Um yeah, so we'll have two other meetings for the next two weeks on Monday.
+
+Unknown: Um and yeah, this is exactly the hope here is Rick, as I was mentioning, Clary has been paving the way to kind of reimagine the API a little b from first principles of static data, basically.
+
+Unknown: What what if static data powered everything rather than having to and take out layers of software that we we could do away with that allows more people to interact with the content like we want the content developers to be in charge of the content, not developers, software developers to be in charge of it.
+
+Unknown: Um so that's where the has a lot of promise and Flappy has done some of that and with AI he's doing all the more.
+
+Unknown: So I think we you might just find multiple ways to leverage this static repository now and as we and uh this the copy by the way, I mentioned this to Vic last time.
+
+Unknown: You know, Fluent wants to use this, is using this currently, and we want to use the API is as first class for all our resources.
+
+Unknown: But at the same time the aquifer doesn't have everything, we want more.
+
+Unknown: Rather than making it like this big thing where because now it's the it's uh a GitHub repository, uh adding a new repository is cheap.
+
+Unknown: What if we could pull out all the open license content that's around, even in the DPL, and just add it as repositories in the e bible, add it as repositories and suddenly Afer, which has a layer of API which is reading from the static files, suddenly gets a boost of all of those things and fluents would I mean others would benefit.
+
+Chris: Right?Not just like us adding layers, but anybody could replicate this pipeline and we can add resources in parallel together to power more things.
+
+Unknown: Yeah, and just for the record, um for Bibles right now I basically read SFM.
+
+Unknown: So and all that stuff in library whatever is that it's all SFM.
+
+Unknown: So I should be able to pull it in.
+
+Unknown: I will say that it all gets dumbed down to a verse.
+
+Unknown: I don't have any paragraph formatting, I don't any of that.
+
+Unknown: It's all like chapter verse single line type stuff.
+
+Unknown: 'Cause that's all the aquifer database supported.
+
+Unknown: But if it's adding a Bible, chances are that's pretty cheap.
+
+Unknown: Um I just need to get the SFM and I can Yeah.
+
+Unknown: And as it goes along, it's sort of we could even get an import stage that would be built around to do that because there's a few things I gotta change like I gotta get it it's gotta get some metadata in the YAML file and but other than that it's like just it's just make it work.
+
+Unknown: Yeah, and if you have SFM, I think we might just be able to keep the SFM around and that suddenly gives you the formatting too.
+
+Unknown: Um that you might want to also have.
+
+Unknown: But all of that suddenly becomes a lot more tractable rather than having to have any bespoke relational database structure to manage uh and figure out how to fit it in. Um and with AI this is where it it changes the the economics here is like you don't need to understand or need to have too much standard either.
+
+Chris: As long as documented and Rick, I've had some amazing success lately using like docs that you have for the other repositories, those become governance to controlling an agent, and then the agent uses that to better understand how to traverse the actual um data that you might have.
+
+Chris: So um I'm really excited to see the documentation you do have and so I'm looking forward to working with you on teaching my agents to read your docs to then create projections uh off of the um the actual repos.
+
+Unknown: It'll be fun to also I'll also say that I'm I'm excited to figure it out too, um if you need I mean the walkover stuff is all public, as is the uh the catalog page.
+
+Unknown: So those are easy to get to you.
+
+Unknown: By all means.
+
+Unknown: I just haven't never made it enough public.
+
+Chris: Yeah, no worries.
+
+Chris: Here's my it's just clappy.
+
+Chris: Okay.Yeah, no I'm looking I'm I've been looking forward to being able to be a part of this project for about three years.
+
+Chris: So I've been patiently waiting for my invitation, not wanting to step on any toes, and uh coming alongside of you, Rick, seeing the work you've already done and invested in it.
+
+Chris: Uh I am immensely grateful, and so are a lot of people that you may not have heard from yet.
+
+Unknown: So um I'm 'cause I'm I'm glad it could be used.
+
+Unknown: Um I do have to cut it short, I gotta go pick up.
+
+Unknown: Um but I'll do that, I'll get sure I'll add you to the repo as well as you can check it out.
+
+Chris: Thanks, Rick.
+
+Unknown: Keep up the good recording.
+
+Unknown: Thanks, Joe.
+
+Chris: Thanks, Joel.
+
+Unknown: Thanks, Joel.
+
+Unknown: Thanks, Rick. Bye.
