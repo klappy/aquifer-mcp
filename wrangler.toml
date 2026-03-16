@@ -9,5 +9,5 @@ DOCS_REPO = "docs"
 
 [[kv_namespaces]]
 binding = "AQUIFER_CACHE"
-id = "placeholder-create-via-wrangler-kv-namespace-create"
-preview_id = "placeholder-preview"
+id = "aa19ca4a80aa48a5bf25317fd9b2d4e1"
+preview_id = "f73869e2e7ac4e04a9ee2fa3887ceefe"
