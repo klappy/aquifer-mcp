@@ -6,6 +6,7 @@ import type {
   NavigabilityIndex,
 } from "./types.js";
 import { metadataUrl, fetchJson } from "./github.js";
+import { isValidIndexReference } from "./references.js";
 
 const KNOWN_REPOS: Array<{ code: string; order: "canonical" | "alphabetical" | "monograph" }> = [
   { code: "TyndaleStudyNotes", order: "canonical" },
@@ -27,7 +28,7 @@ const KNOWN_REPOS: Array<{ code: string; order: "canonical" | "alphabetical" | "
   { code: "FIAMaps", order: "alphabetical" },
 ];
 
-const INDEX_CACHE_KEY = "index:navigability:v1";
+const INDEX_CACHE_KEY = "index:navigability:v4";
 const INDEX_TTL = 86400;
 
 export async function getOrBuildIndex(env: Env): Promise<NavigabilityIndex> {
@@ -49,6 +50,7 @@ async function buildIndex(env: Env): Promise<NavigabilityIndex> {
   const registry: ResourceEntry[] = [];
   const passage = new Map<string, ArticleRef[]>();
   const entity = new Map<string, ArticleRef[]>();
+  const title: ArticleRef[] = [];
 
   const results = await Promise.allSettled(
     KNOWN_REPOS.map(async (repo) => {
@@ -81,33 +83,40 @@ async function buildIndex(env: Env): Promise<NavigabilityIndex> {
     if (!metadata.article_metadata) continue;
 
     for (const [contentId, article] of Object.entries(metadata.article_metadata)) {
-      if (!article.index_reference) continue;
-
-      const ref: ArticleRef = {
+      const fallbackTitle = article.index_reference && !isValidIndexReference(article.index_reference)
+        ? article.index_reference
+        : `Article ${contentId}`;
+      const englishTitle = article.localizations?.eng?.title ?? article.title ?? fallbackTitle;
+      const baseRef: ArticleRef = {
         resource_code: repo.code,
         language: rm.language,
         content_id: contentId,
-        title: article.localizations?.eng?.title ?? `Article ${contentId}`,
+        title: englishTitle,
         resource_type: rm.resource_type,
         index_reference: article.index_reference,
       };
 
-      const existing = passage.get(article.index_reference);
-      if (existing) {
-        existing.push(ref);
-      } else {
-        passage.set(article.index_reference, [ref]);
+      title.push(baseRef);
+
+      if (article.index_reference && isValidIndexReference(article.index_reference)) {
+        const existing = passage.get(article.index_reference);
+        if (existing) {
+          existing.push(baseRef);
+        } else {
+          passage.set(article.index_reference, [baseRef]);
+        }
       }
     }
   }
 
-  return { registry, passage, entity, built_at: Date.now() };
+  return { registry, passage, entity, title, built_at: Date.now() };
 }
 
 interface SerializedIndex {
   registry: ResourceEntry[];
   passage: Array<[string, ArticleRef[]]>;
   entity: Array<[string, ArticleRef[]]>;
+  title: ArticleRef[];
   built_at: number;
 }
 
@@ -116,6 +125,7 @@ function serializeIndex(index: NavigabilityIndex): string {
     registry: index.registry,
     passage: Array.from(index.passage.entries()),
     entity: Array.from(index.entity.entries()),
+    title: index.title,
     built_at: index.built_at,
   };
   return JSON.stringify(serialized);
@@ -126,6 +136,7 @@ function deserializeIndex(data: SerializedIndex): NavigabilityIndex {
     registry: data.registry,
     passage: new Map(data.passage),
     entity: new Map(data.entity),
+    title: data.title ?? [],
     built_at: data.built_at,
   };
 }

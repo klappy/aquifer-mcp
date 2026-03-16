@@ -113,7 +113,19 @@ export function parseReference(input: string): string | null {
   return null;
 }
 
+export function isValidIndexReference(range: string): boolean {
+  if (/^\d{8}$/.test(range)) {
+    return parseBBCCCVVV(range) !== null;
+  }
+  if (/^\d{8}-\d{8}$/.test(range)) {
+    const [start, end] = range.split("-");
+    return Boolean(start && end && parseBBCCCVVV(start) && parseBBCCCVVV(end));
+  }
+  return false;
+}
+
 export function rangesOverlap(a: string, b: string): boolean {
+  if (!isValidIndexReference(a) || !isValidIndexReference(b)) return false;
   const [aStart, aEnd] = a.includes("-") ? a.split("-") : [a, a];
   const [bStart, bEnd] = b.includes("-") ? b.split("-") : [b, b];
   if (!aStart || !aEnd || !bStart || !bEnd) return false;

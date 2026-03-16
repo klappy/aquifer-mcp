@@ -177,3 +177,61 @@ ACAI associations live in content files only. The entity index builds incrementa
 **Definition of done for v0.2**: Entity search (`search("keyterm:Justification")`) returns results across resources. Deploy running on Cloudflare (not just wrangler dev). All Bible repos indexed.
 
 **Active constraints**: C1-C8 above.
+
+---
+
+## Execution Update — Bug-Fix Cycle (2026-03-16)
+
+### Observations
+
+**O11: get failures on alphabetical and monograph resources were caused by file-guess limits.**
+`findArticle()` depended on a fallback that only probed `000001.content.json` through `000010.content.json`. This failed for valid content IDs stored in files beyond 10 (for example, OBS story files and large alphabetical resources).
+*Source: direct code observation in `src/tools.ts` and local runtime verification*
+
+**O12: keyword search blind spot came from searching only passage-indexed refs.**
+`searchByTitle()` iterated over `index.passage.values()`, which excluded many alphabetical resources and weakly represented non-canonical article titles.
+*Source: direct code observation and runtime checks*
+
+**O13: metadata for alphabetical resources often stores searchable terms in non-BBCCCVVV index_reference values.**
+For resources like Biblica key terms, article metadata had entries like `gospel`, `joseph of nazareth`, and `judea` in `index_reference`, while explicit `title` fields were absent.
+*Source: direct observation of live metadata fetched from GitHub raw*
+
+### Learnings
+
+**L10: file resolution must be metadata-driven, not heuristic-bounded.**
+For non-canonical resources, Scripture Burrito ingredient listings are the most reliable source of actual content file paths. Probing arbitrary low file numbers is brittle.
+*Rests on: O11*
+
+**L11: title indexing and passage indexing serve different intents and must stay separate.**
+Passage index should remain BBCCCVVV-valid only. Title search should use an all-resource title corpus with sensible fallback titles.
+*Rests on: O12, O13*
+
+### Decisions
+
+**D7: replace fixed 1-10 file guessing with metadata-discovered file traversal.**
+*Because* resource file layouts are discoverable from metadata (`scripture_burrito.ingredients`) and may exceed small ranges.
+*Alternatives considered: widen fixed range probes, GitHub API directory listing*
+*Reversible: Yes — can be replaced by precomputed content_id->file maps later*
+
+**D8: add a dedicated title index for all resources and fallback to non-range index_reference when title is missing.**
+*Because* keyword search should be discoverability-first and many dictionary-style resources do not provide explicit title fields in metadata.
+*Alternatives considered: index only canonical resources, content-level full-text indexing*
+*Constraint created: title relevance is metadata-dependent and not full-text semantic search*
+*Reversible: Yes — can evolve to richer ranking later*
+
+**D9: validate passage ranges before indexing and overlap checks.**
+*Because* non-BBCCCVVV values should never participate in passage overlap logic.
+*Alternatives considered: permissive indexing with runtime filters*
+*Reversible: Yes*
+
+**D10: bootstrap entity search on cold start by scanning content files for the requested entity ID, then cache hits.**
+*Because* ACAI entity data is in content files and an empty cold index created dead-end behavior.
+*Alternatives considered: keep incremental-only entity index, precompute full entity index at startup*
+*Constraint created: first query for unseen entities can be slower*
+*Reversible: Yes — can move to scheduled precomputation if needed*
+
+### Constraint Updates
+
+**C8 update: entity search is no longer strictly sparse by design.**
+Entity results now bootstrap on demand for the queried entity and are cached. Cold-start completeness improved, while first-hit latency remains a tradeoff.
+*Status: Active with mitigation implemented*

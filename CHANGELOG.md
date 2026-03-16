@@ -2,6 +2,22 @@
 
 All notable changes to aquifer-mcp will be documented in this file.
 
+## [0.1.1] - 2026-03-16
+
+### Fixed
+
+- `get` now resolves content files from metadata (`scripture_burrito.ingredients`) instead of probing only `000001-000010`, restoring access to alphabetical and monograph resources.
+- `get` now supports localized content IDs by resolving non-English article mappings through metadata localizations.
+- `search` keyword mode now uses a dedicated title index across all resources rather than passage-indexed records only.
+- `search` entity mode now bootstraps cold-start queries by scanning content files for the requested entity and caching matches.
+- Passage indexing and overlap checks now validate BBCCCVVV range format before matching, preventing non-range values from polluting passage results.
+- Reference deduplication now uses `resource_code + language + content_id` to avoid language collisions.
+
+### Changed
+
+- Index cache schema bumped to include dedicated title search data.
+- Project journal updated with execution-phase OLDC entries for the bug-fix cycle.
+
 ## [0.1.0] - 2026-03-16
 
 ### Added
@@ -32,7 +48,6 @@ All notable changes to aquifer-mcp will be documented in this file.
 ### Known Limitations
 
 - KV namespace IDs are placeholders (must create via `wrangler kv:namespace create` before deploy)
-- Entity index builds incrementally from fetched content (sparse until articles are retrieved via `get`)
-- Alphabetical resource `get` may try up to 10 content files sequentially
+- Entity index completeness can still vary by cache state, but cold-start entity queries now bootstrap on demand
 - Not yet tested against full 48-repo set (including Bible repos and potentially private Tyndale repos)
 - No production deployment yet (runs on `wrangler dev` only)

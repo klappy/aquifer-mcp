@@ -70,6 +70,7 @@ export interface ArticleMetadataEntry {
   content_id: string;
   reference_id: number;
   index_reference: string;
+  title?: string;
   localizations?: Record<string, { content_id: number; language: string; title: string }>;
 }
 
@@ -93,6 +94,9 @@ export interface ResourceMetadata {
     };
     adaptation_notice?: string;
   };
+  scripture_burrito?: {
+    ingredients?: Record<string, unknown>;
+  };
   article_metadata: Record<string, ArticleMetadataEntry>;
 }
 
@@ -100,5 +104,6 @@ export interface NavigabilityIndex {
   registry: ResourceEntry[];
   passage: Map<string, ArticleRef[]>;
   entity: Map<string, ArticleRef[]>;
+  title: ArticleRef[];
   built_at: number;
 }
