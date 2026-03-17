@@ -60,8 +60,6 @@ function createServer(env: Env) {
   return server;
 }
 
-const mcpHandler = createMcpHandler;
-
 export default {
   fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> | Response {
     const url = new URL(request.url);
@@ -75,6 +73,6 @@ export default {
     }
 
     const server = createServer(env);
-    return mcpHandler(server, { route: "/mcp" })(request, env, ctx);
+    return createMcpHandler(server, { route: "/mcp" })(request, env, ctx);
   },
 } satisfies ExportedHandler<Env>;
