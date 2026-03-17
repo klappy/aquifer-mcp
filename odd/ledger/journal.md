@@ -5,7 +5,7 @@ scope: aquifer-mcp
 type: epistemic-ledger
 derives_from: "docs/aquifer-mcp-oldc.md"
 date_created: 2026-03-16
-last_updated: 2026-03-16
+last_updated: 2026-03-17
 ---
 
 # aquifer-mcp — Project Journal
@@ -235,3 +235,75 @@ Passage index should remain BBCCCVVV-valid only. Title search should use an all-
 **C8 update: entity search is no longer strictly sparse by design.**
 Entity results now bootstrap on demand for the queried entity and are cached. Cold-start completeness improved, while first-hit latency remains a tradeoff.
 *Status: Active with mitigation implemented*
+
+---
+
+## Execution Update — Cloudflare MCP SDK Migration (2026-03-17)
+
+### Observations
+
+**O14: The hand-rolled JSON-RPC handler works for curl but is invisible to MCP clients.**
+The v0.1.x server responds correctly to `tools/list`, `tools/call`, `initialize`, etc. via plain JSON over POST. But Claude.ai custom connectors, Claude Desktop, Cursor, VS Code, and the official `@modelcontextprotocol/sdk` client all expect Streamable HTTP transport (SSE-based). The custom handler returns `application/json` where clients expect `text/event-stream`. Result: the server works perfectly for direct API calls but cannot be connected as an MCP server by any standard client.
+*Source: Direct testing — Claude.ai connector rejected the URL; PRD verification against MCP transport spec*
+
+**O15: Cloudflare's `agents` package (v0.7.6) exports `createMcpHandler` from `agents/mcp`.**
+The function accepts a `McpServer` instance and returns a standard `(request, env, ctx) => Promise<Response>` fetch handler. It handles Streamable HTTP transport, SSE, session management, and CORS automatically. No Durable Objects required — it works as a stateless handler in a plain Worker.
+*Source: Direct observation of `node_modules/agents/dist/mcp/index.d.ts` and `index-WBy5hmm3.d.ts`*
+
+**O16: The `agents` package bundles `@modelcontextprotocol/sdk@1.26.0` internally.**
+Installing `@modelcontextprotocol/sdk` separately at a different version (1.27.1) causes TypeScript errors due to private property incompatibility between the two `McpServer` class declarations. Pinning to 1.26.0 resolves the conflict.
+*Source: TypeScript error `TS2345` observed and resolved by version pinning*
+
+**O17: The existing tool handlers already return MCP-standard format.**
+All four handlers (`handleList`, `handleSearch`, `handleGet`, `handleRelated`) return `{ content: [{ type: "text", text: "..." }] }` which is the exact `CallToolResult` shape expected by `McpServer.tool()` callbacks. Zero handler changes needed.
+*Source: Direct code observation of `src/tools.ts`*
+
+**O18: The migration touches exactly two files.**
+`src/index.ts` — complete rewrite (129 lines → 82 lines). `src/tools.ts` — removal of `TOOL_DEFINITIONS` export (64 lines removed, zero handler lines changed). All other source files untouched: `registry.ts`, `github.ts`, `references.ts`, `types.ts`, `wrangler.toml`.
+*Source: Direct implementation observation*
+
+### Learnings
+
+**L12: Transport and tool logic are cleanly separable.**
+The v0.1.x architecture already had a clean boundary: `index.ts` handled JSON-RPC routing, `tools.ts` handled tool logic. This made the migration a pure transport swap. The lesson validates the original architecture decision to keep protocol handling in `index.ts` and tool logic in `tools.ts`.
+*Rests on: O17, O18*
+
+**L13: SDK version alignment is critical when using wrapper packages.**
+The `agents` package bundles its own copy of `@modelcontextprotocol/sdk`. Installing a different version as a top-level dependency creates type conflicts because TypeScript treats private properties as nominal (not structural). The fix: pin the top-level dependency to match the bundled version.
+*Rests on: O16*
+
+**L14: D2 (custom MCP bridge) was correctly reversible as claimed.**
+The original journal entry for D2 stated "Reversible: Yes — could adopt SDK later if it adds Workers support." The Cloudflare Agents SDK now provides that Workers support via `createMcpHandler`. The reversal was clean and took ~30 minutes. This validates the project's practice of marking decisions as reversible.
+*Rests on: O15, D2 from original journal*
+
+### Decisions
+
+**D11: Adopt `createMcpHandler` from Cloudflare Agents SDK, reversing D2.**
+*Because* the Agents SDK now provides a stateless `createMcpHandler` that works in plain Workers without Durable Objects, eliminating the original concern about Workers compatibility. Standard transport means every MCP client can connect.
+*Alternatives considered: Keep custom JSON-RPC and add SSE manually, use `@modelcontextprotocol/sdk` StreamableHTTPServerTransport directly*
+*D2 status: Superseded by D11*
+*Reversible: Yes — could revert to custom handler if SDK introduces breaking changes*
+
+**D12: Pin `@modelcontextprotocol/sdk` to match `agents` bundled version (1.26.0).**
+*Because* version mismatch causes TypeScript errors from incompatible private property declarations across duplicate class definitions.
+*Constraint created: Must update both packages together when upgrading*
+*Reversible: Yes — when agents upgrades its bundled SDK, we upgrade ours*
+
+**D13: Create fresh McpServer instance per request.**
+*Because* MCP SDK 1.26.0+ enforces single-transport-per-server. Reusing a global server instance would leak responses across clients. Per-request instantiation is the documented pattern for stateless Workers.
+*Rests on: O15*
+*Reversible: No — this is a security requirement, not a preference*
+
+### Constraint Updates
+
+**D2 update: superseded by D11.**
+Custom JSON-RPC bridge replaced by Cloudflare Agents SDK `createMcpHandler`. The tool logic boundary was clean enough that the migration required zero handler changes.
+*Status: Superseded*
+
+**C7 update: KV namespaces are no longer placeholders.**
+Production deployment completed prior to this migration. KV namespace IDs in `wrangler.toml` are live.
+*Status: Resolved*
+
+**C9 (new): SDK version coupling.**
+The `agents` package and `@modelcontextprotocol/sdk` must be version-aligned. Upgrading either independently can break TypeScript compilation.
+*Status: Active*

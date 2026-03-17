@@ -1,128 +1,78 @@
+import { createMcpHandler } from "agents/mcp";
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { z } from "zod";
 import type { Env } from "./types.js";
-import { TOOL_DEFINITIONS, handleList, handleSearch, handleGet, handleRelated } from "./tools.js";
+import { handleList, handleSearch, handleGet, handleRelated } from "./tools.js";
 
-const SERVER_INFO = {
-  name: "aquifer-mcp",
-  version: "0.1.0",
-};
+function createServer(env: Env) {
+  const server = new McpServer({
+    name: "aquifer-mcp",
+    version: "0.2.0",
+  });
 
-const CAPABILITIES = {
-  tools: {},
-};
+  server.tool(
+    "list",
+    "List available Aquifer resources with type, language, article count, and coverage. Use this to discover what the Aquifer contains before searching.",
+    {
+      type: z.string().optional().describe(
+        "Filter by resource type: StudyNotes, Dictionary, Guide, Bible, Images, Videos. Omit for all."
+      ),
+      language: z.string().optional().describe(
+        "Filter by language code (e.g. eng, spa, fra). Omit for all."
+      ),
+    },
+    async (args) => handleList(args, env),
+  );
 
-const CORS_HEADERS = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type",
-};
+  server.tool(
+    "search",
+    'Search Aquifer articles by passage reference ("Romans 3:24", "ROM 3:24", "45003024"), ACAI entity ID ("keyterm:Justification"), or keyword in article titles. Returns article references, not full content — use get to fetch details.',
+    {
+      query: z.string().describe(
+        'A passage reference, ACAI entity (e.g. "keyterm:Justification", "person:Paul"), or keyword to search article titles.'
+      ),
+    },
+    async (args) => handleSearch(args, env),
+  );
+
+  server.tool(
+    "get",
+    "Fetch a specific Aquifer article by its compound key (resource_code + language + content_id). Returns full content with all associations including passage references, resource links, and ACAI entities.",
+    {
+      resource_code: z.string().describe("The resource repository name (e.g. BiblicaStudyNotes)."),
+      language: z.string().describe("Language code (e.g. eng)."),
+      content_id: z.string().describe("The article content ID."),
+    },
+    async (args) => handleGet(args, env),
+  );
+
+  server.tool(
+    "related",
+    "Given an article, find related articles across the entire Aquifer through passage overlap, resource associations, or shared ACAI entities. Returns references, not full content.",
+    {
+      resource_code: z.string().describe("The resource repository name."),
+      language: z.string().describe("Language code."),
+      content_id: z.string().describe("The article content ID."),
+    },
+    async (args) => handleRelated(args, env),
+  );
+
+  return server;
+}
 
 export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
-    if (request.method === "OPTIONS") {
-      return new Response(null, { status: 204, headers: CORS_HEADERS });
-    }
-
+  fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> | Response {
     const url = new URL(request.url);
 
+    // Health check — keep outside MCP handler
     if (url.pathname === "/health" || (url.pathname === "/" && request.method === "GET")) {
-      return jsonResponse({ status: "ok", server: SERVER_INFO });
+      return new Response(
+        JSON.stringify({ status: "ok", server: { name: "aquifer-mcp", version: "0.2.0" } }),
+        { headers: { "Content-Type": "application/json" } },
+      );
     }
 
-    if (url.pathname === "/mcp" && request.method === "POST") {
-      return handleMcp(request, env);
-    }
-
-    return jsonResponse({ error: "Not found" }, 404);
+    const server = createServer(env);
+    return createMcpHandler(server, { route: "/mcp" })(request, env, ctx);
   },
 } satisfies ExportedHandler<Env>;
-
-async function handleMcp(request: Request, env: Env): Promise<Response> {
-  let body: { jsonrpc?: string; id?: unknown; method?: string; params?: Record<string, unknown> };
-
-  try {
-    body = await request.json() as typeof body;
-  } catch {
-    return jsonRpcError(null, -32700, "Parse error");
-  }
-
-  if (body.jsonrpc !== "2.0" || !body.method) {
-    return jsonRpcError(body.id, -32600, "Invalid Request");
-  }
-
-  const { id, method, params } = body;
-
-  switch (method) {
-    case "initialize":
-      return jsonRpcResult(id, {
-        protocolVersion: "2024-11-05",
-        serverInfo: SERVER_INFO,
-        capabilities: CAPABILITIES,
-      });
-
-    case "notifications/initialized":
-      return jsonRpcResult(id, {});
-
-    case "ping":
-      return jsonRpcResult(id, {});
-
-    case "tools/list":
-      return jsonRpcResult(id, { tools: TOOL_DEFINITIONS });
-
-    case "tools/call":
-      return handleToolCall(id, params ?? {}, env);
-
-    default:
-      return jsonRpcError(id, -32601, `Method not found: ${method}`);
-  }
-}
-
-async function handleToolCall(
-  id: unknown,
-  params: Record<string, unknown>,
-  env: Env,
-): Promise<Response> {
-  const toolName = String(params.name ?? "");
-  const args = (params.arguments ?? {}) as Record<string, unknown>;
-
-  try {
-    let result;
-    switch (toolName) {
-      case "list":
-        result = await handleList(args, env);
-        break;
-      case "search":
-        result = await handleSearch(args, env);
-        break;
-      case "get":
-        result = await handleGet(args, env);
-        break;
-      case "related":
-        result = await handleRelated(args, env);
-        break;
-      default:
-        return jsonRpcError(id, -32602, `Unknown tool: ${toolName}`);
-    }
-    return jsonRpcResult(id, result);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "Internal error";
-    return jsonRpcResult(id, {
-      content: [{ type: "text", text: `Error: ${message}` }],
-      isError: true,
-    });
-  }
-}
-
-function jsonRpcResult(id: unknown, result: unknown): Response {
-  return jsonResponse({ jsonrpc: "2.0", id, result });
-}
-
-function jsonRpcError(id: unknown, code: number, message: string): Response {
-  return jsonResponse({ jsonrpc: "2.0", id, error: { code, message } });
-}
-
-function jsonResponse(data: unknown, status = 200): Response {
-  return new Response(JSON.stringify(data), {
-    status,
-    headers: { "Content-Type": "application/json", ...CORS_HEADERS },
-  });
-}
