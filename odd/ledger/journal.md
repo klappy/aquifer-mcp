@@ -307,3 +307,51 @@ Production deployment completed prior to this migration. KV namespace IDs in `wr
 **C9 (new): SDK version coupling.**
 The `agents` package and `@modelcontextprotocol/sdk` must be version-aligned. Upgrading either independently can break TypeScript compilation.
 *Status: Active*
+
+---
+
+## v0.3.0 Planning — Browse Tool (2026-03-17)
+
+### Observations
+
+**O19: Media resources have non-sequential, unpredictable content IDs.**
+FIAMaps articles use IDs like 368172, 869852 — spread across a huge range with no pattern. There is no way to scan or guess valid IDs. The only discovery path is reading the content files.
+*Source: Direct observation of `BibleAquifer/FIAMaps/main/eng/json/001.content.json`*
+
+**O20: Media article_metadata uses titles as index_reference, not BBCCCVVV ranges.**
+For FIAMaps, `index_reference` values are strings like "abram's journey from ur to canaan" — correctly excluded from the passage index by `isValidIndexReference`. This is correct behavior (they're not passages) but it means passage search cannot discover them.
+*Source: Direct observation of `BibleAquifer/FIAMaps/main/eng/metadata.json` article_metadata section*
+
+**O21: Content files contain CDN image URLs in a consistent HTML format.**
+Image articles have content like `<img src='https://cdn.aquifer.bible/aquifer-content/resources/FIAMaps/...' />`. The CDN URL pattern is stable and extractable via regex.
+*Source: Direct observation of `BibleAquifer/FIAMaps/main/eng/json/001.content.json` content fields*
+
+**O22: FIAMaps metadata.json lists 22 content files in scripture_burrito.ingredients.**
+The content file list is discoverable from metadata without scanning the filesystem. The existing `listContentFiles` function already extracts this. For FIAMaps, files range from `json/001.content.json` to `json/022.content.json`.
+*Source: Direct observation of metadata.json ingredients section*
+
+**O23: All plumbing for browse already exists in the codebase.**
+`getResourceMetadata`, `listContentFiles`, `fetchContentFile`, and `fetchJson` (with KV caching) are already implemented and working. The browse tool is an assembly task — wiring existing functions together with pagination — not new infrastructure.
+*Source: Direct observation of `src/tools.ts` lines 289-307, `src/github.ts`*
+
+### Decisions
+
+**D14: Add a `browse` tool that returns paginated article catalogs.**
+*Because* the 4 existing tools create a complete discovery dead-end for media resources — no API path from "I know a resource exists" to "show me its articles" without already knowing content IDs.
+*Alternatives rejected:* (1) Extend search to enumerate — violates search's query-based semantic contract. (2) Extend list to include articles — list is resource-level; thousands of articles would overwhelm it. (3) Wait for Aquifer API — viable long-term but blocks clients indefinitely.
+*Rests on: O19, O20, O22, O23*
+*Reversible: Yes — can be removed or replaced when the Aquifer API adds native browse*
+
+### Constraints
+
+**C10 (new): Browse catalog size vs. KV value limits.**
+KV values are limited to 25 MB. Media catalogs (~200 articles) are ~50-100 KB — safe. Large text resources (70K+ articles like UWTranslationNotes) could approach limits. Monitor; switch to per-file caching if needed.
+*Status: Active — monitor during execution*
+
+**C11 (new): Browse is a temporary bridge.**
+The tool fetches from GitHub because the Aquifer API has no article enumeration endpoint. When the API adds one, update the backend data source. The tool surface (parameters, response format) should remain stable.
+*Status: Active — boundary condition*
+
+**C12 (new): Parallel content file fetches are bounded by resource size.**
+FIAMaps has 22 content files — manageable. Resources with hundreds of files could hit Worker CPU limits on cold cache. Use `Promise.allSettled` and return partial catalogs on failure.
+*Status: Active — design constraint*
