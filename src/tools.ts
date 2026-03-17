@@ -499,7 +499,7 @@ export async function handleBrowse(
 
   const language = String(args.language ?? "eng").trim();
   const page = Math.max(1, Number(args.page) || 1);
-  const pageSize = Math.min(100, Math.max(1, Number(args.page_size ?? 50)));
+  const pageSize = Math.min(100, Math.max(1, Number(args.page_size) || 50));
 
   const index = await getOrBuildIndex(env);
   const entry = index.registry.find((r) => r.resource_code === resourceCode);
