@@ -2,6 +2,22 @@
 
 All notable changes to aquifer-mcp will be documented in this file.
 
+## [0.2.0] - 2026-03-17
+
+### Changed
+
+- Migrated from hand-rolled JSON-RPC handler to Cloudflare Agents SDK (`createMcpHandler`) for standard Streamable HTTP transport.
+- Server now speaks the MCP protocol natively, compatible with Claude.ai custom connectors, Claude Desktop, Cursor, VS Code, Windsurf, and Claude Code.
+- Tool definitions moved from static `TOOL_DEFINITIONS` array to `server.tool()` registrations with Zod schemas for runtime validation.
+- Added `agents`, `@modelcontextprotocol/sdk`, and `zod` as dependencies.
+
+### Unchanged
+
+- All tool handler logic (`handleList`, `handleSearch`, `handleGet`, `handleRelated`) — zero changes to behavior.
+- Health check endpoint at `/health` and `/` (GET).
+- Registry, GitHub fetching, reference parsing, types, caching — all untouched.
+- `wrangler.toml` — no Durable Objects needed, stateless handler preserved.
+
 ## [0.1.1] - 2026-03-16
 
 ### Fixed
