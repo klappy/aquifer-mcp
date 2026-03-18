@@ -42,6 +42,7 @@ export async function getOrBuildIndex(env: Env): Promise<NavigabilityIndex> {
 
   const index = await buildIndex(env, repoShas);
   index.composite_sha = compositeHash;
+  index.repo_shas = repoShas;
 
   await env.AQUIFER_CACHE.put(cacheKey, serializeIndex(index), {
     expirationTtl: GC_TTL,
@@ -138,7 +139,7 @@ async function buildIndex(env: Env, repoShas: Map<string, string>): Promise<Navi
     }
   }
 
-  return { registry, passage, entity, title, built_at: Date.now(), composite_sha: "" };
+  return { registry, passage, entity, title, built_at: Date.now(), composite_sha: "", repo_shas: repoShas };
 }
 
 interface SerializedIndex {
@@ -148,6 +149,7 @@ interface SerializedIndex {
   title: ArticleRef[];
   built_at: number;
   composite_sha: string;
+  repo_shas: Array<[string, string]>;
 }
 
 function serializeIndex(index: NavigabilityIndex): string {
@@ -158,6 +160,7 @@ function serializeIndex(index: NavigabilityIndex): string {
     title: index.title,
     built_at: index.built_at,
     composite_sha: index.composite_sha,
+    repo_shas: Array.from(index.repo_shas.entries()),
   };
   return JSON.stringify(serialized);
 }
@@ -170,5 +173,6 @@ function deserializeIndex(data: SerializedIndex): NavigabilityIndex {
     title: data.title ?? [],
     built_at: data.built_at,
     composite_sha: data.composite_sha ?? "",
+    repo_shas: new Map(data.repo_shas ?? []),
   };
 }

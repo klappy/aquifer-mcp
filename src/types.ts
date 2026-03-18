@@ -107,4 +107,5 @@ export interface NavigabilityIndex {
   title: ArticleRef[];
   built_at: number;
   composite_sha: string;
+  repo_shas: Map<string, string>;
 }

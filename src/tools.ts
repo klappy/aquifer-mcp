@@ -1,6 +1,6 @@
 import type { Env, ArticleRef, ArticleContent, NavigabilityIndex, ResourceEntry, ResourceMetadata } from "./types.js";
 import { parseReference, rangesOverlap, rangeToReadable, isValidIndexReference } from "./references.js";
-import { contentUrl, metadataUrl, fetchJson, fetchRepoSha, GC_TTL } from "./github.js";
+import { contentUrl, metadataUrl, fetchJson, GC_TTL } from "./github.js";
 import { getOrBuildIndex } from "./registry.js";
 
 function textResult(text: string) {
@@ -149,8 +149,9 @@ export async function handleGet(
     return textResult(`Resource "${resourceCode}" not found in the registry.`);
   }
 
-  const sha = await fetchRepoSha(env.AQUIFER_ORG, resourceCode, env);
-  const article = await findArticle(resourceCode, language, contentId, entry, env, sha);
+  const sha = index.repo_shas.get(resourceCode) ?? "";
+  if (!sha) return textResult(`No SHA available for resource "${resourceCode}".`);
+  const article = await findArticle(resourceCode, language, contentId, entry, env, sha, index);
   if (!article) {
     return textResult(
       `Article ${contentId} not found in ${resourceCode}/${language}. Verify the content_id is correct.`,
@@ -176,8 +177,9 @@ export async function handleRelated(
   const entry = index.registry.find((r) => r.resource_code === resourceCode);
   if (!entry) return textResult(`Resource "${resourceCode}" not found.`);
 
-  const sha = await fetchRepoSha(env.AQUIFER_ORG, resourceCode, env);
-  const article = await findArticle(resourceCode, language, contentId, entry, env, sha);
+  const sha = index.repo_shas.get(resourceCode) ?? "";
+  if (!sha) return textResult(`No SHA available for resource "${resourceCode}".`);
+  const article = await findArticle(resourceCode, language, contentId, entry, env, sha, index);
   if (!article) return textResult(`Article ${contentId} not found.`);
 
   const related: Array<{ type: string; refs: ArticleRef[] }> = [];
@@ -246,6 +248,7 @@ async function findArticle(
   entry: ResourceEntry,
   env: Env,
   sha: string,
+  index: NavigabilityIndex,
 ): Promise<ArticleContent | null> {
   const indexReference = await resolveIndexReference(resourceCode, language, contentId, env, sha);
   const metadataFiles = await listContentFiles(resourceCode, language, entry.order, env, sha);
@@ -270,7 +273,6 @@ async function findArticle(
       await env.AQUIFER_CACHE.put(articleFileKey, file, {
         expirationTtl: GC_TTL,
       });
-      const index = await getOrBuildIndex(env);
       ingestArticleEntities(index, entry, found);
       return found;
     }
@@ -383,7 +385,8 @@ async function bootstrapEntityMatches(
 
   const matches: ArticleRef[] = [];
   for (const entry of index.registry) {
-    const repoSha = await fetchRepoSha(env.AQUIFER_ORG, entry.resource_code, env);
+    const repoSha = index.repo_shas.get(entry.resource_code);
+    if (!repoSha) continue;
     const files = await listContentFiles(entry.resource_code, entry.language, entry.order, env, repoSha);
     for (const file of files) {
       const articles = await fetchContentFile(entry.resource_code, entry.language, file, env, repoSha);
@@ -515,7 +518,8 @@ export async function handleBrowse(
   const entry = index.registry.find((r) => r.resource_code === resourceCode);
   if (!entry) return textResult(`Resource "${resourceCode}" not found in the registry.`);
 
-  const sha = await fetchRepoSha(env.AQUIFER_ORG, resourceCode, env);
+  const sha = index.repo_shas.get(resourceCode) ?? "";
+  if (!sha) return textResult(`No SHA available for resource "${resourceCode}".`);
   const catalog = await buildCatalog(resourceCode, language, entry, env, sha);
   if (catalog.length === 0) return textResult(`No articles found in ${resourceCode}/${language}.`);
 
