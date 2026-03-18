@@ -64,8 +64,8 @@ export async function fetchRepoSha(org: string, repo: string, env: Env): Promise
   const newEtag = resp.headers.get("ETag");
 
   await Promise.all([
-    env.AQUIFER_CACHE.put(cachedShaKey, newSha),
-    newEtag ? env.AQUIFER_CACHE.put(etagKey, newEtag) : Promise.resolve(),
+    env.AQUIFER_CACHE.put(cachedShaKey, newSha, { expirationTtl: GC_TTL }),
+    newEtag ? env.AQUIFER_CACHE.put(etagKey, newEtag, { expirationTtl: GC_TTL }) : Promise.resolve(),
   ]);
 
   return newSha;

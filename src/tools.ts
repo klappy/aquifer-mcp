@@ -374,7 +374,8 @@ async function bootstrapEntityMatches(
   index: NavigabilityIndex,
   env: Env,
 ): Promise<ArticleRef[]> {
-  const cacheKey = `entity-search:v3:${normalizedEntityId}`;
+  const governanceSha = await fetchRepoSha(env.AQUIFER_ORG, env.DOCS_REPO, env);
+  const cacheKey = `${governanceSha}:entity-search:v3:${normalizedEntityId}`;
   const cached = await env.AQUIFER_CACHE.get(cacheKey, "json") as ArticleRef[] | null;
   if (cached?.length) {
     index.entity.set(normalizedEntityId, cached);
