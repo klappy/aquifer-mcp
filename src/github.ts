@@ -36,7 +36,7 @@ export async function fetchRepoSha(org: string, repo: string, env: Env): Promise
     "User-Agent": "aquifer-mcp/0.4",
     "Accept": "application/vnd.github.v3.sha",
   };
-  if (etag) headers["If-None-Match"] = etag;
+  if (etag && cachedSha) headers["If-None-Match"] = etag;
 
   const resp = await fetch(
     `https://api.github.com/repos/${org}/${repo}/commits/main`,

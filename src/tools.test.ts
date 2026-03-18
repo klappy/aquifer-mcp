@@ -129,6 +129,7 @@ function buildMockIndex(entries: ResourceEntry[], passageEntries?: [string, Arti
       { resource_code: "FIAMaps", language: "eng", content_id: "368172", title: "Abram's Journey from Ur to Canaan", resource_type: "Images, Maps, Videos" },
     ],
     built_at: Date.now(),
+    composite_sha: "mock_composite_sha",
   };
 }
 

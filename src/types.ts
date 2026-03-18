@@ -106,4 +106,5 @@ export interface NavigabilityIndex {
   entity: Map<string, ArticleRef[]>;
   title: ArticleRef[];
   built_at: number;
+  composite_sha: string;
 }
