@@ -5,7 +5,7 @@ import type {
   ResourceMetadata,
   NavigabilityIndex,
 } from "./types.js";
-import { metadataUrl, fetchJson } from "./github.js";
+import { metadataUrl, fetchJson, fetchRepoSha, GC_TTL } from "./github.js";
 import { isValidIndexReference } from "./references.js";
 
 const KNOWN_REPOS: Array<{ code: string; order: "canonical" | "alphabetical" | "monograph" }> = [
@@ -28,25 +28,27 @@ const KNOWN_REPOS: Array<{ code: string; order: "canonical" | "alphabetical" | "
   { code: "FIAMaps", order: "alphabetical" },
 ];
 
-const INDEX_CACHE_KEY = "index:navigability:v4";
-const INDEX_TTL = 86400;
+const INDEX_CACHE_KEY = "index:navigability:v5";
 
 export async function getOrBuildIndex(env: Env): Promise<NavigabilityIndex> {
-  const cached = await env.AQUIFER_CACHE.get(INDEX_CACHE_KEY, "json") as SerializedIndex | null;
+  const sha = await fetchRepoSha(env.AQUIFER_ORG, env.DOCS_REPO, env);
+  const cacheKey = `${sha}:${INDEX_CACHE_KEY}`;
+
+  const cached = await env.AQUIFER_CACHE.get(cacheKey, "json") as SerializedIndex | null;
   if (cached?.registry) {
     return deserializeIndex(cached);
   }
 
-  const index = await buildIndex(env);
+  const index = await buildIndex(env, sha);
 
-  await env.AQUIFER_CACHE.put(INDEX_CACHE_KEY, serializeIndex(index), {
-    expirationTtl: INDEX_TTL,
+  await env.AQUIFER_CACHE.put(cacheKey, serializeIndex(index), {
+    expirationTtl: GC_TTL,
   });
 
   return index;
 }
 
-async function buildIndex(env: Env): Promise<NavigabilityIndex> {
+async function buildIndex(env: Env, sha: string): Promise<NavigabilityIndex> {
   const registry: ResourceEntry[] = [];
   const passage = new Map<string, ArticleRef[]>();
   const entity = new Map<string, ArticleRef[]>();
@@ -56,7 +58,7 @@ async function buildIndex(env: Env): Promise<NavigabilityIndex> {
     KNOWN_REPOS.map(async (repo) => {
       const url = metadataUrl(env.AQUIFER_ORG, repo.code, "eng");
       const cacheKey = `metadata:${repo.code}:eng`;
-      const metadata = await fetchJson<ResourceMetadata>(url, env, cacheKey);
+      const metadata = await fetchJson<ResourceMetadata>(url, env, cacheKey, sha);
       if (!metadata?.resource_metadata) return null;
       return { repo, metadata };
     }),

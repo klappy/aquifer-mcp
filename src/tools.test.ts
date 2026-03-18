@@ -143,6 +143,8 @@ vi.mock("./github.js", () => ({
   metadataUrl: vi.fn((org: string, code: string, lang: string) => `https://raw.githubusercontent.com/${org}/${code}/main/${lang}/metadata.json`),
   contentUrl: vi.fn((org: string, code: string, lang: string, file: string) => `https://raw.githubusercontent.com/${org}/${code}/main/${lang}/json/${file}`),
   fetchJson: vi.fn(),
+  fetchRepoSha: vi.fn(async () => "abc123test"),
+  GC_TTL: 2592000,
 }));
 
 import { getOrBuildIndex } from "./registry.js";

@@ -7,7 +7,7 @@ import { handleList, handleSearch, handleGet, handleRelated, handleBrowse } from
 function createServer(env: Env) {
   const server = new McpServer({
     name: "aquifer-mcp",
-    version: "0.3.0",
+    version: "0.4.0",
   });
 
   server.tool(
@@ -79,7 +79,7 @@ export default {
     // Health check — keep outside MCP handler
     if (url.pathname === "/health" || (url.pathname === "/" && request.method === "GET")) {
       return new Response(
-        JSON.stringify({ status: "ok", server: { name: "aquifer-mcp", version: "0.3.0" } }),
+        JSON.stringify({ status: "ok", server: { name: "aquifer-mcp", version: "0.4.0" } }),
         { headers: { "Content-Type": "application/json" } },
       );
     }
