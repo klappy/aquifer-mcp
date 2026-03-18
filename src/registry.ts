@@ -56,9 +56,10 @@ async function buildIndex(env: Env, sha: string): Promise<NavigabilityIndex> {
 
   const results = await Promise.allSettled(
     KNOWN_REPOS.map(async (repo) => {
+      const repoSha = await fetchRepoSha(env.AQUIFER_ORG, repo.code, env);
       const url = metadataUrl(env.AQUIFER_ORG, repo.code, "eng");
       const cacheKey = `metadata:${repo.code}:eng`;
-      const metadata = await fetchJson<ResourceMetadata>(url, env, cacheKey, sha);
+      const metadata = await fetchJson<ResourceMetadata>(url, env, cacheKey, repoSha);
       if (!metadata?.resource_metadata) return null;
       return { repo, metadata };
     }),

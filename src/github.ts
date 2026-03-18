@@ -57,10 +57,12 @@ export async function fetchRepoSha(org: string, repo: string, env: Env): Promise
   }
 
   const newSha = (await resp.text()).trim();
+  if (!newSha) {
+    if (cachedSha) return cachedSha;
+    throw new Error(`Empty SHA response for ${org}/${repo}`);
+  }
   const newEtag = resp.headers.get("ETag");
 
-  // Store SHA and ETag — no expirationTtl. These are verified values,
-  // not guesses. They get overwritten on the next successful check.
   await Promise.all([
     env.AQUIFER_CACHE.put(cachedShaKey, newSha),
     newEtag ? env.AQUIFER_CACHE.put(etagKey, newEtag) : Promise.resolve(),
@@ -97,17 +99,4 @@ export async function fetchJson<T>(url: string, env?: Env, cacheKey?: string, sh
   }
 
   return data;
-}
-
-export async function fetchContentFile(
-  org: string,
-  resourceCode: string,
-  language: string,
-  file: string,
-  env?: Env,
-  sha?: string,
-): Promise<unknown[] | null> {
-  const url = contentUrl(org, resourceCode, language, file);
-  const cacheKey = `content:${resourceCode}:${language}:${file}`;
-  return fetchJson<unknown[]>(url, env, cacheKey, sha);
 }

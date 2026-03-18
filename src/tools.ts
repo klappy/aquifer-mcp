@@ -374,9 +374,7 @@ async function bootstrapEntityMatches(
   index: NavigabilityIndex,
   env: Env,
 ): Promise<ArticleRef[]> {
-  // Cross-repo operation — use governance SHA
-  const govSha = await fetchRepoSha(env.AQUIFER_ORG, env.DOCS_REPO, env);
-  const cacheKey = `${govSha}:entity-search:v2:${normalizedEntityId}`;
+  const cacheKey = `entity-search:v3:${normalizedEntityId}`;
   const cached = await env.AQUIFER_CACHE.get(cacheKey, "json") as ArticleRef[] | null;
   if (cached?.length) {
     index.entity.set(normalizedEntityId, cached);
@@ -385,9 +383,10 @@ async function bootstrapEntityMatches(
 
   const matches: ArticleRef[] = [];
   for (const entry of index.registry) {
-    const files = await listContentFiles(entry.resource_code, entry.language, entry.order, env, govSha);
+    const repoSha = await fetchRepoSha(env.AQUIFER_ORG, entry.resource_code, env);
+    const files = await listContentFiles(entry.resource_code, entry.language, entry.order, env, repoSha);
     for (const file of files) {
-      const articles = await fetchContentFile(entry.resource_code, entry.language, file, env, govSha);
+      const articles = await fetchContentFile(entry.resource_code, entry.language, file, env, repoSha);
       if (!articles?.length) continue;
 
       for (const article of articles) {
