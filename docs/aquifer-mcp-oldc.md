@@ -102,3 +102,73 @@
 - **March 9**: First meeting — Rick walkthrough, Chris listened. Committed to demo.
 - **March 16**: Demo meeting — 12-1pm Pacific / 3-4pm Eastern
 - **Standing biweekly** going forward
+
+---
+
+## Execution Update — v0.3.0 Browse Tool + Test Suite (2026-03-18)
+
+### Observations
+
+**O16: Media resources have non-sequential, unpredictable content IDs.**
+FIAMaps articles use IDs like 368172, 869852 — spread across a huge range with no pattern. There is no way to scan or guess valid IDs. The only discovery path is reading the content files.
+*Source: Direct observation of `BibleAquifer/FIAMaps/main/eng/json/001.content.json`*
+
+**O17: Media article_metadata uses titles as index_reference, not BBCCCVVV ranges.**
+For FIAMaps, `index_reference` values are strings like "abram's journey from ur to canaan" — correctly excluded from the passage index by `isValidIndexReference`. This is correct behavior (they're not passages) but it means passage search cannot discover them.
+*Source: Direct observation of `BibleAquifer/FIAMaps/main/eng/metadata.json` article_metadata section*
+
+**O18: Content files contain CDN image URLs in a consistent HTML format.**
+Image articles have content like `<img src='https://cdn.aquifer.bible/aquifer-content/resources/FIAMaps/...' />`. The CDN URL pattern is stable and extractable via regex.
+*Source: Direct observation of content file HTML fields*
+
+**O19: FIAMaps metadata.json lists 22 content files in scripture_burrito.ingredients.**
+The content file list is discoverable from metadata without scanning the filesystem. The existing `listContentFiles` function already extracts this.
+*Source: Direct observation of metadata.json ingredients section*
+
+**O20: All plumbing for browse already existed in the codebase.**
+`getResourceMetadata`, `listContentFiles`, `fetchContentFile`, and `fetchJson` (with KV caching) were already implemented and working. The browse tool was an assembly task — wiring existing functions together with pagination — not new infrastructure.
+*Source: Direct observation of `src/tools.ts` and `src/github.ts`*
+
+**O21: The codebase had zero test coverage prior to v0.3.0.**
+Vitest was configured in `package.json` with `test` and `test:watch` scripts, but no test files existed. The `references.ts` module (pure functions) and all 5 tool handlers were untested.
+*Source: `glob **/*.test.ts` returned no results before this session*
+
+### Learnings
+
+**L10: The browse tool validates the existing plumbing architecture.**
+Every function the browse handler needed was already available. `buildCatalog` simply wires `listContentFiles` → `fetchContentFile` → extract lightweight entries → cache in KV. Zero new GitHub fetching logic required. This confirms the separation between content plumbing and tool-level formatting was correct.
+*Rests on: O20*
+
+**L11: Media resources were a genuine dead end in the tool surface.**
+The 4 existing tools (list, search, get, related) provide no API path from "I know FIAMaps exists" to "show me its 206 articles." list returns resource-level metadata only. search requires knowing what to search for. get requires knowing the content_id. related requires an existing article. Browse closes this loop.
+*Rests on: O16, O17*
+
+**L12: Mocking strategy for Workers KV is straightforward.**
+A `Map<string, string>`-backed mock with `get`/`put`/`delete`/`list` stubs provides full test coverage for the caching layer. Combined with `vi.mock` for `registry.ts` and `github.ts`, all 5 tool handlers are testable in isolation without network access.
+*Rests on: O21*
+
+### Decisions
+
+**D14: Add a `browse` tool that returns paginated article catalogs.**
+*Because* the 4 existing tools create a complete discovery dead-end for media resources — no API path from "I know a resource exists" to "show me its articles" without already knowing content IDs.
+*Alternatives rejected:* (1) Extend search to enumerate — violates search's query-based semantic contract. (2) Extend list to include articles — list is resource-level; thousands of articles would overwhelm it. (3) Wait for Aquifer API — viable long-term but blocks clients indefinitely.
+*Rests on: O16, O17, O19, O20*
+*Reversible: Yes — can be removed or replaced when the Aquifer API adds native browse*
+
+**D15: Add test suite covering all tools and reference parsing.**
+*Because* v0.3.0 adds a 5th tool and the codebase had zero test coverage. 51 tests cover: `parseReference` (9), `isValidIndexReference` (4), `rangesOverlap` (5), `bbcccvvvToReadable` (3), `rangeToReadable` (3), `handleList` (4), `handleSearch` (6), `handleGet` (4), `handleRelated` (2), `handleBrowse` (10).
+*Rests on: O21*
+
+### Constraints
+
+**C10 (new): Browse catalog size vs. KV value limits.**
+Workers KV values are limited to 25 MB. Media catalogs (~200 articles) are ~50-100 KB — safe. Large text resources (70K+ articles like UWTranslationNotes) could approach limits. Monitor; switch to per-file caching if needed.
+*Status: Active — monitor during execution*
+
+**C11 (new): Browse is a temporary bridge.**
+The tool fetches from GitHub because the Aquifer API has no article enumeration endpoint. When the API adds one, update the backend data source. The tool surface (parameters, response format) should remain stable.
+*Status: Active — boundary condition*
+
+**C12 (new): Parallel content file fetches are bounded by resource size.**
+FIAMaps has 22 content files — manageable. Resources with hundreds of files could hit Worker CPU limits on cold cache. Use `Promise.allSettled` and return partial catalogs on failure.
+*Status: Active — design constraint*

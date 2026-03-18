@@ -2,6 +2,21 @@
 
 All notable changes to aquifer-mcp will be documented in this file.
 
+## [0.3.0] - 2026-03-17
+
+### Added
+
+- **`browse` tool** — paginated article catalog for any resource. Returns titles, content IDs, image URLs, and passage associations. Closes the discovery dead-end for media resources (images, maps, videos) where `search` cannot enumerate articles.
+- `BrowseCatalogEntry` interface for lightweight cached catalog entries.
+- Image URL extraction from CDN content HTML (`cdn.aquifer.bible` URLs).
+- Catalog caching in Workers KV (`browse:v1:{resource_code}:{language}`, 24h TTL).
+- Parallel content file fetching via `Promise.allSettled` with graceful partial-failure handling.
+
+### Unchanged
+
+- All existing tool handlers (`handleList`, `handleSearch`, `handleGet`, `handleRelated`) — zero changes.
+- Registry, GitHub fetching, reference parsing, types — all untouched.
+
 ## [0.2.0] - 2026-03-17
 
 ### Changed

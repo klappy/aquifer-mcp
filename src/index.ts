@@ -2,12 +2,12 @@ import { createMcpHandler } from "agents/mcp";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { Env } from "./types.js";
-import { handleList, handleSearch, handleGet, handleRelated } from "./tools.js";
+import { handleList, handleSearch, handleGet, handleRelated, handleBrowse } from "./tools.js";
 
 function createServer(env: Env) {
   const server = new McpServer({
     name: "aquifer-mcp",
-    version: "0.2.0",
+    version: "0.3.0",
   });
 
   server.tool(
@@ -57,6 +57,18 @@ function createServer(env: Env) {
     async (args) => handleRelated(args, env),
   );
 
+  server.tool(
+    "browse",
+    "Browse the complete article catalog for a resource. Returns a paginated list of all articles with titles, content IDs, image URLs, and passage associations. Use this to discover what articles exist in a resource — especially useful for media/image resources where search may not cover them.",
+    {
+      resource_code: z.string().describe("The resource repository name (e.g. FIAMaps, UbsImages)."),
+      language: z.string().optional().describe("Language code (default: eng)."),
+      page: z.number().optional().describe("Page number, 1-indexed (default: 1)."),
+      page_size: z.number().optional().describe("Articles per page, 1-100 (default: 50)."),
+    },
+    async (args) => handleBrowse(args, env),
+  );
+
   return server;
 }
 
@@ -67,7 +79,7 @@ export default {
     // Health check — keep outside MCP handler
     if (url.pathname === "/health" || (url.pathname === "/" && request.method === "GET")) {
       return new Response(
-        JSON.stringify({ status: "ok", server: { name: "aquifer-mcp", version: "0.2.0" } }),
+        JSON.stringify({ status: "ok", server: { name: "aquifer-mcp", version: "0.3.0" } }),
         { headers: { "Content-Type": "application/json" } },
       );
     }

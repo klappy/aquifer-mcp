@@ -437,6 +437,102 @@ function formatArticleContent(article: ArticleContent, entry: { title: string; r
   return parts.join("\n");
 }
 
+// --- Browse tool ---
+
+interface BrowseCatalogEntry {
+  content_id: string;
+  title: string;
+  media_type: string;
+  image_url: string | null;
+  passages: Array<{ start_usfm: string; end_usfm: string }>;
+}
+
+function extractImageUrl(html: string): string | null {
+  const match = html.match(/src=['"]?(https:\/\/cdn\.aquifer\.bible\/[^'">\s]+)/);
+  return match?.[1] ?? null;
+}
+
+async function buildCatalog(
+  resourceCode: string,
+  language: string,
+  entry: ResourceEntry,
+  env: Env,
+): Promise<BrowseCatalogEntry[]> {
+  const cacheKey = `browse:v1:${resourceCode}:${language}`;
+  const cached = await env.AQUIFER_CACHE.get(cacheKey, "json") as BrowseCatalogEntry[] | null;
+  if (cached) return cached;
+
+  const files = await listContentFiles(resourceCode, language, entry.order, env);
+  const results = await Promise.allSettled(
+    files.map((file) => fetchContentFile(resourceCode, language, file, env)),
+  );
+
+  const catalog: BrowseCatalogEntry[] = [];
+  for (const result of results) {
+    if (result.status !== "fulfilled" || !result.value) continue;
+    for (const article of result.value) {
+      catalog.push({
+        content_id: String(article.content_id),
+        title: article.title || `Article ${article.content_id}`,
+        media_type: article.media_type || "",
+        image_url: extractImageUrl(article.content || ""),
+        passages: (article.associations?.passage ?? []).map((p) => ({
+          start_usfm: p.start_ref_usfm,
+          end_usfm: p.end_ref_usfm,
+        })),
+      });
+    }
+  }
+
+  if (catalog.length > 0) {
+    await env.AQUIFER_CACHE.put(cacheKey, JSON.stringify(catalog), { expirationTtl: 86400 });
+  }
+  return catalog;
+}
+
+export async function handleBrowse(
+  args: Record<string, unknown>,
+  env: Env,
+) {
+  const resourceCode = String(args.resource_code ?? "").trim();
+  if (!resourceCode) return textResult("Missing required field: resource_code.");
+
+  const language = String(args.language ?? "eng").trim();
+  const page = Math.max(1, Number(args.page) || 1);
+  const pageSize = Math.min(100, Math.max(1, Number(args.page_size) || 50));
+
+  const index = await getOrBuildIndex(env);
+  const entry = index.registry.find((r) => r.resource_code === resourceCode);
+  if (!entry) return textResult(`Resource "${resourceCode}" not found in the registry.`);
+
+  const catalog = await buildCatalog(resourceCode, language, entry, env);
+  if (catalog.length === 0) return textResult(`No articles found in ${resourceCode}/${language}.`);
+
+  const totalPages = Math.ceil(catalog.length / pageSize);
+  const start = (page - 1) * pageSize;
+  const slice = catalog.slice(start, start + pageSize);
+
+  if (slice.length === 0) {
+    return textResult(`Page ${page} is out of range. ${catalog.length} articles, ${totalPages} pages.`);
+  }
+
+  const lines = slice.map((a) => {
+    const parts = [`- **${a.title}**`];
+    const meta = [`${resourceCode}/${language}/${a.content_id}`];
+    if (a.passages.length) {
+      meta.push(`Passages: ${a.passages.map((p) => `${p.start_usfm}\u2013${p.end_usfm}`).join(", ")}`);
+    }
+    parts.push(`  ${meta.join(" | ")}`);
+    if (a.image_url) parts.push(`  Image: ${a.image_url}`);
+    return parts.join("\n");
+  });
+
+  const header = `**${entry.title}** (${resourceCode}/${language}) \u2014 ${catalog.length} articles total, page ${page}/${totalPages}`;
+  const footer = page < totalPages ? `\n\n*Page ${page} of ${totalPages}. Use page=${page + 1} to see more.*` : "";
+
+  return textResult(`${header}\n\n${lines.join("\n\n")}${footer}`);
+}
+
 function deduplicateRefs(refs: ArticleRef[]): ArticleRef[] {
   const seen = new Set<string>();
   return refs.filter((r) => {
