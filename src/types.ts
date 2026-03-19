@@ -2,6 +2,7 @@ export interface Env {
   AQUIFER_CACHE: KVNamespace;
   AQUIFER_ORG: string;
   DOCS_REPO: string;
+  WORKER_ENV?: string;
   TELEMETRY_VERIFIED_CLIENTS?: string;
 }
 
