@@ -2,6 +2,16 @@
 
 All notable changes to aquifer-mcp will be documented in this file.
 
+## [0.4.0] - 2026-03-19
+
+### Changed
+
+- Replaced TTL-first cache correctness with content-addressed SHA-keyed cache keys across index, metadata, content, browse, and entity bootstrap paths.
+- Added per-repo SHA resolution with ETag-based conditional requests to reduce GitHub API load while preserving freshness checks.
+- Added composite SHA index keying so the navigability index is rebuilt when any tracked repo SHA changes.
+- Updated cache TTL semantics to garbage collection only (`GC_TTL`, 30 days), not freshness guarantees.
+- Threaded repo SHA lookups through `get`, `related`, and `browse` paths to prevent stale/mixed cache reads.
+
 ## [0.3.0] - 2026-03-17
 
 ### Added
