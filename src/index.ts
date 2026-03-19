@@ -2,12 +2,22 @@ import { createMcpHandler } from "agents/mcp";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { Env } from "./types.js";
-import { handleList, handleSearch, handleGet, handleRelated, handleBrowse, handleReadme } from "./tools.js";
+import {
+  handleList,
+  handleSearch,
+  handleGet,
+  handleRelated,
+  handleBrowse,
+  handleReadme,
+  handleTelemetryPolicy,
+  handleTelemetryPublic,
+} from "./tools.js";
+import { recordPublicTelemetry } from "./telemetry.js";
 
 function createServer(env: Env) {
   const server = new McpServer({
     name: "aquifer-mcp",
-    version: "0.5.2",
+    version: "0.6.0",
   });
 
   server.tool(
@@ -17,6 +27,26 @@ function createServer(env: Env) {
       refresh: z.boolean().optional().describe("If true, bypass KV cache and fetch README from GitHub."),
     },
     async (args) => handleReadme(args, env),
+  );
+
+  server.tool(
+    "telemetry_policy",
+    "Return Aquifer MCP telemetry and sharing policy guidance. Use this to implement privacy-safe usage reporting without collecting user-identifying or content data.",
+    {
+      surface: z.string().optional().describe(
+        "Optional client surface key for targeted guidance. Supported: mcp-client, aquifer-window.",
+      ),
+    },
+    async (args) => handleTelemetryPolicy(args, env),
+  );
+
+  server.tool(
+    "telemetry_public",
+    "Return public telemetry disclosures and usage leaderboards for Aquifer MCP consumers and tool usage.",
+    {
+      limit: z.number().optional().describe("Maximum leaderboard entries to return for each ranking (default: 10, max: 50)."),
+    },
+    async (args) => handleTelemetryPublic(args, env),
   );
 
   server.tool(
@@ -88,9 +118,13 @@ export default {
     // Health check — keep outside MCP handler
     if (url.pathname === "/health" || (url.pathname === "/" && request.method === "GET")) {
       return new Response(
-        JSON.stringify({ status: "ok", server: { name: "aquifer-mcp", version: "0.5.2" } }),
+        JSON.stringify({ status: "ok", server: { name: "aquifer-mcp", version: "0.6.0" } }),
         { headers: { "Content-Type": "application/json" } },
       );
+    }
+
+    if (url.pathname === "/mcp" && request.method === "POST") {
+      ctx.waitUntil(recordPublicTelemetry(request, env));
     }
 
     const server = createServer(env);

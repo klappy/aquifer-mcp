@@ -2,12 +2,76 @@ import type { Env, ArticleRef, ArticleContent, NavigabilityIndex, ResourceEntry,
 import { parseReference, rangesOverlap, rangeToReadable, isValidIndexReference } from "./references.js";
 import { contentUrl, metadataUrl, fetchJson, GC_TTL } from "./github.js";
 import { getOrBuildIndex } from "./registry.js";
+import { getPublicTelemetrySnapshot } from "./telemetry.js";
 
 const README_RAW_URL = "https://raw.githubusercontent.com/klappy/aquifer-mcp/main/README.md";
 
 function textResult(text: string) {
   return { content: [{ type: "text" as const, text }] };
 }
+
+const TELEMETRY_POLICY_BASE = [
+  "# Aquifer Telemetry Policy (v1)",
+  "",
+  "Track system behavior with high fidelity while protecting user anonymity by default.",
+  "",
+  "## Currently Tracked By This Server (Public Aggregates)",
+  "- JSON-RPC method counts (`initialize`, `tools/list`, `tools/call`, etc.).",
+  "- Total MCP request count and total tool-call count.",
+  "- Automatic tracking for all `tools/call` usage through the server transport path.",
+  "- Tool-call counts by tool name.",
+  "- Tool-call counts by consumer label.",
+  "- Weighted consumer scores for leaderboard ranking (verified clients receive 10x score per tool call).",
+  "- Consumer-label source counts (`x-aquifer-client`, `initialize.clientInfo.name`, `user-agent`, `unknown`).",
+  "- Consumer verification class counts (`verified`, `unverified`).",
+  "- Self-report completeness scoring and transparency badges for optional metadata disclosure.",
+  "- Last telemetry update timestamp.",
+  "",
+  "## Allowed Optional Client Sharing (Not Required Server Collection)",
+  "- Coarse status classes, latency buckets, cache outcomes, and error classes.",
+  "- Client app/version and integration surface (for example `mcp-client` or `aquifer-window`).",
+  "- Pseudonymous session/install identifiers only when needed for continuity metrics.",
+  "",
+  "## Required Exclusions",
+  "- No raw prompts, raw queries, article content, or model responses.",
+  "- No user identity fields (name, email, account IDs).",
+  "- No IP addresses, browser fingerprinting, or device fingerprinting.",
+  "",
+  "## How To Share",
+  "1. Send event metadata only, never content payloads.",
+  "2. If identifiers are needed, hash locally using a client secret or rotating salt before sending.",
+  "3. Batch and retry telemetry out-of-band so user-facing flows stay fast.",
+  "4. Treat opt-in debug payload capture as temporary and time-limited.",
+  "",
+  "## Recommended Event Families",
+  "- `mcp_tool_call`: tool usage, latency, success/failure.",
+  "- `mcp_transport`: initialize/tools/list/tools/call transport health.",
+  "- `window_action`: UI interaction milestones in Aquifer Window.",
+  "- `system_health`: index build timing, upstream fetch failures, cache behavior.",
+  "",
+  "## Integrity Rule",
+  "Do not add obfuscation outside safety requirements. Redact only what is needed to protect people, not to blur usage reality.",
+  "",
+  "## Leaderboard Integrity Note",
+  "Consumer labels are transparent self-declarations for openness and incentive design; they are not identity proof unless explicitly verified by server-side allowlist.",
+  "Verified clients score 10x per tool call on the weighted leaderboard.",
+  "Self-reported metadata fields are honor-system by default; richer disclosure earns transparency ranking and badges.",
+].join("\n");
+
+const TELEMETRY_POLICY_BY_SURFACE: Record<string, string> = {
+  "mcp-client": [
+    "## Surface Guidance: mcp-client",
+    "- Include: `tool_name`, `status`, `latency_ms`, `client_name`, `client_version`, `server_url_host`.",
+    "- Optional: `session_id_hash` for repeat usage analysis.",
+    "- Exclude: tool arguments and any model prompt/response body.",
+  ].join("\n"),
+  "aquifer-window": [
+    "## Surface Guidance: aquifer-window",
+    "- Include: `action`, `status`, `latency_ms`, `route`, `app_version`.",
+    "- Optional: `install_id_hash` or `session_id_hash` for continuity metrics.",
+    "- Exclude: search query text, opened article HTML, and user-entered free text.",
+  ].join("\n"),
+};
 
 export async function handleReadme(
   args: Record<string, unknown>,
@@ -23,7 +87,7 @@ export async function handleReadme(
 
   try {
     const resp = await fetch(README_RAW_URL, {
-      headers: { "User-Agent": "aquifer-mcp/0.5.2" },
+      headers: { "User-Agent": "aquifer-mcp/0.6.0" },
     });
     if (!resp.ok) {
       const cached = await env.AQUIFER_CACHE.get(cacheKey);
@@ -39,6 +103,118 @@ export async function handleReadme(
     if (cached) return textResult(cached);
     return textResult("Failed to fetch README.");
   }
+}
+
+export async function handleTelemetryPolicy(
+  args: Record<string, unknown>,
+  _env: Env,
+) {
+  const requestedSurface = String(args.surface ?? "").trim().toLowerCase();
+  const surfaceGuidance = requestedSurface ? TELEMETRY_POLICY_BY_SURFACE[requestedSurface] : "";
+
+  if (requestedSurface && !surfaceGuidance) {
+    const supported = Object.keys(TELEMETRY_POLICY_BY_SURFACE).join(", ");
+    return textResult(
+      `${TELEMETRY_POLICY_BASE}\n\nUnknown surface "${requestedSurface}". Supported values: ${supported}.`,
+    );
+  }
+
+  return textResult(
+    surfaceGuidance
+      ? `${TELEMETRY_POLICY_BASE}\n\n${surfaceGuidance}`
+      : TELEMETRY_POLICY_BASE,
+  );
+}
+
+export async function handleTelemetryPublic(
+  args: Record<string, unknown>,
+  env: Env,
+) {
+  const requestedLimit = Number(args.limit ?? 10);
+  const limit = Math.min(50, Math.max(1, Number.isFinite(requestedLimit) ? requestedLimit : 10));
+  const snapshot = await getPublicTelemetrySnapshot(env, limit);
+
+  const consumerLines = snapshot.leaderboards.consumers.length
+    ? snapshot.leaderboards.consumers.map((item, idx) => `${idx + 1}. ${item.name} — ${item.calls} calls`).join("\n")
+    : "_No consumer calls recorded yet._";
+
+  const toolLines = snapshot.leaderboards.tools.length
+    ? snapshot.leaderboards.tools.map((item, idx) => `${idx + 1}. ${item.name} — ${item.calls} calls`).join("\n")
+    : "_No tool calls recorded yet._";
+  const weightedConsumerLines = snapshot.leaderboards.consumers_weighted.length
+    ? snapshot.leaderboards.consumers_weighted.map((item, idx) => `${idx + 1}. ${item.name} — ${item.calls} weighted points`).join("\n")
+    : "_No weighted consumer scores recorded yet._";
+  const transparencyLines = snapshot.leaderboards.transparency.length
+    ? snapshot.leaderboards.transparency
+      .map(
+        (item, idx) =>
+          `${idx + 1}. ${item.name} — ${item.completeness_pct}% (${item.details_shared}/${item.details_possible}) | ${item.badge}`,
+      )
+      .join("\n")
+    : "_No transparency scores recorded yet._";
+
+  const tracked = snapshot.tracked_fields.map((field) => `- ${field}`).join("\n");
+  const trackedNotes = snapshot.tracked_field_notes.map((field) => `- ${field}`).join("\n");
+  const excluded = snapshot.excluded_fields.map((field) => `- ${field}`).join("\n");
+  const methodLines = snapshot.method_counts.length
+    ? snapshot.method_counts.map((item, idx) => `${idx + 1}. ${item.name} — ${item.calls} calls`).join("\n")
+    : "_No method counts recorded yet._";
+  const sourceLines = snapshot.consumer_label_sources.length
+    ? snapshot.consumer_label_sources.map((item, idx) => `${idx + 1}. ${item.name} — ${item.calls} calls`).join("\n")
+    : "_No label source counts recorded yet._";
+  const verificationLines = snapshot.consumer_verification_counts.length
+    ? snapshot.consumer_verification_counts.map((item, idx) => `${idx + 1}. ${item.name} — ${item.calls} calls`).join("\n")
+    : "_No verification counts recorded yet._";
+  const selfReportFieldLines = snapshot.self_report_field_counts.length
+    ? snapshot.self_report_field_counts.map((item, idx) => `${idx + 1}. ${item.name} — ${item.calls} calls`).join("\n")
+    : "_No self-report field counts recorded yet._";
+
+  return textResult(
+    [
+      `# Public Telemetry Snapshot (${snapshot.schema_version})`,
+      "",
+      "## Totals",
+      `- MCP requests: ${snapshot.totals.mcp_requests}`,
+      `- Tool calls: ${snapshot.totals.tool_calls}`,
+      "",
+      "## Consumer Leaderboard",
+      consumerLines,
+      "",
+      "## Tool Leaderboard",
+      toolLines,
+      "",
+      "## Weighted Consumer Leaderboard (Verified 10x)",
+      weightedConsumerLines,
+      "",
+      "## Transparency Leaderboard (Self-Report Completeness)",
+      transparencyLines,
+      "",
+      "## Method Counts",
+      methodLines,
+      "",
+      "## Consumer Label Sources",
+      sourceLines,
+      "",
+      "## Consumer Verification Counts",
+      verificationLines,
+      "",
+      "## Self-Report Field Counts",
+      selfReportFieldLines,
+      "",
+      "## Tracked Fields",
+      tracked,
+      "",
+      "## Tracking Notes",
+      trackedNotes,
+      "",
+      "## Excluded Fields",
+      excluded,
+      "",
+      `- Last recorded at: ${snapshot.last_recorded_at ?? "none yet"}`,
+      "",
+      "Telemetry is intentionally public at the aggregate level to support transparent usage reporting and leaderboard gamification.",
+    ].join("\n"),
+  );
 }
 
 export async function handleList(

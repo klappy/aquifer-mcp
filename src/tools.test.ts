@@ -1,5 +1,14 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { handleList, handleSearch, handleGet, handleRelated, handleBrowse, handleReadme } from "./tools.js";
+import {
+  handleList,
+  handleSearch,
+  handleGet,
+  handleRelated,
+  handleBrowse,
+  handleReadme,
+  handleTelemetryPolicy,
+  handleTelemetryPublic,
+} from "./tools.js";
 import type { Env, NavigabilityIndex, ResourceEntry, ArticleRef, ArticleContent, ResourceMetadata } from "./types.js";
 
 // --- Mock KV store ---
@@ -16,7 +25,23 @@ function createMockKV(): KVNamespace {
       store.set(key, value);
     }),
     delete: vi.fn(async () => {}),
-    list: vi.fn(async () => ({ keys: [], list_complete: true, cacheStatus: null })),
+    list: vi.fn(async (options?: { prefix?: string; limit?: number; cursor?: string }) => {
+      const prefix = options?.prefix ?? "";
+      const limit = options?.limit ?? 1000;
+      const allKeys = Array.from(store.keys())
+        .filter((key) => key.startsWith(prefix))
+        .sort();
+      const offset = Number(options?.cursor ?? "0");
+      const pageKeys = allKeys.slice(offset, offset + limit).map((name) => ({ name }));
+      const nextOffset = offset + pageKeys.length;
+      const listComplete = nextOffset >= allKeys.length;
+      return {
+        keys: pageKeys,
+        list_complete: listComplete,
+        cursor: listComplete ? "" : String(nextOffset),
+        cacheStatus: null,
+      };
+    }),
     getWithMetadata: vi.fn(async () => ({ value: null, metadata: null, cacheStatus: null })),
   } as unknown as KVNamespace;
 }
@@ -564,5 +589,83 @@ describe("handleReadme", () => {
     const result = await handleReadme({ refresh: true }, env);
     expect(result.content[0]!.text).toContain("# Cached README");
     fetchSpy.mockRestore();
+  });
+});
+
+describe("handleTelemetryPolicy", () => {
+  let env: Env;
+
+  beforeEach(() => {
+    env = { AQUIFER_CACHE: createMockKV(), AQUIFER_ORG: "BibleAquifer", DOCS_REPO: "docs" };
+  });
+
+  it("returns base policy with no surface", async () => {
+    const result = await handleTelemetryPolicy({}, env);
+    const text = result.content[0]!.text;
+    expect(text).toContain("Aquifer Telemetry Policy (v1)");
+    expect(text).toContain("No raw prompts");
+    expect(text).toContain("Do not add obfuscation outside safety requirements");
+  });
+
+  it("returns targeted guidance for mcp-client", async () => {
+    const result = await handleTelemetryPolicy({ surface: "mcp-client" }, env);
+    const text = result.content[0]!.text;
+    expect(text).toContain("Surface Guidance: mcp-client");
+    expect(text).toContain("Exclude: tool arguments");
+  });
+
+  it("returns unknown-surface message with supported values", async () => {
+    const result = await handleTelemetryPolicy({ surface: "unknown-surface" }, env);
+    const text = result.content[0]!.text;
+    expect(text).toContain('Unknown surface "unknown-surface"');
+    expect(text).toContain("mcp-client");
+    expect(text).toContain("aquifer-window");
+  });
+});
+
+describe("handleTelemetryPublic", () => {
+  let env: Env;
+
+  beforeEach(() => {
+    env = { AQUIFER_CACHE: createMockKV(), AQUIFER_ORG: "BibleAquifer", DOCS_REPO: "docs" };
+  });
+
+  it("returns empty leaderboard state when no telemetry exists", async () => {
+    const result = await handleTelemetryPublic({}, env);
+    const text = result.content[0]!.text;
+    expect(text).toContain("Public Telemetry Snapshot");
+    expect(text).toContain("MCP requests: 0");
+    expect(text).toContain("No consumer calls recorded yet");
+  });
+
+  it("returns ranked consumers and tools from telemetry counters", async () => {
+    await env.AQUIFER_CACHE.put("telemetry:v1:mcp_requests", "17");
+    await env.AQUIFER_CACHE.put("telemetry:v1:tool_calls", "12");
+    await env.AQUIFER_CACHE.put("telemetry:v1:consumer:Cursor", "8");
+    await env.AQUIFER_CACHE.put("telemetry:v1:consumer:AquiferWindow", "4");
+    await env.AQUIFER_CACHE.put("telemetry:v1:consumer-weighted:Cursor", "80");
+    await env.AQUIFER_CACHE.put("telemetry:v1:consumer-weighted:AquiferWindow", "4");
+    await env.AQUIFER_CACHE.put("telemetry:v1:consumer-verification:verified", "8");
+    await env.AQUIFER_CACHE.put("telemetry:v1:consumer-verification:unverified", "4");
+    await env.AQUIFER_CACHE.put("telemetry:v1:consumer-self-report-points:Cursor", "64");
+    await env.AQUIFER_CACHE.put("telemetry:v1:consumer-self-report-max:Cursor", "64");
+    await env.AQUIFER_CACHE.put("telemetry:v1:self-report-field:client_name", "12");
+    await env.AQUIFER_CACHE.put("telemetry:v1:self-report-field:surface", "9");
+    await env.AQUIFER_CACHE.put("telemetry:v1:tool:search", "7");
+    await env.AQUIFER_CACHE.put("telemetry:v1:tool:get", "5");
+
+    const result = await handleTelemetryPublic({ limit: 5 }, env);
+    const text = result.content[0]!.text;
+    expect(text).toContain("MCP requests: 17");
+    expect(text).toContain("1. Cursor — 8 calls");
+    expect(text).toContain("2. AquiferWindow — 4 calls");
+    expect(text).toContain("1. search — 7 calls");
+    expect(text).toContain("2. get — 5 calls");
+    expect(text).toContain("1. Cursor — 80 weighted points");
+    expect(text).toContain("1. verified — 8 calls");
+    expect(text).toContain("Transparency Leaderboard");
+    expect(text).toContain("1. Cursor — 100% (64/64) | Open Ledger");
+    expect(text).toContain("Self-Report Field Counts");
+    expect(text).toContain("Excluded Fields");
   });
 });

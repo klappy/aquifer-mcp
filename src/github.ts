@@ -33,7 +33,7 @@ export async function fetchRepoSha(org: string, repo: string, env: Env): Promise
   ]);
 
   const headers: Record<string, string> = {
-    "User-Agent": "aquifer-mcp/0.5.2",
+    "User-Agent": "aquifer-mcp/0.6.0",
     "Accept": "application/vnd.github.v3.sha",
   };
   if (etag && cachedSha) headers["If-None-Match"] = etag;
@@ -85,7 +85,7 @@ export async function fetchJson<T>(url: string, env?: Env, cacheKey?: string, sh
   }
 
   const resp = await fetch(url, {
-    headers: { "User-Agent": "aquifer-mcp/0.5.2" },
+    headers: { "User-Agent": "aquifer-mcp/0.6.0" },
   });
 
   if (!resp.ok) return null;
