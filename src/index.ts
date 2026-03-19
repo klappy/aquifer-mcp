@@ -14,6 +14,30 @@ import {
 } from "./tools.js";
 import { recordPublicTelemetry } from "./telemetry.js";
 
+const ALLOWED_HEADERS = [
+  "Content-Type",
+  "Accept",
+  "Authorization",
+  "mcp-session-id",
+  "MCP-Protocol-Version",
+  "x-aquifer-client",
+  "x-aquifer-client-version",
+  "x-aquifer-agent-name",
+  "x-aquifer-agent-version",
+  "x-aquifer-surface",
+  "x-aquifer-contact-url",
+  "x-aquifer-policy-url",
+  "x-aquifer-capabilities",
+].join(", ");
+
+const CORS_PREFLIGHT_HEADERS: Record<string, string> = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
+  "Access-Control-Allow-Headers": ALLOWED_HEADERS,
+  "Access-Control-Expose-Headers": "mcp-session-id",
+  "Access-Control-Max-Age": "86400",
+};
+
 function createServer(env: Env) {
   const server = new McpServer({
     name: "aquifer-mcp",
@@ -112,7 +136,7 @@ function createServer(env: Env) {
 }
 
 export default {
-  fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> | Response {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
 
     // Health check — keep outside MCP handler
@@ -123,11 +147,45 @@ export default {
       );
     }
 
+    // CORS preflight — handle before the MCP handler so browser clients
+    // sending custom x-aquifer-* headers aren't rejected.
+    if (request.method === "OPTIONS" && url.pathname === "/mcp") {
+      return new Response(null, { status: 204, headers: CORS_PREFLIGHT_HEADERS });
+    }
+
     if (url.pathname === "/mcp" && request.method === "POST") {
       ctx.waitUntil(recordPublicTelemetry(request, env));
     }
 
+    // Streamable HTTP transport (agents >=0.7) requires Accept to include
+    // both application/json and text/event-stream.  Older MCP clients
+    // (including Aquifer Window) may omit this.  Inject the header so
+    // they aren't rejected with a 406 "Not Acceptable" error.
+    const accept = request.headers.get("accept") ?? "";
+    const needsJson = !accept.includes("application/json");
+    const needsSse = !accept.includes("text/event-stream");
+    let effectiveRequest = request;
+    if ((needsJson || needsSse) && url.pathname === "/mcp") {
+      const parts: string[] = [accept];
+      if (needsJson) parts.push("application/json");
+      if (needsSse) parts.push("text/event-stream");
+      const headers = new Headers(request.headers);
+      headers.set("accept", parts.filter(Boolean).join(", "));
+      effectiveRequest = new Request(request, { headers });
+    }
+
     const server = createServer(env);
-    return createMcpHandler(server, { route: "/mcp" })(request, env, ctx);
+    const response = await createMcpHandler(server, { route: "/mcp" })(effectiveRequest, env, ctx);
+
+    // Ensure CORS headers on actual responses include x-aquifer-* headers.
+    // The agents handler sets Access-Control-Allow-Origin: * but its
+    // Allow-Headers list is limited to standard MCP headers.
+    if (url.pathname === "/mcp") {
+      const patched = new Response(response.body, response);
+      patched.headers.set("Access-Control-Allow-Headers", ALLOWED_HEADERS);
+      return patched;
+    }
+
+    return response;
   },
 } satisfies ExportedHandler<Env>;
