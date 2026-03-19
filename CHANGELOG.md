@@ -12,11 +12,12 @@ All notable changes to aquifer-mcp will be documented in this file.
 - New telemetry tests in `src/telemetry.test.ts` covering explicit client labels, batch JSON-RPC handling, and snapshot output.
 - `docs/branch-and-deployment-strategy.md` — branch model (`main` / `staging` / feature branches), staging vs production Workers, CI and deploy secrets.
 - Wrangler `[env.staging]` — Worker `aquifer-mcp-staging` with preview KV (testable Cloudflare deploy without touching production KV).
-- GitHub Actions: `ci.yml` (build + test on all PRs/pushes), `deploy-staging.yml`, `deploy-production.yml` (Wrangler deploy when secrets are set).
+- GitHub Actions: `ci.yml` (build + test on all PRs/pushes).
 - npm scripts `deploy:staging` and `deploy:production`.
 
 ### Changed
 
+- Deploy: removed `deploy-staging.yml` and `deploy-production.yml`; deploy is **Cloudflare dashboard Git integration** only (`DEPLOY-SETUP.md`, `docs/branch-and-deployment-strategy.md`). Removed `docs/github-actions-cloudflare-secrets.md`.
 - Updated telemetry disclosures to match observed collection exactly (aggregate counters only, no per-request raw event log claims).
 - Added consumer label source tracking (`x-aquifer-client`, `initialize.clientInfo.name`, `user-agent`, `unknown`) to make leaderboard provenance explicit.
 - Enforced automatic tracking for all `tools/call` usage and added weighted consumer leaderboard scoring (verified clients `10x` via allowlist).

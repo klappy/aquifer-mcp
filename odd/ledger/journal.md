@@ -463,10 +463,29 @@ Without a named staging Worker, the only deploy target was production-shaped def
 *Alternatives considered:* duplicate KV namespace (documented upgrade path), workers.dev only local dev.
 *Reversible:* Yes — swap staging KV id when dedicated namespace is created.
 
-**D20: Document branch strategy and add GitHub Actions CI + optional deploy workflows.**
+**D20: Document branch strategy and add GitHub Actions CI + optional deploy workflows.** *(Superseded by D21 — deploy workflows removed; Cloudflare Git integration is the deploy path.)*
 *Because* PRs should always run build/test; `staging`/`main` pushes can deploy when secrets exist, matching Claude-style testable deployment loops.
 *Reversible:* Yes — workflows can be narrowed to `workflow_dispatch` only.
 
 ### Handoff
 
-Ensure `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` are set before relying on deploy workflows. Gate or remove auto `main` deploy if production should stay manual.
+Deploy path: Cloudflare dashboard Git integration (D21). CI in GitHub: build + test only; no deploy secrets on the repo for that.
+
+---
+
+## Execution Update — Deploy source of truth: Cloudflare Git (2026-03-19)
+
+### Observations
+
+**O28: GitHub Actions Wrangler deploy duplicated (and contradicted) Cloudflare dashboard Git integration.**  
+The account already deploys on push via Cloudflare’s connected repo; separate `deploy-*.yml` workflows implied secrets and a second deploy path.
+
+### Decisions
+
+**D21: Remove GitHub Actions deploy workflows; document Cloudflare Git integration as the deploy mechanism.**  
+*Because* one deploy pipeline avoids confusion and matches how the Worker is actually released.  
+*Reversible:* Yes — re-add workflows if a fork wants Actions-only deploy.
+
+### Handoff
+
+`ci.yml` remains (build + test). Staging vs production still depends on Cloudflare project/branch wiring to `wrangler.toml` environments.

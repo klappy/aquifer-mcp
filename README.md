@@ -4,6 +4,8 @@ Thin Cloudflare Workers MCP server for navigating Bible Aquifer content.
 
 Current runtime version: `0.6.0`
 
+**Deploy:** Cloudflare **dashboard Git integration** builds and deploys this repo when you push (see **[DEPLOY-SETUP.md](DEPLOY-SETUP.md)**). GitHub Actions here only runs **tests**, not deploy.
+
 Most users should use the deployed endpoint directly. Running locally is primarily for agentic contributors developing this server.
 
 ---
@@ -135,10 +137,11 @@ npm run deploy
 
 **Branch strategy and testable Cloudflare deploys** (staging Worker vs production) are documented in [`docs/branch-and-deployment-strategy.md`](docs/branch-and-deployment-strategy.md).
 
-- **Production:** `npm run deploy` or `npm run deploy:production`
-- **Staging:** `npm run deploy:staging` — deploys Worker `aquifer-mcp-staging` (isolated from production KV)
+**Preferred deploy path:** push or merge to the branch(es) your **Cloudflare Worker project** is connected to (often `main` for production; `staging` if you set up a second project or branch environment). No GitHub secrets required for deploy in this repo.
 
-GitHub Actions: PRs and pushes run **build + test**; pushes to `staging` / `main` can deploy if `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` are set (see that doc).
+- **CLI fallback (emergency):** `npm run deploy:staging` / `npm run deploy` — logged-in Wrangler on a machine
+
+GitHub Actions: **build + test only** (`.github/workflows/ci.yml` on PRs and pushes).
 
 ---
 
