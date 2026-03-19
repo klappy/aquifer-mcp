@@ -1,5 +1,6 @@
 import type { Env } from "./types.js";
 import { GC_TTL } from "./github.js";
+import { parseReference } from "./references.js";
 
 const MAX_LABEL_LENGTH = 80;
 const VERIFIED_SCORE_MULTIPLIER = 10;
@@ -29,6 +30,15 @@ interface TelemetryPrefixes {
   consumerSelfReportPoints: string;
   consumerSelfReportMax: string;
   selfReportField: string;
+  resource: string;
+  language: string;
+  article: string;
+  searchType: string;
+  lastArticle: string;
+  passageVerse: string;
+  passageChapter: string;
+  passageBook: string;
+  passageTestament: string;
 }
 
 function buildPrefixes(env: Env): TelemetryPrefixes {
@@ -48,6 +58,15 @@ function buildPrefixes(env: Env): TelemetryPrefixes {
     consumerSelfReportPoints: `${base}:consumer-self-report-points:`,
     consumerSelfReportMax: `${base}:consumer-self-report-max:`,
     selfReportField: `${base}:self-report-field:`,
+    resource: `${base}:resource:`,
+    language: `${base}:language:`,
+    article: `${base}:article:`,
+    searchType: `${base}:search-type:`,
+    lastArticle: `${base}:last_article`,
+    passageVerse: `${base}:passage-verse:`,
+    passageChapter: `${base}:passage-chapter:`,
+    passageBook: `${base}:passage-book:`,
+    passageTestament: `${base}:passage-testament:`,
   };
 }
 
@@ -71,6 +90,14 @@ export interface TransparencyLeaderboardItem {
   badge: string;
 }
 
+export interface LastArticleRecord {
+  resource_code: string;
+  language: string;
+  content_id: string;
+  tool: string;
+  accessed_at: string;
+}
+
 export interface PublicTelemetrySnapshot {
   schema_version: string;
   tracked_fields: string[];
@@ -88,8 +115,19 @@ export interface PublicTelemetrySnapshot {
     consumers: TelemetryRankItem[];
     consumers_weighted: TelemetryRankItem[];
     tools: TelemetryRankItem[];
+    resources: TelemetryRankItem[];
+    languages: TelemetryRankItem[];
+    articles: TelemetryRankItem[];
     transparency: TransparencyLeaderboardItem[];
   };
+  search_type_counts: TelemetryRankItem[];
+  passage_counts: {
+    testaments: TelemetryRankItem[];
+    books: TelemetryRankItem[];
+    chapters: TelemetryRankItem[];
+    verses: TelemetryRankItem[];
+  };
+  last_article: LastArticleRecord | null;
   last_recorded_at: string | null;
 }
 
@@ -140,6 +178,56 @@ function parseToolName(payload: unknown): string | null {
   if (!params || typeof params !== "object") return null;
   const name = (params as { name?: unknown }).name;
   return typeof name === "string" ? sanitizeLabel(name.toLowerCase()) : null;
+}
+
+interface ToolArguments {
+  resource_code?: string;
+  language?: string;
+  content_id?: string;
+  query?: string;
+  type?: string;
+}
+
+function parseToolArguments(payload: unknown): ToolArguments | null {
+  if (!payload || typeof payload !== "object") return null;
+  const params = (payload as { params?: unknown }).params;
+  if (!params || typeof params !== "object") return null;
+  const args = (params as { arguments?: unknown }).arguments;
+  if (!args || typeof args !== "object") return null;
+
+  const result: ToolArguments = {};
+  const a = args as Record<string, unknown>;
+  if (typeof a.resource_code === "string") result.resource_code = sanitizeLabel(a.resource_code);
+  if (typeof a.language === "string") result.language = sanitizeLabel(a.language);
+  if (typeof a.content_id === "string") result.content_id = sanitizeLabel(a.content_id);
+  if (typeof a.query === "string") result.query = a.query;
+  if (typeof a.type === "string") result.type = sanitizeLabel(a.type.toLowerCase());
+  return Object.keys(result).length > 0 ? result : null;
+}
+
+export function classifySearchType(query: string): "passage" | "entity" | "title" {
+  const trimmed = query.trim();
+  if (/^[a-z]+:/i.test(trimmed)) return "entity";
+  if (/\d+:\d+/.test(trimmed) || /^\d{8}$/.test(trimmed)) return "passage";
+  return "title";
+}
+
+export function passageHierarchy(bbcccvvv: string): {
+  verse: string;
+  chapter: string;
+  book: string;
+  testament: "ot" | "nt";
+} | null {
+  const start = bbcccvvv.includes("-") ? bbcccvvv.split("-")[0]! : bbcccvvv;
+  if (start.length !== 8 || !/^\d{8}$/.test(start)) return null;
+  const bookNum = parseInt(start.slice(0, 2), 10);
+  if (bookNum < 1 || bookNum > 66) return null;
+  return {
+    verse: start,
+    chapter: start.slice(0, 5),
+    book: start.slice(0, 2),
+    testament: bookNum <= 39 ? "ot" : "nt",
+  };
 }
 
 async function incrementCounter(env: Env, key: string): Promise<void> {
@@ -243,6 +331,17 @@ function getSelfReportDetails(
   };
 }
 
+async function recordPassageHierarchy(env: Env, p: TelemetryPrefixes, bbcccvvv: string): Promise<void> {
+  const hierarchy = passageHierarchy(bbcccvvv);
+  if (!hierarchy) return;
+  await Promise.all([
+    incrementCounter(env, `${p.passageVerse}${hierarchy.verse}`),
+    incrementCounter(env, `${p.passageChapter}${hierarchy.chapter}`),
+    incrementCounter(env, `${p.passageBook}${hierarchy.book}`),
+    incrementCounter(env, `${p.passageTestament}${hierarchy.testament}`),
+  ]);
+}
+
 export async function recordPublicTelemetry(request: Request, env: Env): Promise<void> {
   if (request.method !== "POST") return;
 
@@ -297,6 +396,44 @@ export async function recordPublicTelemetry(request: Request, env: Env): Promise
 
       const toolName = parseToolName(message) ?? "unknown";
       await incrementCounter(env, `${p.tool}${toolName}`);
+
+      const toolArgs = parseToolArguments(message);
+      if (toolArgs) {
+        if (toolArgs.resource_code) {
+          await incrementCounter(env, `${p.resource}${toolArgs.resource_code}`);
+        }
+        if (toolArgs.language) {
+          await incrementCounter(env, `${p.language}${toolArgs.language}`);
+        }
+        if (toolName === "list" && toolArgs.type) {
+          await incrementCounter(env, `${p.resource}type:${toolArgs.type}`);
+        }
+        if (toolArgs.resource_code && toolArgs.language && toolArgs.content_id) {
+          const articleKey = `${toolArgs.resource_code}:${toolArgs.language}:${toolArgs.content_id}`;
+          await incrementCounter(env, `${p.article}${articleKey}`);
+          await env.AQUIFER_CACHE.put(
+            p.lastArticle,
+            JSON.stringify({
+              resource_code: toolArgs.resource_code,
+              language: toolArgs.language,
+              content_id: toolArgs.content_id,
+              tool: toolName,
+              accessed_at: new Date().toISOString(),
+            } satisfies LastArticleRecord),
+            { expirationTtl: GC_TTL },
+          );
+        }
+        if (toolName === "search" && toolArgs.query) {
+          const searchType = classifySearchType(toolArgs.query);
+          await incrementCounter(env, `${p.searchType}${searchType}`);
+          if (searchType === "passage") {
+            const ref = parseReference(toolArgs.query);
+            if (ref) {
+              await recordPassageHierarchy(env, p, ref);
+            }
+          }
+        }
+      }
     }
   }
 
@@ -312,6 +449,7 @@ export async function getPublicTelemetrySnapshot(env: Env, limit: number): Promi
     mcpRequestsRaw,
     toolCallsRaw,
     lastRecordedAt,
+    lastArticleRaw,
     consumerCounters,
     consumerWeightedCounters,
     toolCounters,
@@ -321,10 +459,19 @@ export async function getPublicTelemetrySnapshot(env: Env, limit: number): Promi
     selfReportPointsCounters,
     selfReportMaxCounters,
     selfReportFieldCounters,
+    resourceCounters,
+    languageCounters,
+    articleCounters,
+    searchTypeCounters,
+    passageTestamentCounters,
+    passageBookCounters,
+    passageChapterCounters,
+    passageVerseCounters,
   ] = await Promise.all([
     env.AQUIFER_CACHE.get(p.mcp_requests),
     env.AQUIFER_CACHE.get(p.tool_calls),
     env.AQUIFER_CACHE.get(p.last_recorded_at),
+    env.AQUIFER_CACHE.get(p.lastArticle),
     readCounters(env, p.consumer),
     readCounters(env, p.consumerWeighted),
     readCounters(env, p.tool),
@@ -334,42 +481,37 @@ export async function getPublicTelemetrySnapshot(env: Env, limit: number): Promi
     readCounters(env, p.consumerSelfReportPoints),
     readCounters(env, p.consumerSelfReportMax),
     readCounters(env, p.selfReportField),
+    readCounters(env, p.resource),
+    readCounters(env, p.language),
+    readCounters(env, p.article),
+    readCounters(env, p.searchType),
+    readCounters(env, p.passageTestament),
+    readCounters(env, p.passageBook),
+    readCounters(env, p.passageChapter),
+    readCounters(env, p.passageVerse),
   ]);
 
-  const consumers = consumerCounters
-    .map((item) => ({ name: item.key.replace(p.consumer, ""), calls: item.calls }))
-    .sort((a, b) => b.calls - a.calls)
-    .slice(0, limit);
+  const toRank = (counters: Array<{ key: string; calls: number }>, prefix: string) =>
+    counters
+      .map((item) => ({ name: item.key.replace(prefix, ""), calls: item.calls }))
+      .sort((a, b) => b.calls - a.calls)
+      .slice(0, limit);
 
-  const tools = toolCounters
-    .map((item) => ({ name: item.key.replace(p.tool, ""), calls: item.calls }))
-    .sort((a, b) => b.calls - a.calls)
-    .slice(0, limit);
-
-  const consumersWeighted = consumerWeightedCounters
-    .map((item) => ({ name: item.key.replace(p.consumerWeighted, ""), calls: item.calls }))
-    .sort((a, b) => b.calls - a.calls)
-    .slice(0, limit);
-
-  const methods = methodCounters
-    .map((item) => ({ name: item.key.replace(p.method, ""), calls: item.calls }))
-    .sort((a, b) => b.calls - a.calls)
-    .slice(0, limit);
-
-  const consumerLabelSources = sourceCounters
-    .map((item) => ({ name: item.key.replace(p.labelSource, ""), calls: item.calls }))
-    .sort((a, b) => b.calls - a.calls)
-    .slice(0, limit);
-
-  const consumerVerificationCounts = verificationCounters
-    .map((item) => ({ name: item.key.replace(p.consumerVerification, ""), calls: item.calls }))
-    .sort((a, b) => b.calls - a.calls)
-    .slice(0, limit);
-
-  const selfReportFieldCounts = selfReportFieldCounters
-    .map((item) => ({ name: item.key.replace(p.selfReportField, ""), calls: item.calls }))
-    .sort((a, b) => b.calls - a.calls)
-    .slice(0, limit);
+  const consumers = toRank(consumerCounters, p.consumer);
+  const tools = toRank(toolCounters, p.tool);
+  const consumersWeighted = toRank(consumerWeightedCounters, p.consumerWeighted);
+  const methods = toRank(methodCounters, p.method);
+  const consumerLabelSources = toRank(sourceCounters, p.labelSource);
+  const consumerVerificationCounts = toRank(verificationCounters, p.consumerVerification);
+  const selfReportFieldCounts = toRank(selfReportFieldCounters, p.selfReportField);
+  const resources = toRank(resourceCounters, p.resource);
+  const languages = toRank(languageCounters, p.language);
+  const articles = toRank(articleCounters, p.article);
+  const searchTypes = toRank(searchTypeCounters, p.searchType);
+  const passageTestaments = toRank(passageTestamentCounters, p.passageTestament);
+  const passageBooks = toRank(passageBookCounters, p.passageBook);
+  const passageChapters = toRank(passageChapterCounters, p.passageChapter);
+  const passageVerses = toRank(passageVerseCounters, p.passageVerse);
 
   const pointsByConsumer = new Map(
     selfReportPointsCounters.map((item) => [item.key.replace(p.consumerSelfReportPoints, ""), item.calls]),
@@ -404,8 +546,15 @@ export async function getPublicTelemetrySnapshot(env: Env, limit: number): Promi
     })
     .slice(0, limit);
 
+  let lastArticle: LastArticleRecord | null = null;
+  if (lastArticleRaw) {
+    try {
+      lastArticle = JSON.parse(lastArticleRaw) as LastArticleRecord;
+    } catch { /* ignore malformed */ }
+  }
+
   return {
-    schema_version: "telemetry-public-v1",
+    schema_version: "telemetry-public-v2",
     tracked_fields: [
       "automatic_tool_call_tracking",
       "jsonrpc_method_count",
@@ -418,6 +567,12 @@ export async function getPublicTelemetrySnapshot(env: Env, limit: number): Promi
       "consumer_label_source_count",
       "consumer_verification_count",
       "self_report_field_presence_count",
+      "resource_access_count",
+      "language_access_count",
+      "article_access_count",
+      "search_type_count",
+      "passage_hierarchy_counts",
+      "last_article_accessed",
       "last_recorded_at",
     ],
     tracked_field_notes: [
@@ -426,6 +581,9 @@ export async function getPublicTelemetrySnapshot(env: Env, limit: number): Promi
       "Consumer labels are self-declared and should be treated as transparent claims, not identity proof.",
       `Verified consumer labels (from env allowlist) receive ${VERIFIED_SCORE_MULTIPLIER}x weighted leaderboard score.`,
       "Self-reported metadata completeness is scored from optional disclosure fields to incentivize richer transparency.",
+      "Resource, language, and article access counts are extracted from tool arguments (structural identifiers only, no raw query text).",
+      "Search type classification (passage/entity/title) is derived from query pattern, not the query content itself.",
+      "Passage searches roll up hierarchically: verse (BBCCCVVV) -> chapter (BBCCC) -> book (BB) -> testament (ot/nt).",
       "Latency/status/cache/error dimensions are policy-allowed but not yet collected by server counters.",
     ],
     excluded_fields: [
@@ -450,8 +608,19 @@ export async function getPublicTelemetrySnapshot(env: Env, limit: number): Promi
       consumers,
       consumers_weighted: consumersWeighted,
       tools,
+      resources,
+      languages,
+      articles,
       transparency: transparencyLeaderboard,
     },
+    search_type_counts: searchTypes,
+    passage_counts: {
+      testaments: passageTestaments,
+      books: passageBooks,
+      chapters: passageChapters,
+      verses: passageVerses,
+    },
+    last_article: lastArticle,
     last_recorded_at: lastRecordedAt,
   };
 }

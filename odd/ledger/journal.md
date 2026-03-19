@@ -523,7 +523,6 @@ Prior docs assumed a separate worker hostname pattern that did not match the acc
 **O31: For this account, git branch `staging` preview host is `staging-aquifer-mcp.klappy.workers.dev` (pattern `<branch-slug>-aquifer-mcp.klappy.workers.dev`).** Verified `GET /health` returns `0.6.0`.
 
 ---
-
 ## OLDC — oddkit `encode` record (2026-03-19)
 
 **Tool:** `oddkit_encode` · **encode status:** `ENCODED` · **artifact status:** `draft` · **quality:** weak (2/5) · **tool timestamp:** `2026-03-19T19:51:48.100Z`
@@ -576,3 +575,56 @@ If `ci.yml` **workflow `name`** or **job `id`** changes, update GitHub **require
 ### Handoff
 
 Canonical comparison: `docs/github-branch-protection.md`. Tighten `staging` later (e.g. require PR or optional CI check) if the team wants more gatekeeping.
+
+---
+
+## Execution Update — Resource-Level Telemetry (2026-03-19)
+
+### Observations
+
+**O34: Existing telemetry tracked tool invocations but not what was being accessed.**
+The v1 telemetry recorded which tools were called and by whom, but not which resources, languages, articles, or search patterns were being used. Knowing "someone called `get` 50 times" without knowing which resources or articles were fetched is like knowing people came into the restaurant without knowing what they ordered.
+*Source: Direct observation of `src/telemetry.ts` — only `parseToolName` was extracted from payloads, not `params.arguments`*
+
+**O35: Tool arguments contain structural identifiers safe for telemetry extraction.**
+`resource_code`, `language`, `content_id` are structural keys present in `get`, `related`, and `browse` tool arguments. These are repository names and language codes, not user content or identity data. They fall outside the governance exclusion list (which covers raw queries, article content, identity).
+*Source: Review of tool argument schemas in `src/index.ts` against excluded fields in telemetry governance doc*
+
+**O36: Search queries can be classified by pattern without logging the raw text.**
+Passage references match `digits:digits` or BBCCCVVV patterns. Entity queries match `type:label`. Everything else is title search. The classification reveals usage patterns (how many passage vs entity vs keyword searches) without storing the actual query content.
+*Source: Analysis of `parseReference` patterns in `src/references.ts`*
+
+### Learnings
+
+**L18: Telemetry on structural identifiers reveals usage topology without privacy cost.**
+Tracking which resources are popular, which languages are active, and which articles are fetched repeatedly gives operational visibility into what the Aquifer is actually used for — without any user-identifying or content-level data.
+*Rests on: O34, O35*
+
+**L19: Last-article tracking creates a real-time pulse of system activity.**
+A single JSON record of the most recent article access (compound key + tool + timestamp) provides a heartbeat view that aggregate counters cannot — it shows what the system is doing right now, not just totals.
+*Rests on: O34*
+
+### Decisions
+
+**D27: Extract resource_code, language, content_id, and search type from tool arguments in the telemetry recording path.**
+*Because* resource-level visibility requires parsing `params.arguments` from the JSON-RPC body, which is already available in `recordPublicTelemetry`. This keeps all telemetry logic centralized rather than instrumenting individual handlers.
+*Alternatives considered:* (A) instrument each handler with a telemetry callback, (B) parse arguments in a post-response hook. Chose centralized parsing for simplicity and consistency with existing pattern.
+*Reversible:* Yes — new counters can be removed without affecting existing ones.
+
+**D28: Bump schema version to telemetry-public-v2.**
+*Because* the snapshot structure gained new leaderboards (resources, languages, articles), new fields (search_type_counts, last_article), and new tracked_field entries. Consumers should detect the version change.
+*Reversible:* No — version should only move forward.
+
+### Constraint Updates
+
+**C14 update: Resource-level counters are structural identifiers, not content.**
+`resource_code` (repo name), `language` (ISO code), `content_id` (article key), and search type (passage/entity/title) are all structural metadata. They do not violate the anonymity-by-default boundary.
+*Status: Active, verified*
+
+### New KV Key Patterns
+
+- `telemetry:v1:{env}:resource:{resource_code}` — resource access counter
+- `telemetry:v1:{env}:language:{language}` — language access counter
+- `telemetry:v1:{env}:article:{resource_code}:{language}:{content_id}` — article access counter
+- `telemetry:v1:{env}:search-type:{passage|entity|title}` — search type counter
+- `telemetry:v1:{env}:last_article` — JSON record of last article accessed
