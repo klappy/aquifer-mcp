@@ -133,11 +133,16 @@ async function readCounters(env: Env, prefix: string): Promise<Array<{ key: stri
 
   do {
     const page = await env.AQUIFER_CACHE.list({ prefix, cursor, limit: 1000 });
-    for (const keyEntry of page.keys) {
-      const raw = await env.AQUIFER_CACHE.get(keyEntry.name);
-      const calls = Number(raw ?? "0");
-      if (!Number.isFinite(calls) || calls <= 0) continue;
-      results.push({ key: keyEntry.name, calls });
+    const entries = await Promise.all(
+      page.keys.map(async (keyEntry) => {
+        const raw = await env.AQUIFER_CACHE.get(keyEntry.name);
+        const calls = Number(raw ?? "0");
+        return { key: keyEntry.name, calls };
+      }),
+    );
+    for (const entry of entries) {
+      if (!Number.isFinite(entry.calls) || entry.calls <= 0) continue;
+      results.push(entry);
     }
     cursor = page.list_complete ? undefined : page.cursor;
   } while (cursor);
