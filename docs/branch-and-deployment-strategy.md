@@ -7,6 +7,8 @@
 
 **CI:** GitHub Actions runs **build + test** on pushes and PRs; it does **not** deploy.
 
+**Branch protection:** **`main`** is strict (PR + `CI / build-test`, strict, no force-push/deletion). **`staging`** is lighter: **no PR or status checks required**, but **no force-push** and **no branch deletion**. See [`docs/github-branch-protection.md`](github-branch-protection.md).
+
 ## Branches
 
 | Branch | Role |
@@ -54,6 +56,7 @@ Production often uses a Worker route (e.g. `aquifer.klappy.dev`). Staging previe
 
 ## Related docs
 
+- [`github-branch-protection.md`](github-branch-protection.md) — `main` vs `staging` GitHub protection
 - [`DEPLOY-SETUP.md`](../DEPLOY-SETUP.md) — Cloudflare Git + preview URL pattern
 - `docs/telemetry-governance-snapshot.md` — telemetry behavior and KV storage notes
 - `README.md` — local dev, health checks, MCP URLs

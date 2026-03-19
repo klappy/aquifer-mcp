@@ -38,6 +38,12 @@ For each `tools/call`, the server tracks aggregate counters for:
 - verification class counts (`verified`, `unverified`)
 - self-report completeness points and possible points
 - self-report field presence counts
+- resource access counts by `resource_code` (structural identifier)
+- language access counts by language code
+- article access counts by compound key (`resource_code:language:content_id`)
+- search type breakdown (`passage`, `entity`, `title`) classified from query pattern
+- passage hierarchy rollup: verse (BBCCCVVV) -> chapter (BBCCC) -> book (BB) -> testament (ot/nt)
+- last article accessed (compound key, tool, timestamp)
 - last recorded timestamp
 
 ## Optional Self-Report Fields (Incentivized)
@@ -113,6 +119,12 @@ Badges:
 - weighted consumer leaderboard
 - transparency leaderboard
 - tool leaderboard
+- resource leaderboard (most-accessed resources by resource_code)
+- language leaderboard (most-accessed languages)
+- article leaderboard (most-accessed articles by compound key)
+- search type breakdown (passage/entity/title query patterns)
+- passage hierarchy (testament, book, chapter, verse rollup from passage searches)
+- last article accessed (compound key, tool, timestamp)
 - method counts
 - label-source counts
 - verification-class counts
@@ -136,7 +148,20 @@ Must not be collected by default:
 
 ## Storage And Infra
 
-Current implementation stores aggregate telemetry counters in Workers KV (`AQUIFER_CACHE`) with telemetry key prefix `telemetry:v1:*`.
+Current implementation stores aggregate telemetry counters in Workers KV (`AQUIFER_CACHE`) with telemetry key prefix `telemetry:v1:{env}:*`.
+
+Key patterns:
+
+- `telemetry:v1:{env}:resource:{resource_code}` — resource access counter
+- `telemetry:v1:{env}:language:{language}` — language access counter
+- `telemetry:v1:{env}:article:{resource_code}:{language}:{content_id}` — article access counter
+- `telemetry:v1:{env}:search-type:{passage|entity|title}` — search type counter
+- `telemetry:v1:{env}:passage-verse:{BBCCCVVV}` — verse-level passage counter
+- `telemetry:v1:{env}:passage-chapter:{BBCCC}` — chapter-level passage counter
+- `telemetry:v1:{env}:passage-book:{BB}` — book-level passage counter
+- `telemetry:v1:{env}:passage-testament:{ot|nt}` — testament-level passage counter
+- `telemetry:v1:{env}:last_article` — JSON record of last article accessed
+- (plus existing consumer, tool, method, verification, self-report counters)
 
 Retention behavior follows `GC_TTL` (30 days) as garbage-collection policy.
 

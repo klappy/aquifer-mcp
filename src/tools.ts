@@ -25,6 +25,11 @@ const TELEMETRY_POLICY_BASE = [
   "- Consumer-label source counts (`x-aquifer-client`, `initialize.clientInfo.name`, `user-agent`, `unknown`).",
   "- Consumer verification class counts (`verified`, `unverified`).",
   "- Self-report completeness scoring and transparency badges for optional metadata disclosure.",
+  "- Resource access counts by resource_code (structural identifier, not content).",
+  "- Language access counts by language code.",
+  "- Article access counts by compound key (resource_code:language:content_id).",
+  "- Search type breakdown (passage, entity, title) classified from query pattern, not raw query text.",
+  "- Last article accessed (compound key + tool + timestamp).",
   "- Last telemetry update timestamp.",
   "",
   "## Allowed Optional Client Sharing (Not Required Server Collection)",
@@ -87,7 +92,7 @@ export async function handleReadme(
 
   try {
     const resp = await fetch(README_RAW_URL, {
-      headers: { "User-Agent": "aquifer-mcp/0.6.0" },
+      headers: { "User-Agent": "aquifer-mcp/0.7.0" },
     });
     if (!resp.ok) {
       const cached = await env.AQUIFER_CACHE.get(cacheKey);
@@ -134,13 +139,23 @@ export async function handleTelemetryPublic(
   const limit = Math.min(50, Math.max(1, Number.isFinite(requestedLimit) ? requestedLimit : 10));
   const snapshot = await getPublicTelemetrySnapshot(env, limit);
 
-  const consumerLines = snapshot.leaderboards.consumers.length
-    ? snapshot.leaderboards.consumers.map((item, idx) => `${idx + 1}. ${item.name} — ${item.calls} calls`).join("\n")
-    : "_No consumer calls recorded yet._";
+  const rankLines = (items: typeof snapshot.leaderboards.consumers, empty: string) =>
+    items.length
+      ? items.map((item, idx) => `${idx + 1}. ${item.name} — ${item.calls} calls`).join("\n")
+      : empty;
 
-  const toolLines = snapshot.leaderboards.tools.length
-    ? snapshot.leaderboards.tools.map((item, idx) => `${idx + 1}. ${item.name} — ${item.calls} calls`).join("\n")
-    : "_No tool calls recorded yet._";
+  const consumerLines = rankLines(snapshot.leaderboards.consumers, "_No consumer calls recorded yet._");
+  const toolLines = rankLines(snapshot.leaderboards.tools, "_No tool calls recorded yet._");
+  const resourceLines = rankLines(snapshot.leaderboards.resources, "_No resource access recorded yet._");
+  const languageLines = rankLines(snapshot.leaderboards.languages, "_No language access recorded yet._");
+  const articleLines = snapshot.leaderboards.articles.length
+    ? snapshot.leaderboards.articles.map((item, idx) => `${idx + 1}. ${item.name} — ${item.calls} accesses`).join("\n")
+    : "_No article access recorded yet._";
+  const searchTypeLines = rankLines(snapshot.search_type_counts, "_No search type counts recorded yet._");
+  const passageTestamentLines = rankLines(snapshot.passage_counts.testaments, "_No passage testament counts yet._");
+  const passageBookLines = rankLines(snapshot.passage_counts.books, "_No passage book counts yet._");
+  const passageChapterLines = rankLines(snapshot.passage_counts.chapters, "_No passage chapter counts yet._");
+  const passageVerseLines = rankLines(snapshot.passage_counts.verses, "_No passage verse counts yet._");
   const weightedConsumerLines = snapshot.leaderboards.consumers_weighted.length
     ? snapshot.leaderboards.consumers_weighted.map((item, idx) => `${idx + 1}. ${item.name} — ${item.calls} weighted points`).join("\n")
     : "_No weighted consumer scores recorded yet._";
@@ -156,18 +171,14 @@ export async function handleTelemetryPublic(
   const tracked = snapshot.tracked_fields.map((field) => `- ${field}`).join("\n");
   const trackedNotes = snapshot.tracked_field_notes.map((field) => `- ${field}`).join("\n");
   const excluded = snapshot.excluded_fields.map((field) => `- ${field}`).join("\n");
-  const methodLines = snapshot.method_counts.length
-    ? snapshot.method_counts.map((item, idx) => `${idx + 1}. ${item.name} — ${item.calls} calls`).join("\n")
-    : "_No method counts recorded yet._";
-  const sourceLines = snapshot.consumer_label_sources.length
-    ? snapshot.consumer_label_sources.map((item, idx) => `${idx + 1}. ${item.name} — ${item.calls} calls`).join("\n")
-    : "_No label source counts recorded yet._";
-  const verificationLines = snapshot.consumer_verification_counts.length
-    ? snapshot.consumer_verification_counts.map((item, idx) => `${idx + 1}. ${item.name} — ${item.calls} calls`).join("\n")
-    : "_No verification counts recorded yet._";
-  const selfReportFieldLines = snapshot.self_report_field_counts.length
-    ? snapshot.self_report_field_counts.map((item, idx) => `${idx + 1}. ${item.name} — ${item.calls} calls`).join("\n")
-    : "_No self-report field counts recorded yet._";
+  const methodLines = rankLines(snapshot.method_counts, "_No method counts recorded yet._");
+  const sourceLines = rankLines(snapshot.consumer_label_sources, "_No label source counts recorded yet._");
+  const verificationLines = rankLines(snapshot.consumer_verification_counts, "_No verification counts recorded yet._");
+  const selfReportFieldLines = rankLines(snapshot.self_report_field_counts, "_No self-report field counts recorded yet._");
+
+  const lastArticle = snapshot.last_article
+    ? `${snapshot.last_article.resource_code}/${snapshot.last_article.language}/${snapshot.last_article.content_id} (via ${snapshot.last_article.tool} at ${snapshot.last_article.accessed_at})`
+    : "none yet";
 
   return textResult(
     [
@@ -176,6 +187,31 @@ export async function handleTelemetryPublic(
       "## Totals",
       `- MCP requests: ${snapshot.totals.mcp_requests}`,
       `- Tool calls: ${snapshot.totals.tool_calls}`,
+      "",
+      "## Resource Leaderboard",
+      resourceLines,
+      "",
+      "## Language Leaderboard",
+      languageLines,
+      "",
+      "## Article Leaderboard",
+      articleLines,
+      "",
+      "## Search Type Breakdown",
+      searchTypeLines,
+      "",
+      "## Passage Hierarchy (from passage searches)",
+      "### By Testament",
+      passageTestamentLines,
+      "### By Book",
+      passageBookLines,
+      "### By Chapter",
+      passageChapterLines,
+      "### By Verse",
+      passageVerseLines,
+      "",
+      "## Last Article Accessed",
+      `- ${lastArticle}`,
       "",
       "## Consumer Leaderboard",
       consumerLines,
