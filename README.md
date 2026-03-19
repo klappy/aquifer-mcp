@@ -27,7 +27,7 @@ Production URLs:
 - Aquifer MCP: `https://aquifer.klappy.dev/mcp`
 - Aquifer Window: `https://aquifer-window.klappy.dev`
 
-**Preview deployments** (branches like `staging`, PR builds): Cloudflare uses hostnames of the form **`https://<prefix>-aquifer-mcp.klappy.workers.dev`** — the `<prefix>` comes from the deployment (get the **full URL** from **Cloudflare → your Worker → latest preview deployment**). Smoke test with `GET …/health` and `POST …/mcp` the same way as production.
+**Staging preview** (git branch `staging`): **`https://staging-aquifer-mcp.klappy.workers.dev`** (`/health`, `/mcp` — same as production). Other branches: **`https://<branch-slug>-aquifer-mcp.klappy.workers.dev`** (slug matches branch name; check Cloudflare if a branch has an odd slug).
 
 Two slices of one pie:
 
@@ -137,7 +137,7 @@ npm run test
 npm run deploy
 ```
 
-**Branch strategy** and **preview URLs** (`…-aquifer-mcp.klappy.workers.dev`) are in [`docs/branch-and-deployment-strategy.md`](docs/branch-and-deployment-strategy.md) and [`DEPLOY-SETUP.md`](DEPLOY-SETUP.md).
+**Branch strategy** and **preview URLs** (`staging` → `https://staging-aquifer-mcp.klappy.workers.dev`) are in [`docs/branch-and-deployment-strategy.md`](docs/branch-and-deployment-strategy.md) and [`DEPLOY-SETUP.md`](DEPLOY-SETUP.md).
 
 **Deploy path:** push your branch → Cloudflare builds → use the **preview** or **production** URL the dashboard shows. No GitHub secrets required for deploy in this repo.
 

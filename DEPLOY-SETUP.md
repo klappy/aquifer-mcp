@@ -4,13 +4,13 @@
 
 **Production** is usually the **default** Wrangler worker **`aquifer-mcp`** on your **production branch** (often `main`), plus your custom route if configured (e.g. `aquifer.klappy.dev`).
 
-**Preview deployments** (other branches / PRs): Cloudflare assigns URLs that match:
+**Preview deployments** (other branches / PRs): hostnames follow:
 
 ```text
-*-aquifer-mcp.klappy.workers.dev
+<branch-slug>-aquifer-mcp.klappy.workers.dev
 ```
 
-The `*` prefix is **per deployment** (branch slug, hash, etc.) — copy the **full hostname** from the **Cloudflare build / deployment details** after each push; do not guess it.
+**Git branch `staging`** (this repo): **`https://staging-aquifer-mcp.klappy.workers.dev`** — e.g. `GET /health`, `POST /mcp`. Other branches use their slug as the prefix; confirm in Cloudflare if unsure.
 
 ---
 
@@ -31,8 +31,8 @@ Exact UI labels change over time; the invariant is: **the dashboard shows the re
 | You want | You do |
 |----------|--------|
 | **Production deploy** | Push (or merge) to the **production** branch Cloudflare uses. |
-| **Preview deploy (e.g. `staging`)** | Push that branch; open the deployment in Cloudflare and use the **`…-aquifer-mcp.klappy.workers.dev`** URL shown there. |
-| **Verify** | `GET https://<full-hostname>/health` (preview or prod). |
+| **Preview deploy (`staging` branch)** | Push `staging` → **`https://staging-aquifer-mcp.klappy.workers.dev`** |
+| **Verify** | `GET https://staging-aquifer-mcp.klappy.workers.dev/health` (preview) or prod URL |
 
 You do **not** need GitHub repository secrets for deploy **unless** you add your own optional workflows (this repo only runs **CI**: build + test).
 

@@ -519,3 +519,5 @@ Prior docs assumed a separate worker hostname pattern that did not match the acc
 ### Decisions
 
 **D23: Document preview URL pattern and dashboard as source of truth for the full hostname; distinguish Git previews from Wrangler `[env.staging]`.**
+
+**O31: For this account, git branch `staging` preview host is `staging-aquifer-mcp.klappy.workers.dev` (pattern `<branch-slug>-aquifer-mcp.klappy.workers.dev`).** Verified `GET /health` returns `0.6.0`.

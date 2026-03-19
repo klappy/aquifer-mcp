@@ -18,7 +18,7 @@ All notable changes to aquifer-mcp will be documented in this file.
 ### Changed
 
 - Deploy: removed `deploy-staging.yml` and `deploy-production.yml`; deploy is **Cloudflare dashboard Git integration** only (`DEPLOY-SETUP.md`, `docs/branch-and-deployment-strategy.md`). Removed `docs/github-actions-cloudflare-secrets.md`.
-- Docs: production Worker `aquifer-mcp` vs Cloudflare Git **preview** hostnames `…-aquifer-mcp.klappy.workers.dev` (prefix from dashboard; not `aquifer-mcp-staging.*`). Wrangler `[env.staging]` remains optional local/maintainer only.
+- Docs: Cloudflare Git previews use `<branch-slug>-aquifer-mcp.klappy.workers.dev` (git `staging` → `staging-aquifer-mcp.klappy.workers.dev`). Not `aquifer-mcp-staging.*`. Wrangler `[env.staging]` remains optional local/maintainer only.
 - Updated telemetry disclosures to match observed collection exactly (aggregate counters only, no per-request raw event log claims).
 - Added consumer label source tracking (`x-aquifer-client`, `initialize.clientInfo.name`, `user-agent`, `unknown`) to make leaderboard provenance explicit.
 - Enforced automatic tracking for all `tools/call` usage and added weighted consumer leaderboard scoring (verified clients `10x` via allowlist).
