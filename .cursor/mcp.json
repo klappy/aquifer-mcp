@@ -1,7 +1,7 @@
 {
   "mcpServers": {
     "aquifer-mcp": {
-      "url": "http://localhost:8787/mcp"
+      "url": "https://aquifer.klappy.dev/mcp"
     }
   }
 }

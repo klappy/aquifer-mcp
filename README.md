@@ -2,7 +2,7 @@
 
 Thin Cloudflare Workers MCP server for navigating Bible Aquifer content.
 
-Current runtime version: `0.5.1`
+Current runtime version: `0.5.2`
 
 Most users should use the deployed endpoint directly. Running locally is primarily for agentic contributors developing this server.
 
@@ -19,6 +19,11 @@ He pointed me to Oddkit for epistemic posture, pointed me to prior MCP work for 
 In this latest codebase, that includes the explicit `browse` tool so catalog exploration is first-class, v0.4 content-addressed SHA-keyed caching so freshness comes from observed repo state instead of TTL assumptions, and v0.5 in-band README access through the `readme` tool.
 
 And the Aquifer Window story stays the same: it uses this server as its content backend. The Window and agent clients are two interfaces over the same corpus and the same MCP endpoint.
+
+Production URLs:
+
+- Aquifer MCP: `https://aquifer.klappy.dev/mcp`
+- Aquifer Window: `https://aquifer-window.klappy.dev`
 
 Two slices of one pie:
 
@@ -52,6 +57,8 @@ MCP endpoint:
 
 The Aquifer Window does not use a separate backend for content. It uses this exact MCP server as its content interface.
 
+Live Window URL: `https://aquifer-window.klappy.dev`
+
 Window behavior maps directly to these tool calls:
 
 - resource discovery -> `list`
@@ -70,8 +77,8 @@ Both the agent experience and the Aquifer Window experience resolve through the 
 
 Use the deployed endpoint directly:
 
-- MCP URL: `https://aquifer-mcp.klappy.workers.dev/mcp`
-- Health: `https://aquifer-mcp.klappy.workers.dev/health`
+- MCP URL: `https://aquifer.klappy.dev/mcp`
+- Health: `https://aquifer.klappy.dev/health`
 
 Cursor config:
 
@@ -79,7 +86,7 @@ Cursor config:
 {
   "mcpServers": {
     "aquifer-mcp": {
-      "url": "https://aquifer-mcp.klappy.workers.dev/mcp"
+      "url": "https://aquifer.klappy.dev/mcp"
     }
   }
 }
@@ -134,7 +141,7 @@ Default (deployed):
 {
   "mcpServers": {
     "aquifer-mcp": {
-      "url": "https://aquifer-mcp.klappy.workers.dev/mcp"
+      "url": "https://aquifer.klappy.dev/mcp"
     }
   }
 }
@@ -153,7 +160,7 @@ These examples target the deployed endpoint, since that is the normal usage path
 ### Initialize
 
 ```bash
-curl -X POST https://aquifer-mcp.klappy.workers.dev/mcp \
+curl -X POST https://aquifer.klappy.dev/mcp \
   -H "Content-Type: application/json" \
   -d '{
     "jsonrpc":"2.0",
@@ -166,7 +173,7 @@ curl -X POST https://aquifer-mcp.klappy.workers.dev/mcp \
 ### List tools
 
 ```bash
-curl -X POST https://aquifer-mcp.klappy.workers.dev/mcp \
+curl -X POST https://aquifer.klappy.dev/mcp \
   -H "Content-Type: application/json" \
   -d '{
     "jsonrpc":"2.0",
@@ -179,7 +186,7 @@ curl -X POST https://aquifer-mcp.klappy.workers.dev/mcp \
 ### `readme`
 
 ```bash
-curl -X POST https://aquifer-mcp.klappy.workers.dev/mcp \
+curl -X POST https://aquifer.klappy.dev/mcp \
   -H "Content-Type: application/json" \
   -d '{
     "jsonrpc":"2.0",
@@ -195,7 +202,7 @@ curl -X POST https://aquifer-mcp.klappy.workers.dev/mcp \
 ### `list`
 
 ```bash
-curl -X POST https://aquifer-mcp.klappy.workers.dev/mcp \
+curl -X POST https://aquifer.klappy.dev/mcp \
   -H "Content-Type: application/json" \
   -d '{
     "jsonrpc":"2.0",
@@ -211,7 +218,7 @@ curl -X POST https://aquifer-mcp.klappy.workers.dev/mcp \
 ### `search`
 
 ```bash
-curl -X POST https://aquifer-mcp.klappy.workers.dev/mcp \
+curl -X POST https://aquifer.klappy.dev/mcp \
   -H "Content-Type: application/json" \
   -d '{
     "jsonrpc":"2.0",
@@ -225,7 +232,7 @@ curl -X POST https://aquifer-mcp.klappy.workers.dev/mcp \
 ```
 
 ```bash
-curl -X POST https://aquifer-mcp.klappy.workers.dev/mcp \
+curl -X POST https://aquifer.klappy.dev/mcp \
   -H "Content-Type: application/json" \
   -d '{
     "jsonrpc":"2.0",
@@ -241,7 +248,7 @@ curl -X POST https://aquifer-mcp.klappy.workers.dev/mcp \
 ### `get`
 
 ```bash
-curl -X POST https://aquifer-mcp.klappy.workers.dev/mcp \
+curl -X POST https://aquifer.klappy.dev/mcp \
   -H "Content-Type: application/json" \
   -d '{
     "jsonrpc":"2.0",
@@ -261,7 +268,7 @@ curl -X POST https://aquifer-mcp.klappy.workers.dev/mcp \
 ### `related`
 
 ```bash
-curl -X POST https://aquifer-mcp.klappy.workers.dev/mcp \
+curl -X POST https://aquifer.klappy.dev/mcp \
   -H "Content-Type: application/json" \
   -d '{
     "jsonrpc":"2.0",
@@ -281,7 +288,7 @@ curl -X POST https://aquifer-mcp.klappy.workers.dev/mcp \
 ### `browse`
 
 ```bash
-curl -X POST https://aquifer-mcp.klappy.workers.dev/mcp \
+curl -X POST https://aquifer.klappy.dev/mcp \
   -H "Content-Type: application/json" \
   -d '{
     "jsonrpc":"2.0",

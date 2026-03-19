@@ -2,6 +2,15 @@
 
 All notable changes to aquifer-mcp will be documented in this file.
 
+## [0.5.2] - 2026-03-19
+
+### Changed
+
+- Updated deployed MCP and health URLs in README to `https://aquifer.klappy.dev`.
+- Added live Aquifer Window production URL `https://aquifer-window.klappy.dev` in README.
+- Switched default `.cursor/mcp.json` endpoint from localhost to production.
+- Bumped runtime, package metadata, and User-Agent strings to `0.5.2`.
+
 ## [0.5.1] - 2026-03-19
 
 ### Changed
