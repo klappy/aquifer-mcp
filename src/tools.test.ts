@@ -120,6 +120,8 @@ const MAP_ARTICLE_2: ArticleContent = {
 };
 
 function buildMockIndex(entries: ResourceEntry[], passageEntries?: [string, ArticleRef[]][]): NavigabilityIndex {
+  const repoShas = new Map<string, string>();
+  for (const e of entries) repoShas.set(e.resource_code, "abc123test");
   return {
     registry: entries,
     passage: new Map(passageEntries ?? [["45001001-45001017", [ROMANS_ARTICLE_REF]]]),
@@ -129,6 +131,8 @@ function buildMockIndex(entries: ResourceEntry[], passageEntries?: [string, Arti
       { resource_code: "FIAMaps", language: "eng", content_id: "368172", title: "Abram's Journey from Ur to Canaan", resource_type: "Images, Maps, Videos" },
     ],
     built_at: Date.now(),
+    composite_sha: "mock_composite_sha",
+    repo_shas: repoShas,
   };
 }
 
@@ -143,6 +147,7 @@ vi.mock("./github.js", () => ({
   metadataUrl: vi.fn((org: string, code: string, lang: string) => `https://raw.githubusercontent.com/${org}/${code}/main/${lang}/metadata.json`),
   contentUrl: vi.fn((org: string, code: string, lang: string, file: string) => `https://raw.githubusercontent.com/${org}/${code}/main/${lang}/json/${file}`),
   fetchJson: vi.fn(),
+  GC_TTL: 2592000,
 }));
 
 import { getOrBuildIndex } from "./registry.js";

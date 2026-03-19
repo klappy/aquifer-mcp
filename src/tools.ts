@@ -1,6 +1,6 @@
 import type { Env, ArticleRef, ArticleContent, NavigabilityIndex, ResourceEntry, ResourceMetadata } from "./types.js";
 import { parseReference, rangesOverlap, rangeToReadable, isValidIndexReference } from "./references.js";
-import { contentUrl, metadataUrl, fetchJson } from "./github.js";
+import { contentUrl, metadataUrl, fetchJson, GC_TTL } from "./github.js";
 import { getOrBuildIndex } from "./registry.js";
 
 function textResult(text: string) {
@@ -149,7 +149,9 @@ export async function handleGet(
     return textResult(`Resource "${resourceCode}" not found in the registry.`);
   }
 
-  const article = await findArticle(resourceCode, language, contentId, entry, env);
+  const sha = index.repo_shas.get(resourceCode) ?? "";
+  if (!sha) return textResult(`No SHA available for resource "${resourceCode}".`);
+  const article = await findArticle(resourceCode, language, contentId, entry, env, sha, index);
   if (!article) {
     return textResult(
       `Article ${contentId} not found in ${resourceCode}/${language}. Verify the content_id is correct.`,
@@ -175,7 +177,9 @@ export async function handleRelated(
   const entry = index.registry.find((r) => r.resource_code === resourceCode);
   if (!entry) return textResult(`Resource "${resourceCode}" not found.`);
 
-  const article = await findArticle(resourceCode, language, contentId, entry, env);
+  const sha = index.repo_shas.get(resourceCode) ?? "";
+  if (!sha) return textResult(`No SHA available for resource "${resourceCode}".`);
+  const article = await findArticle(resourceCode, language, contentId, entry, env, sha, index);
   if (!article) return textResult(`Article ${contentId} not found.`);
 
   const related: Array<{ type: string; refs: ArticleRef[] }> = [];
@@ -243,10 +247,13 @@ async function findArticle(
   contentId: string,
   entry: ResourceEntry,
   env: Env,
+  sha: string,
+  index: NavigabilityIndex,
 ): Promise<ArticleContent | null> {
-  const indexReference = await resolveIndexReference(resourceCode, language, contentId, env);
-  const metadataFiles = await listContentFiles(resourceCode, language, entry.order, env);
-  const cachedFile = await env.AQUIFER_CACHE.get(`article-file:v1:${resourceCode}:${language}:${contentId}`);
+  const indexReference = await resolveIndexReference(resourceCode, language, contentId, env, sha);
+  const metadataFiles = await listContentFiles(resourceCode, language, entry.order, env, sha);
+  const articleFileKey = `${sha}:article-file:v2:${resourceCode}:${language}:${contentId}`;
+  const cachedFile = await env.AQUIFER_CACHE.get(articleFileKey);
 
   const candidateFiles: string[] = [];
   if (cachedFile) candidateFiles.push(cachedFile);
@@ -258,15 +265,14 @@ async function findArticle(
   const uniqueFiles = Array.from(new Set(candidateFiles));
   for (const file of uniqueFiles) {
     if (!file) continue;
-    const articles = await fetchContentFile(resourceCode, language, file, env);
+    const articles = await fetchContentFile(resourceCode, language, file, env, sha);
     if (!articles) continue;
 
     const found = articles.find((a) => String(a.content_id) === contentId) ?? null;
     if (found) {
-      await env.AQUIFER_CACHE.put(`article-file:v1:${resourceCode}:${language}:${contentId}`, file, {
-        expirationTtl: 86400,
+      await env.AQUIFER_CACHE.put(articleFileKey, file, {
+        expirationTtl: GC_TTL,
       });
-      const index = await getOrBuildIndex(env);
       ingestArticleEntities(index, entry, found);
       return found;
     }
@@ -280,10 +286,11 @@ async function fetchContentFile(
   language: string,
   file: string,
   env: Env,
+  sha: string,
 ): Promise<ArticleContent[] | null> {
   const url = contentUrl(env.AQUIFER_ORG, resourceCode, language, file);
   const cacheKey = `content:${resourceCode}:${language}:${file}`;
-  return fetchJson<ArticleContent[]>(url, env, cacheKey);
+  return fetchJson<ArticleContent[]>(url, env, cacheKey, sha);
 }
 
 async function listContentFiles(
@@ -291,8 +298,9 @@ async function listContentFiles(
   language: string,
   order: string,
   env: Env,
+  sha: string,
 ): Promise<string[]> {
-  const metadata = await getResourceMetadata(resourceCode, language, env);
+  const metadata = await getResourceMetadata(resourceCode, language, env, sha);
   const ingredientKeys = Object.keys(metadata?.scripture_burrito?.ingredients ?? {});
   const files = ingredientKeys
     .filter((k) => k.startsWith("json/") && k.endsWith(".content.json"))
@@ -310,10 +318,11 @@ async function getResourceMetadata(
   resourceCode: string,
   language: string,
   env: Env,
+  sha: string,
 ): Promise<ResourceMetadata | null> {
   const url = metadataUrl(env.AQUIFER_ORG, resourceCode, language);
   const cacheKey = `metadata:${resourceCode}:${language}`;
-  return fetchJson<ResourceMetadata>(url, env, cacheKey);
+  return fetchJson<ResourceMetadata>(url, env, cacheKey, sha);
 }
 
 async function resolveIndexReference(
@@ -321,13 +330,14 @@ async function resolveIndexReference(
   language: string,
   contentId: string,
   env: Env,
+  sha: string,
 ): Promise<string | null> {
-  const metadata = await getResourceMetadata(resourceCode, language, env);
+  const metadata = await getResourceMetadata(resourceCode, language, env, sha);
   const direct = metadata?.article_metadata?.[contentId]?.index_reference;
   if (direct && isValidIndexReference(direct)) return direct;
 
   if (language !== "eng") {
-    const englishMetadata = await getResourceMetadata(resourceCode, "eng", env);
+    const englishMetadata = await getResourceMetadata(resourceCode, "eng", env, sha);
     if (englishMetadata?.article_metadata) {
       for (const article of Object.values(englishMetadata.article_metadata)) {
         const localizedContentId = article.localizations?.[language]?.content_id;
@@ -366,7 +376,7 @@ async function bootstrapEntityMatches(
   index: NavigabilityIndex,
   env: Env,
 ): Promise<ArticleRef[]> {
-  const cacheKey = `entity-search:v1:${normalizedEntityId}`;
+  const cacheKey = `${index.composite_sha}:entity-search:v3:${normalizedEntityId}`;
   const cached = await env.AQUIFER_CACHE.get(cacheKey, "json") as ArticleRef[] | null;
   if (cached?.length) {
     index.entity.set(normalizedEntityId, cached);
@@ -375,9 +385,11 @@ async function bootstrapEntityMatches(
 
   const matches: ArticleRef[] = [];
   for (const entry of index.registry) {
-    const files = await listContentFiles(entry.resource_code, entry.language, entry.order, env);
+    const repoSha = index.repo_shas.get(entry.resource_code);
+    if (!repoSha) continue;
+    const files = await listContentFiles(entry.resource_code, entry.language, entry.order, env, repoSha);
     for (const file of files) {
-      const articles = await fetchContentFile(entry.resource_code, entry.language, file, env);
+      const articles = await fetchContentFile(entry.resource_code, entry.language, file, env, repoSha);
       if (!articles?.length) continue;
 
       for (const article of articles) {
@@ -400,7 +412,7 @@ async function bootstrapEntityMatches(
   const deduped = deduplicateRefs(matches);
   if (deduped.length > 0) {
     index.entity.set(normalizedEntityId, deduped);
-    await env.AQUIFER_CACHE.put(cacheKey, JSON.stringify(deduped), { expirationTtl: 86400 });
+    await env.AQUIFER_CACHE.put(cacheKey, JSON.stringify(deduped), { expirationTtl: GC_TTL });
   }
   return deduped;
 }
@@ -457,14 +469,15 @@ async function buildCatalog(
   language: string,
   entry: ResourceEntry,
   env: Env,
+  sha: string,
 ): Promise<BrowseCatalogEntry[]> {
-  const cacheKey = `browse:v1:${resourceCode}:${language}`;
+  const cacheKey = `${sha}:browse:v2:${resourceCode}:${language}`;
   const cached = await env.AQUIFER_CACHE.get(cacheKey, "json") as BrowseCatalogEntry[] | null;
   if (cached) return cached;
 
-  const files = await listContentFiles(resourceCode, language, entry.order, env);
+  const files = await listContentFiles(resourceCode, language, entry.order, env, sha);
   const results = await Promise.allSettled(
-    files.map((file) => fetchContentFile(resourceCode, language, file, env)),
+    files.map((file) => fetchContentFile(resourceCode, language, file, env, sha)),
   );
 
   const catalog: BrowseCatalogEntry[] = [];
@@ -485,7 +498,7 @@ async function buildCatalog(
   }
 
   if (catalog.length > 0) {
-    await env.AQUIFER_CACHE.put(cacheKey, JSON.stringify(catalog), { expirationTtl: 86400 });
+    await env.AQUIFER_CACHE.put(cacheKey, JSON.stringify(catalog), { expirationTtl: GC_TTL });
   }
   return catalog;
 }
@@ -505,7 +518,9 @@ export async function handleBrowse(
   const entry = index.registry.find((r) => r.resource_code === resourceCode);
   if (!entry) return textResult(`Resource "${resourceCode}" not found in the registry.`);
 
-  const catalog = await buildCatalog(resourceCode, language, entry, env);
+  const sha = index.repo_shas.get(resourceCode) ?? "";
+  if (!sha) return textResult(`No SHA available for resource "${resourceCode}".`);
+  const catalog = await buildCatalog(resourceCode, language, entry, env, sha);
   if (catalog.length === 0) return textResult(`No articles found in ${resourceCode}/${language}.`);
 
   const totalPages = Math.ceil(catalog.length / pageSize);
