@@ -3,8 +3,42 @@ import { parseReference, rangesOverlap, rangeToReadable, isValidIndexReference }
 import { contentUrl, metadataUrl, fetchJson, GC_TTL } from "./github.js";
 import { getOrBuildIndex } from "./registry.js";
 
+const README_RAW_URL = "https://raw.githubusercontent.com/klappy/aquifer-mcp/main/README.md";
+
 function textResult(text: string) {
   return { content: [{ type: "text" as const, text }] };
+}
+
+export async function handleReadme(
+  args: Record<string, unknown>,
+  env: Env,
+) {
+  const refresh = Boolean(args.refresh);
+  const cacheKey = "readme:v1:main";
+
+  if (!refresh) {
+    const cached = await env.AQUIFER_CACHE.get(cacheKey);
+    if (cached) return textResult(cached);
+  }
+
+  try {
+    const resp = await fetch(README_RAW_URL, {
+      headers: { "User-Agent": "aquifer-mcp/0.5" },
+    });
+    if (!resp.ok) {
+      const cached = await env.AQUIFER_CACHE.get(cacheKey);
+      if (cached) return textResult(cached);
+      return textResult(`Failed to fetch README (${resp.status}).`);
+    }
+
+    const readme = await resp.text();
+    await env.AQUIFER_CACHE.put(cacheKey, readme, { expirationTtl: GC_TTL });
+    return textResult(readme);
+  } catch {
+    const cached = await env.AQUIFER_CACHE.get(cacheKey);
+    if (cached) return textResult(cached);
+    return textResult("Failed to fetch README.");
+  }
 }
 
 export async function handleList(

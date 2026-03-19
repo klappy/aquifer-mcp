@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { handleList, handleSearch, handleGet, handleRelated, handleBrowse } from "./tools.js";
+import { handleList, handleSearch, handleGet, handleRelated, handleBrowse, handleReadme } from "./tools.js";
 import type { Env, NavigabilityIndex, ResourceEntry, ArticleRef, ArticleContent, ResourceMetadata } from "./types.js";
 
 // --- Mock KV store ---
@@ -524,5 +524,45 @@ describe("handleBrowse", () => {
     // page_size=999 → clamped to 100
     const result2 = await handleBrowse({ resource_code: "FIAMaps", page_size: 999 }, env);
     expect(result2.content[0]!.text).toContain("page 1/1");
+  });
+});
+
+describe("handleReadme", () => {
+  let env: Env;
+
+  beforeEach(() => {
+    env = { AQUIFER_CACHE: createMockKV(), AQUIFER_ORG: "BibleAquifer", DOCS_REPO: "docs" };
+  });
+
+  it("fetches README and caches it", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: true,
+      text: async () => "# Aquifer MCP\n\nREADME body",
+    } as Response);
+
+    const result = await handleReadme({}, env);
+    expect(result.content[0]!.text).toContain("# Aquifer MCP");
+    expect(result.content[0]!.text).toContain("README body");
+    expect(fetchSpy).toHaveBeenCalled();
+    fetchSpy.mockRestore();
+  });
+
+  it("returns cached README when refresh is false", async () => {
+    await env.AQUIFER_CACHE.put("readme:v1:main", "# Cached README");
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+
+    const result = await handleReadme({}, env);
+    expect(result.content[0]!.text).toContain("# Cached README");
+    expect(fetchSpy).not.toHaveBeenCalled();
+    fetchSpy.mockRestore();
+  });
+
+  it("falls back to cached README if fetch fails", async () => {
+    await env.AQUIFER_CACHE.put("readme:v1:main", "# Cached README");
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("network"));
+
+    const result = await handleReadme({ refresh: true }, env);
+    expect(result.content[0]!.text).toContain("# Cached README");
+    fetchSpy.mockRestore();
   });
 });

@@ -2,7 +2,7 @@
 
 Thin Cloudflare Workers MCP server for navigating Bible Aquifer content.
 
-Current runtime version: `0.4.0`
+Current runtime version: `0.5.0`
 
 Most users should use the deployed endpoint directly. Running locally is primarily for agentic contributors developing this server.
 
@@ -10,8 +10,9 @@ Most users should use the deployed endpoint directly. Running locally is primari
 
 ## What It Exposes
 
-Aquifer MCP provides five tools:
+Aquifer MCP provides six tools:
 
+- `readme` - fetch this README as markdown through MCP
 - `list` - list resources and metadata summary
 - `search` - search by passage, ACAI entity, or title keyword
 - `get` - fetch full article content by compound key
@@ -153,6 +154,22 @@ curl -X POST https://aquifer-mcp.klappy.workers.dev/mcp \
     "id":2,
     "method":"tools/list",
     "params":{}
+  }'
+```
+
+### `readme`
+
+```bash
+curl -X POST https://aquifer-mcp.klappy.workers.dev/mcp \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc":"2.0",
+    "id":9,
+    "method":"tools/call",
+    "params":{
+      "name":"readme",
+      "arguments":{"refresh":false}
+    }
   }'
 ```
 

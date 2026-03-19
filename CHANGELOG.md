@@ -2,6 +2,14 @@
 
 All notable changes to aquifer-mcp will be documented in this file.
 
+## [0.5.0] - 2026-03-19
+
+### Added
+
+- New `readme` MCP tool to fetch project README markdown directly through `tools/call`.
+- Optional `refresh` argument on `readme` to bypass cached copy and refetch from GitHub.
+- README documentation and JSON-RPC example for `readme`.
+
 ## [0.4.0] - 2026-03-19
 
 ### Changed
