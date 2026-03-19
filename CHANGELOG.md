@@ -2,6 +2,27 @@
 
 All notable changes to aquifer-mcp will be documented in this file.
 
+## [0.7.0] - 2026-03-19
+
+### Added
+
+- Resource-level telemetry: tracks which resources (`resource_code`), languages, and articles (compound key) are accessed across `get`, `related`, and `browse` tool calls.
+- Search type telemetry: classifies search queries as passage, entity, or title by pattern (no raw query text stored).
+- Hierarchical passage telemetry: passage searches roll up into verse (BBCCCVVV), chapter (BBCCC), book (BB), and testament (ot/nt) counters automatically.
+- Last article accessed: JSON record of the most recent article fetch (compound key, tool, timestamp) for real-time activity pulse.
+- New `passage_counts` section in `telemetry_public` snapshot with testament, book, chapter, and verse leaderboards.
+- New `classifySearchType` and `passageHierarchy` exported functions in `src/telemetry.ts`.
+- 8 new telemetry tests (76 total): passage hierarchy decomposition, hierarchical counter recording, accumulation across same-book searches, entity search non-interference.
+
+### Changed
+
+- Telemetry snapshot schema bumped to `telemetry-public-v2` with new leaderboards (resources, languages, articles) and new fields (`search_type_counts`, `passage_counts`, `last_article`).
+- `telemetry_public` tool output now shows Resource, Language, Article, Search Type, and Passage Hierarchy sections above consumer leaderboards.
+- `telemetry_policy` tool output updated to document resource-level and passage hierarchy tracking.
+- Telemetry governance doc (`docs/telemetry-governance-snapshot.md`) updated with new KV key patterns and tracked dimensions.
+- Project journal (`odd/ledger/journal.md`) updated with resource-level telemetry OLDC (O32-O34, L18-L19, D24-D25).
+- Bumped runtime, package metadata, and User-Agent strings to `0.7.0`.
+
 ## [0.6.0] - 2026-03-19
 
 ### Added
