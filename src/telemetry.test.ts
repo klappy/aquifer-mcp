@@ -40,6 +40,7 @@ function createEnv(overrides?: Partial<Env>): Env {
     AQUIFER_CACHE: createMockKV(),
     AQUIFER_ORG: "BibleAquifer",
     DOCS_REPO: "docs",
+    WORKER_ENV: "production",
     ...overrides,
   };
 }

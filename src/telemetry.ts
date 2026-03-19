@@ -1,17 +1,7 @@
 import type { Env } from "./types.js";
 import { GC_TTL } from "./github.js";
 
-const TELEMETRY_PREFIX = "telemetry:v1";
 const MAX_LABEL_LENGTH = 80;
-const LABEL_SOURCE_PREFIX = `${TELEMETRY_PREFIX}:consumer-source:`;
-const METHOD_PREFIX = `${TELEMETRY_PREFIX}:method:`;
-const TOOL_PREFIX = `${TELEMETRY_PREFIX}:tool:`;
-const CONSUMER_PREFIX = `${TELEMETRY_PREFIX}:consumer:`;
-const CONSUMER_WEIGHTED_PREFIX = `${TELEMETRY_PREFIX}:consumer-weighted:`;
-const CONSUMER_VERIFICATION_PREFIX = `${TELEMETRY_PREFIX}:consumer-verification:`;
-const CONSUMER_SELF_REPORT_POINTS_PREFIX = `${TELEMETRY_PREFIX}:consumer-self-report-points:`;
-const CONSUMER_SELF_REPORT_MAX_PREFIX = `${TELEMETRY_PREFIX}:consumer-self-report-max:`;
-const SELF_REPORT_FIELD_PREFIX = `${TELEMETRY_PREFIX}:self-report-field:`;
 const VERIFIED_SCORE_MULTIPLIER = 10;
 const SELF_REPORT_FIELDS = [
   "client_name",
@@ -24,6 +14,42 @@ const SELF_REPORT_FIELDS = [
   "capabilities",
 ] as const;
 const SELF_REPORT_FIELD_MAX = SELF_REPORT_FIELDS.length;
+
+interface TelemetryPrefixes {
+  base: string;
+  mcp_requests: string;
+  tool_calls: string;
+  last_recorded_at: string;
+  labelSource: string;
+  method: string;
+  tool: string;
+  consumer: string;
+  consumerWeighted: string;
+  consumerVerification: string;
+  consumerSelfReportPoints: string;
+  consumerSelfReportMax: string;
+  selfReportField: string;
+}
+
+function buildPrefixes(env: Env): TelemetryPrefixes {
+  const workerEnv = env.WORKER_ENV ?? "production";
+  const base = `telemetry:v1:${workerEnv}`;
+  return {
+    base,
+    mcp_requests: `${base}:mcp_requests`,
+    tool_calls: `${base}:tool_calls`,
+    last_recorded_at: `${base}:last_recorded_at`,
+    labelSource: `${base}:consumer-source:`,
+    method: `${base}:method:`,
+    tool: `${base}:tool:`,
+    consumer: `${base}:consumer:`,
+    consumerWeighted: `${base}:consumer-weighted:`,
+    consumerVerification: `${base}:consumer-verification:`,
+    consumerSelfReportPoints: `${base}:consumer-self-report-points:`,
+    consumerSelfReportMax: `${base}:consumer-self-report-max:`,
+    selfReportField: `${base}:self-report-field:`,
+  };
+}
 
 type ConsumerLabelSource =
   | "x-aquifer-client"
@@ -223,6 +249,8 @@ export async function recordPublicTelemetry(request: Request, env: Env): Promise
   const url = new URL(request.url);
   if (url.pathname !== "/mcp") return;
 
+  const p = buildPrefixes(env);
+
   let payload: unknown = null;
   try {
     payload = await request.clone().json();
@@ -241,11 +269,11 @@ export async function recordPublicTelemetry(request: Request, env: Env): Promise
 
   for (const message of messages) {
     const method = parseJsonRpcMethod(message) ?? "unknown";
-    await incrementCounter(env, `${TELEMETRY_PREFIX}:mcp_requests`);
-    await incrementCounter(env, `${METHOD_PREFIX}${sanitizeLabel(method.toLowerCase())}`);
+    await incrementCounter(env, p.mcp_requests);
+    await incrementCounter(env, `${p.method}${sanitizeLabel(method.toLowerCase())}`);
 
     if (method === "tools/call") {
-      await incrementCounter(env, `${TELEMETRY_PREFIX}:tool_calls`);
+      await incrementCounter(env, p.tool_calls);
 
       const consumerInfo = getConsumerLabelInfo(request, message, batchClientName);
       const isVerified = verifiedClients.has(consumerInfo.label.toLowerCase());
@@ -255,29 +283,31 @@ export async function recordPublicTelemetry(request: Request, env: Env): Promise
         (sum, field) => sum + (selfReportDetails[field] ? 1 : 0),
         0,
       );
-      await incrementCounter(env, `${CONSUMER_PREFIX}${consumerInfo.label}`);
-      await incrementCounterBy(env, `${CONSUMER_WEIGHTED_PREFIX}${consumerInfo.label}`, weightedScore);
-      await incrementCounter(env, `${LABEL_SOURCE_PREFIX}${consumerInfo.source}`);
-      await incrementCounter(env, `${CONSUMER_VERIFICATION_PREFIX}${isVerified ? "verified" : "unverified"}`);
-      await incrementCounterBy(env, `${CONSUMER_SELF_REPORT_POINTS_PREFIX}${consumerInfo.label}`, selfReportPoints);
-      await incrementCounterBy(env, `${CONSUMER_SELF_REPORT_MAX_PREFIX}${consumerInfo.label}`, SELF_REPORT_FIELD_MAX);
+      await incrementCounter(env, `${p.consumer}${consumerInfo.label}`);
+      await incrementCounterBy(env, `${p.consumerWeighted}${consumerInfo.label}`, weightedScore);
+      await incrementCounter(env, `${p.labelSource}${consumerInfo.source}`);
+      await incrementCounter(env, `${p.consumerVerification}${isVerified ? "verified" : "unverified"}`);
+      await incrementCounterBy(env, `${p.consumerSelfReportPoints}${consumerInfo.label}`, selfReportPoints);
+      await incrementCounterBy(env, `${p.consumerSelfReportMax}${consumerInfo.label}`, SELF_REPORT_FIELD_MAX);
       for (const field of SELF_REPORT_FIELDS) {
         if (selfReportDetails[field]) {
-          await incrementCounter(env, `${SELF_REPORT_FIELD_PREFIX}${field}`);
+          await incrementCounter(env, `${p.selfReportField}${field}`);
         }
       }
 
       const toolName = parseToolName(message) ?? "unknown";
-      await incrementCounter(env, `${TOOL_PREFIX}${toolName}`);
+      await incrementCounter(env, `${p.tool}${toolName}`);
     }
   }
 
-  await env.AQUIFER_CACHE.put(`${TELEMETRY_PREFIX}:last_recorded_at`, new Date().toISOString(), {
+  await env.AQUIFER_CACHE.put(p.last_recorded_at, new Date().toISOString(), {
     expirationTtl: GC_TTL,
   });
 }
 
 export async function getPublicTelemetrySnapshot(env: Env, limit: number): Promise<PublicTelemetrySnapshot> {
+  const p = buildPrefixes(env);
+
   const [
     mcpRequestsRaw,
     toolCallsRaw,
@@ -292,63 +322,63 @@ export async function getPublicTelemetrySnapshot(env: Env, limit: number): Promi
     selfReportMaxCounters,
     selfReportFieldCounters,
   ] = await Promise.all([
-    env.AQUIFER_CACHE.get(`${TELEMETRY_PREFIX}:mcp_requests`),
-    env.AQUIFER_CACHE.get(`${TELEMETRY_PREFIX}:tool_calls`),
-    env.AQUIFER_CACHE.get(`${TELEMETRY_PREFIX}:last_recorded_at`),
-    readCounters(env, CONSUMER_PREFIX),
-    readCounters(env, CONSUMER_WEIGHTED_PREFIX),
-    readCounters(env, TOOL_PREFIX),
-    readCounters(env, METHOD_PREFIX),
-    readCounters(env, LABEL_SOURCE_PREFIX),
-    readCounters(env, CONSUMER_VERIFICATION_PREFIX),
-    readCounters(env, CONSUMER_SELF_REPORT_POINTS_PREFIX),
-    readCounters(env, CONSUMER_SELF_REPORT_MAX_PREFIX),
-    readCounters(env, SELF_REPORT_FIELD_PREFIX),
+    env.AQUIFER_CACHE.get(p.mcp_requests),
+    env.AQUIFER_CACHE.get(p.tool_calls),
+    env.AQUIFER_CACHE.get(p.last_recorded_at),
+    readCounters(env, p.consumer),
+    readCounters(env, p.consumerWeighted),
+    readCounters(env, p.tool),
+    readCounters(env, p.method),
+    readCounters(env, p.labelSource),
+    readCounters(env, p.consumerVerification),
+    readCounters(env, p.consumerSelfReportPoints),
+    readCounters(env, p.consumerSelfReportMax),
+    readCounters(env, p.selfReportField),
   ]);
 
   const consumers = consumerCounters
-    .map((item) => ({ name: item.key.replace(`${TELEMETRY_PREFIX}:consumer:`, ""), calls: item.calls }))
+    .map((item) => ({ name: item.key.replace(p.consumer, ""), calls: item.calls }))
     .sort((a, b) => b.calls - a.calls)
     .slice(0, limit);
 
   const tools = toolCounters
-    .map((item) => ({ name: item.key.replace(TOOL_PREFIX, ""), calls: item.calls }))
+    .map((item) => ({ name: item.key.replace(p.tool, ""), calls: item.calls }))
     .sort((a, b) => b.calls - a.calls)
     .slice(0, limit);
 
   const consumersWeighted = consumerWeightedCounters
-    .map((item) => ({ name: item.key.replace(CONSUMER_WEIGHTED_PREFIX, ""), calls: item.calls }))
+    .map((item) => ({ name: item.key.replace(p.consumerWeighted, ""), calls: item.calls }))
     .sort((a, b) => b.calls - a.calls)
     .slice(0, limit);
 
   const methods = methodCounters
-    .map((item) => ({ name: item.key.replace(METHOD_PREFIX, ""), calls: item.calls }))
+    .map((item) => ({ name: item.key.replace(p.method, ""), calls: item.calls }))
     .sort((a, b) => b.calls - a.calls)
     .slice(0, limit);
 
   const consumerLabelSources = sourceCounters
-    .map((item) => ({ name: item.key.replace(LABEL_SOURCE_PREFIX, ""), calls: item.calls }))
+    .map((item) => ({ name: item.key.replace(p.labelSource, ""), calls: item.calls }))
     .sort((a, b) => b.calls - a.calls)
     .slice(0, limit);
 
   const consumerVerificationCounts = verificationCounters
-    .map((item) => ({ name: item.key.replace(CONSUMER_VERIFICATION_PREFIX, ""), calls: item.calls }))
+    .map((item) => ({ name: item.key.replace(p.consumerVerification, ""), calls: item.calls }))
     .sort((a, b) => b.calls - a.calls)
     .slice(0, limit);
 
   const selfReportFieldCounts = selfReportFieldCounters
-    .map((item) => ({ name: item.key.replace(SELF_REPORT_FIELD_PREFIX, ""), calls: item.calls }))
+    .map((item) => ({ name: item.key.replace(p.selfReportField, ""), calls: item.calls }))
     .sort((a, b) => b.calls - a.calls)
     .slice(0, limit);
 
   const pointsByConsumer = new Map(
-    selfReportPointsCounters.map((item) => [item.key.replace(CONSUMER_SELF_REPORT_POINTS_PREFIX, ""), item.calls]),
+    selfReportPointsCounters.map((item) => [item.key.replace(p.consumerSelfReportPoints, ""), item.calls]),
   );
   const maxByConsumer = new Map(
-    selfReportMaxCounters.map((item) => [item.key.replace(CONSUMER_SELF_REPORT_MAX_PREFIX, ""), item.calls]),
+    selfReportMaxCounters.map((item) => [item.key.replace(p.consumerSelfReportMax, ""), item.calls]),
   );
   const callCountByConsumer = new Map(
-    consumerCounters.map((item) => [item.key.replace(`${TELEMETRY_PREFIX}:consumer:`, ""), item.calls]),
+    consumerCounters.map((item) => [item.key.replace(p.consumer, ""), item.calls]),
   );
   const transparencyLeaderboard: TransparencyLeaderboardItem[] = Array.from(
     new Set([...pointsByConsumer.keys(), ...maxByConsumer.keys(), ...callCountByConsumer.keys()]),

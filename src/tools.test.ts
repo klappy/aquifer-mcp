@@ -187,7 +187,7 @@ describe("handleList", () => {
   let env: Env;
 
   beforeEach(() => {
-    env = { AQUIFER_CACHE: createMockKV(), AQUIFER_ORG: "BibleAquifer", DOCS_REPO: "docs" };
+    env = { AQUIFER_CACHE: createMockKV(), AQUIFER_ORG: "BibleAquifer", DOCS_REPO: "docs", WORKER_ENV: "production" };
     mockGetOrBuildIndex.mockResolvedValue(buildMockIndex([STUDY_NOTES_ENTRY, FIA_MAPS_ENTRY]));
   });
 
@@ -221,7 +221,7 @@ describe("handleSearch", () => {
   let env: Env;
 
   beforeEach(() => {
-    env = { AQUIFER_CACHE: createMockKV(), AQUIFER_ORG: "BibleAquifer", DOCS_REPO: "docs" };
+    env = { AQUIFER_CACHE: createMockKV(), AQUIFER_ORG: "BibleAquifer", DOCS_REPO: "docs", WORKER_ENV: "production" };
     mockGetOrBuildIndex.mockResolvedValue(buildMockIndex([STUDY_NOTES_ENTRY, FIA_MAPS_ENTRY]));
     mockFetchJson.mockResolvedValue(null);
   });
@@ -261,7 +261,7 @@ describe("handleGet", () => {
   let env: Env;
 
   beforeEach(() => {
-    env = { AQUIFER_CACHE: createMockKV(), AQUIFER_ORG: "BibleAquifer", DOCS_REPO: "docs" };
+    env = { AQUIFER_CACHE: createMockKV(), AQUIFER_ORG: "BibleAquifer", DOCS_REPO: "docs", WORKER_ENV: "production" };
     mockGetOrBuildIndex.mockResolvedValue(buildMockIndex([STUDY_NOTES_ENTRY]));
   });
 
@@ -324,7 +324,7 @@ describe("handleRelated", () => {
   let env: Env;
 
   beforeEach(() => {
-    env = { AQUIFER_CACHE: createMockKV(), AQUIFER_ORG: "BibleAquifer", DOCS_REPO: "docs" };
+    env = { AQUIFER_CACHE: createMockKV(), AQUIFER_ORG: "BibleAquifer", DOCS_REPO: "docs", WORKER_ENV: "production" };
     const otherRef: ArticleRef = {
       resource_code: "AquiferOpenStudyNotes",
       language: "eng",
@@ -372,7 +372,7 @@ describe("handleBrowse", () => {
   let env: Env;
 
   beforeEach(() => {
-    env = { AQUIFER_CACHE: createMockKV(), AQUIFER_ORG: "BibleAquifer", DOCS_REPO: "docs" };
+    env = { AQUIFER_CACHE: createMockKV(), AQUIFER_ORG: "BibleAquifer", DOCS_REPO: "docs", WORKER_ENV: "production" };
     mockGetOrBuildIndex.mockResolvedValue(buildMockIndex([STUDY_NOTES_ENTRY, FIA_MAPS_ENTRY]));
   });
 
@@ -556,7 +556,7 @@ describe("handleReadme", () => {
   let env: Env;
 
   beforeEach(() => {
-    env = { AQUIFER_CACHE: createMockKV(), AQUIFER_ORG: "BibleAquifer", DOCS_REPO: "docs" };
+    env = { AQUIFER_CACHE: createMockKV(), AQUIFER_ORG: "BibleAquifer", DOCS_REPO: "docs", WORKER_ENV: "production" };
   });
 
   it("fetches README and caches it", async () => {
@@ -596,7 +596,7 @@ describe("handleTelemetryPolicy", () => {
   let env: Env;
 
   beforeEach(() => {
-    env = { AQUIFER_CACHE: createMockKV(), AQUIFER_ORG: "BibleAquifer", DOCS_REPO: "docs" };
+    env = { AQUIFER_CACHE: createMockKV(), AQUIFER_ORG: "BibleAquifer", DOCS_REPO: "docs", WORKER_ENV: "production" };
   });
 
   it("returns base policy with no surface", async () => {
@@ -627,7 +627,7 @@ describe("handleTelemetryPublic", () => {
   let env: Env;
 
   beforeEach(() => {
-    env = { AQUIFER_CACHE: createMockKV(), AQUIFER_ORG: "BibleAquifer", DOCS_REPO: "docs" };
+    env = { AQUIFER_CACHE: createMockKV(), AQUIFER_ORG: "BibleAquifer", DOCS_REPO: "docs", WORKER_ENV: "production" };
   });
 
   it("returns empty leaderboard state when no telemetry exists", async () => {
@@ -639,20 +639,20 @@ describe("handleTelemetryPublic", () => {
   });
 
   it("returns ranked consumers and tools from telemetry counters", async () => {
-    await env.AQUIFER_CACHE.put("telemetry:v1:mcp_requests", "17");
-    await env.AQUIFER_CACHE.put("telemetry:v1:tool_calls", "12");
-    await env.AQUIFER_CACHE.put("telemetry:v1:consumer:Cursor", "8");
-    await env.AQUIFER_CACHE.put("telemetry:v1:consumer:AquiferWindow", "4");
-    await env.AQUIFER_CACHE.put("telemetry:v1:consumer-weighted:Cursor", "80");
-    await env.AQUIFER_CACHE.put("telemetry:v1:consumer-weighted:AquiferWindow", "4");
-    await env.AQUIFER_CACHE.put("telemetry:v1:consumer-verification:verified", "8");
-    await env.AQUIFER_CACHE.put("telemetry:v1:consumer-verification:unverified", "4");
-    await env.AQUIFER_CACHE.put("telemetry:v1:consumer-self-report-points:Cursor", "64");
-    await env.AQUIFER_CACHE.put("telemetry:v1:consumer-self-report-max:Cursor", "64");
-    await env.AQUIFER_CACHE.put("telemetry:v1:self-report-field:client_name", "12");
-    await env.AQUIFER_CACHE.put("telemetry:v1:self-report-field:surface", "9");
-    await env.AQUIFER_CACHE.put("telemetry:v1:tool:search", "7");
-    await env.AQUIFER_CACHE.put("telemetry:v1:tool:get", "5");
+    await env.AQUIFER_CACHE.put("telemetry:v1:production:mcp_requests", "17");
+    await env.AQUIFER_CACHE.put("telemetry:v1:production:tool_calls", "12");
+    await env.AQUIFER_CACHE.put("telemetry:v1:production:consumer:Cursor", "8");
+    await env.AQUIFER_CACHE.put("telemetry:v1:production:consumer:AquiferWindow", "4");
+    await env.AQUIFER_CACHE.put("telemetry:v1:production:consumer-weighted:Cursor", "80");
+    await env.AQUIFER_CACHE.put("telemetry:v1:production:consumer-weighted:AquiferWindow", "4");
+    await env.AQUIFER_CACHE.put("telemetry:v1:production:consumer-verification:verified", "8");
+    await env.AQUIFER_CACHE.put("telemetry:v1:production:consumer-verification:unverified", "4");
+    await env.AQUIFER_CACHE.put("telemetry:v1:production:consumer-self-report-points:Cursor", "64");
+    await env.AQUIFER_CACHE.put("telemetry:v1:production:consumer-self-report-max:Cursor", "64");
+    await env.AQUIFER_CACHE.put("telemetry:v1:production:self-report-field:client_name", "12");
+    await env.AQUIFER_CACHE.put("telemetry:v1:production:self-report-field:surface", "9");
+    await env.AQUIFER_CACHE.put("telemetry:v1:production:tool:search", "7");
+    await env.AQUIFER_CACHE.put("telemetry:v1:production:tool:get", "5");
 
     const result = await handleTelemetryPublic({ limit: 5 }, env);
     const text = result.content[0]!.text;

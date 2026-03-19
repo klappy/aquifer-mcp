@@ -6,6 +6,7 @@ compatibility_flags = ["nodejs_compat"]
 [vars]
 AQUIFER_ORG = "BibleAquifer"
 DOCS_REPO = "docs"
+WORKER_ENV = "production"
 TELEMETRY_VERIFIED_CLIENTS = ""
 
 [[kv_namespaces]]
@@ -22,6 +23,7 @@ name = "aquifer-mcp-staging"
 [env.staging.vars]
 AQUIFER_ORG = "BibleAquifer"
 DOCS_REPO = "docs"
+WORKER_ENV = "staging"
 TELEMETRY_VERIFIED_CLIENTS = ""
 
 [[env.staging.kv_namespaces]]
