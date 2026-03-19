@@ -29,6 +29,7 @@ const TELEMETRY_POLICY_BASE = [
   "- Language access counts by language code.",
   "- Article access counts by compound key (resource_code:language:content_id).",
   "- Search type breakdown (passage, entity, title) classified from query pattern, not raw query text.",
+  "- Passage hierarchy rollup counters (testament, book, chapter, verse) for passage searches.",
   "- Last article accessed (compound key + tool + timestamp).",
   "- Last telemetry update timestamp.",
   "",
