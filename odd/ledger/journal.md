@@ -521,3 +521,46 @@ Prior docs assumed a separate worker hostname pattern that did not match the acc
 **D23: Document preview URL pattern and dashboard as source of truth for the full hostname; distinguish Git previews from Wrangler `[env.staging]`.**
 
 **O31: For this account, git branch `staging` preview host is `staging-aquifer-mcp.klappy.workers.dev` (pattern `<branch-slug>-aquifer-mcp.klappy.workers.dev`).** Verified `GET /health` returns `0.6.0`.
+
+---
+
+## OLDC — oddkit `encode` record (2026-03-19)
+
+**Tool:** `oddkit_encode` · **encode status:** `ENCODED` · **artifact status:** `draft` · **quality:** weak (2/5) · **tool timestamp:** `2026-03-19T19:51:48.100Z`
+
+**Artifact type:** decision  
+
+**Decision (artifact body, verbatim):**  
+Aquifer MCP (`klappy/aquifer-mcp`): (1) Cloudflare Git preview hostnames follow `<branch-slug>-aquifer-mcp.klappy.workers.dev`; git branch `staging` maps to `staging-aquifer-mcp.klappy.workers.dev`. (2) GitHub Actions CI `push` trigger limited to `main` only (Cursor Agent) to stop duplicate CI on PR `synchronize`; `pull_request` still runs CI for all branches. (3) `main` branch protected: required PR, strict status check `CI / build-test`, no force-push or deletion, 0 required approvals. (4) Telemetry on staging verified: KV totals, method counts, consumer leaderboards, label sources (`x-aquifer-client`, `initialize.clientInfo.name`, `user-agent`). (5) Docs: `DEPLOY-SETUP.md`, `docs/branch-and-deployment-strategy.md` (branch-protection guide may land via follow-up PR). **Tradeoff:** pushes to `staging` without a PR no longer trigger GitHub CI from the `push` event.
+
+**Rationale (ledger strengthening — oddkit gap: none in raw encode):**  
+*Because* overlapping `push` + `pull_request` workflows duplicated CI signal and cost; *because* `main` is production lineage and must require a PR plus green `CI / build-test` (strict) before merge; *because* preview hostnames must match observed Cloudflare Workers Git behavior so pre-prod testing hits the correct edge; *because* telemetry aggregates were exercised on `staging` before trusting public leaderboard semantics.
+
+**Constraints (from encode + ops):**  
+- `main`: PR required, strict `CI / build-test`, no force-push / deletion (approvals: 0 for solo merge after green CI).
+
+**Alternatives considered:**  
+- CI: `concurrency` / `paths-ignore` instead of `push: [main]` — heavier to tune; branch-scoped push list (`main`, `staging`) possible if staging-push CI is required again.  
+- Branch protection: require ≥1 approval — deferred for solo maintainer velocity; enable when second reviewer exists.
+
+**Reversibility:** GitHub branch protection and workflow triggers are dashboard/API-editable; preview hostname docs are documentation-only; telemetry KV keys remain purgeable via TTL/policy.
+
+**oddkit quality gaps (original pass):** missing explicit rationale; suggestions were add rationale, alternatives, reversibility — addressed in this ledger block.
+
+---
+
+## Execution Update — PR merge path, CI dedup, governance encode closure (2026-03-19)
+
+### Observations
+
+**O32: Integration work reached `main` via PR merge (`#6`); `staging` fast-forwarded to include Cursor Agent CI change (`push` → `main` only).**
+
+**O33: oddkit `encode` on the bundled items scored weak until rationale, alternatives, and reversibility were anchored here (OLDC append).**
+
+### Decisions
+
+**D25: Record the bundled deploy/CI/telemetry/`main`-protection decisions as one durable governance closure in the project journal, with oddkit `encode` artifact referenced and ledger fields completed to meet epistemic debt on “why” and “undo”.**
+
+### Handoff
+
+If `ci.yml` **workflow `name`** or **job `id`** changes, update GitHub **required status checks** so `main` stays mergeable. For doc-only deltas (e.g. branch protection guide) not yet on `main`, ship via PR into `main` under the new protection rules.
