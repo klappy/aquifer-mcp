@@ -5,9 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "wrangler dev",
-    "build": "wrangler deploy --dry-run --env=\"\"",
-    "deploy": "wrangler deploy --env=\"\"",
-    "deploy:production": "wrangler deploy --env=\"\"",
+    "build": "wrangler deploy --dry-run",
+    "deploy": "wrangler deploy",
+    "deploy:production": "wrangler deploy",
     "deploy:staging": "wrangler deploy --env staging",
     "test": "vitest run",
     "test:watch": "vitest",

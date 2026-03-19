@@ -328,7 +328,9 @@ export async function getPublicTelemetrySnapshot(env: Env, limit: number): Promi
   const maxByConsumer = new Map(
     selfReportMaxCounters.map((item) => [item.key.replace(CONSUMER_SELF_REPORT_MAX_PREFIX, ""), item.calls]),
   );
-  const callCountByConsumer = new Map(consumers.map((item) => [item.name, item.calls]));
+  const callCountByConsumer = new Map(
+    consumerCounters.map((item) => [item.key.replace(`${TELEMETRY_PREFIX}:consumer:`, ""), item.calls]),
+  );
   const transparencyLeaderboard: TransparencyLeaderboardItem[] = Array.from(
     new Set([...pointsByConsumer.keys(), ...maxByConsumer.keys(), ...callCountByConsumer.keys()]),
   )
