@@ -25,6 +25,7 @@ All notable changes to aquifer-mcp will be documented in this file.
 - Added self-report transparency scoring and badge leaderboard to incentivize richer model/agent metadata disclosure.
 - Updated README telemetry section to document public transparency + gamification behavior and exact tracked/excluded fields.
 - Bumped runtime, package metadata, and User-Agent strings to `0.6.0`.
+- `docs/github-branch-protection.md` — `main` (strict) vs `staging` (light: no force-push/deletion, no required PR or status checks).
 
 ## [0.5.2] - 2026-03-19
 

@@ -564,3 +564,15 @@ Aquifer MCP (`klappy/aquifer-mcp`): (1) Cloudflare Git preview hostnames follow 
 ### Handoff
 
 If `ci.yml` **workflow `name`** or **job `id`** changes, update GitHub **required status checks** so `main` stays mergeable. For doc-only deltas (e.g. branch protection guide) not yet on `main`, ship via PR into `main` under the new protection rules.
+
+---
+
+## Execution Update — Light protection for `staging` (2026-03-19)
+
+### Decisions
+
+**D26: Apply GitHub branch protection on `staging` softer than `main`: disallow force-push and branch deletion; do not require PR or status checks** so integration can move quickly while keeping history and the branch itself safe.
+
+### Handoff
+
+Canonical comparison: `docs/github-branch-protection.md`. Tighten `staging` later (e.g. require PR or optional CI check) if the team wants more gatekeeping.
