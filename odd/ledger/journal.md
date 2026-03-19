@@ -506,3 +506,16 @@ In this setup, **only the default Worker** is deployed from Git integration; the
 ### Handoff
 
 Do not tell contributors to “deploy staging” via Cloudflare for routine releases.
+
+---
+
+## Execution Update — Preview hostnames `*-aquifer-mcp.klappy.workers.dev` (2026-03-19)
+
+### Observations
+
+**O30: Cloudflare Workers Git previews use `…-aquifer-mcp.klappy.workers.dev`, not `aquifer-mcp-staging.klappy.workers.dev`.**  
+Prior docs assumed a separate worker hostname pattern that did not match the account’s preview URL shape.
+
+### Decisions
+
+**D23: Document preview URL pattern and dashboard as source of truth for the full hostname; distinguish Git previews from Wrangler `[env.staging]`.**

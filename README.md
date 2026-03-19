@@ -27,6 +27,8 @@ Production URLs:
 - Aquifer MCP: `https://aquifer.klappy.dev/mcp`
 - Aquifer Window: `https://aquifer-window.klappy.dev`
 
+**Preview deployments** (branches like `staging`, PR builds): Cloudflare uses hostnames of the form **`https://<prefix>-aquifer-mcp.klappy.workers.dev`** — the `<prefix>` comes from the deployment (get the **full URL** from **Cloudflare → your Worker → latest preview deployment**). Smoke test with `GET …/health` and `POST …/mcp` the same way as production.
+
 Two slices of one pie:
 
 - Aquifer Window = human exploration
@@ -135,11 +137,11 @@ npm run test
 npm run deploy
 ```
 
-**Branch strategy** (git `staging` vs **`main` deploy**) is in [`docs/branch-and-deployment-strategy.md`](docs/branch-and-deployment-strategy.md). **Cloudflare deploys one Worker** (`aquifer-mcp`) from the branch you connect in the dashboard — pushing git branch `staging` is **not** a separate staging deploy unless you set that up yourself outside this doc.
+**Branch strategy** and **preview URLs** (`…-aquifer-mcp.klappy.workers.dev`) are in [`docs/branch-and-deployment-strategy.md`](docs/branch-and-deployment-strategy.md) and [`DEPLOY-SETUP.md`](DEPLOY-SETUP.md).
 
-**Preferred deploy path:** push or merge to the branch your **Cloudflare** project is connected to (usually **`main`**). No GitHub secrets required for deploy in this repo.
+**Deploy path:** push your branch → Cloudflare builds → use the **preview** or **production** URL the dashboard shows. No GitHub secrets required for deploy in this repo.
 
-- **CLI fallback (emergency):** `npm run deploy` — logged-in Wrangler on a machine (`deploy:staging` in `package.json` is optional Wrangler env for local/maintainer use, not “deploy the staging branch”)
+- **CLI fallback (emergency):** `npm run deploy` — logged-in Wrangler (`deploy:staging` is for **local Wrangler** `[env.staging]`, not the Git preview hostname)
 
 GitHub Actions: **build + test only** (`.github/workflows/ci.yml` on PRs and pushes).
 

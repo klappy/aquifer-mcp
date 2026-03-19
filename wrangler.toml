@@ -13,8 +13,8 @@ binding = "AQUIFER_CACHE"
 id = "aa19ca4a80aa48a5bf25317fd9b2d4e1"
 preview_id = "f73869e2e7ac4e04a9ee2fa3887ceefe"
 
-# Optional Wrangler environment for local dev / maintainer experiments only (`wrangler dev --env staging`).
-# Cloudflare Git integration in this project deploys the default Worker (`aquifer-mcp`) only — not a separate staging deploy.
+# Optional Wrangler environment for local dev / maintainer experiments (`wrangler dev --env staging`).
+# Cloudflare Git builds: production uses the default Worker; branch/PR previews use hostnames like `<prefix>-aquifer-mcp.klappy.workers.dev` (exact prefix is in the dashboard build output).
 # Uses preview KV (shared with `wrangler dev` default preview binding).
 [env.staging]
 name = "aquifer-mcp-staging"

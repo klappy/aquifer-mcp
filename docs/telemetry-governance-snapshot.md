@@ -161,5 +161,5 @@ Mandatory truth at baseline, optional richness by incentive:
 
 ## Related docs
 
-- `docs/branch-and-deployment-strategy.md` — git branches, one Cloudflare Worker deploy, CI
+- `docs/branch-and-deployment-strategy.md` — git branches, production + preview URLs (`…-aquifer-mcp.klappy.workers.dev`), CI
 - `README.md` — local dev, deploy commands, MCP URLs
