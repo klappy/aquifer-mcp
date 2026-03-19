@@ -2,7 +2,7 @@
 
 Thin Cloudflare Workers MCP server for navigating Bible Aquifer content.
 
-Current runtime version: `0.5.2`
+Current runtime version: `0.6.0`
 
 Most users should use the deployed endpoint directly. Running locally is primarily for agentic contributors developing this server.
 
@@ -34,9 +34,11 @@ Two slices of one pie:
 
 ## What It Exposes
 
-Aquifer MCP provides six tools:
+Aquifer MCP provides eight tools:
 
 - `readme` - fetch this README as markdown through MCP
+- `telemetry_policy` - fetch telemetry-sharing policy and client integration guidance
+- `telemetry_public` - fetch public telemetry snapshot and consumer/tool leaderboards
 - `list` - list resources and metadata summary
 - `search` - search by passage, ACAI entity, or title keyword
 - `get` - fetch full article content by compound key
@@ -131,6 +133,13 @@ npm run test
 npm run deploy
 ```
 
+**Branch strategy and testable Cloudflare deploys** (staging Worker vs production) are documented in [`docs/branch-and-deployment-strategy.md`](docs/branch-and-deployment-strategy.md).
+
+- **Production:** `npm run deploy` or `npm run deploy:production`
+- **Staging:** `npm run deploy:staging` — deploys Worker `aquifer-mcp-staging` (isolated from production KV)
+
+GitHub Actions: PRs and pushes run **build + test**; pushes to `staging` / `main` can deploy if `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` are set (see that doc).
+
 ---
 
 ## Cursor MCP Config
@@ -195,6 +204,38 @@ curl -X POST https://aquifer.klappy.dev/mcp \
     "params":{
       "name":"readme",
       "arguments":{"refresh":false}
+    }
+  }'
+```
+
+### `telemetry_policy`
+
+```bash
+curl -X POST https://aquifer.klappy.dev/mcp \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc":"2.0",
+    "id":10,
+    "method":"tools/call",
+    "params":{
+      "name":"telemetry_policy",
+      "arguments":{"surface":"mcp-client"}
+    }
+  }'
+```
+
+### `telemetry_public`
+
+```bash
+curl -X POST https://aquifer.klappy.dev/mcp \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc":"2.0",
+    "id":11,
+    "method":"tools/call",
+    "params":{
+      "name":"telemetry_public",
+      "arguments":{"limit":10}
     }
   }'
 ```
@@ -336,6 +377,59 @@ curl -X POST https://aquifer.klappy.dev/mcp \
 - cache keys are content-addressed by Git commit SHA (not time-window keys)
 - repo SHAs are checked against GitHub (ETag-aware) before cache reuse
 - KV TTL (`GC_TTL`) is 30 days for garbage collection, not freshness truth
+
+---
+
+## Telemetry And Sharing Policy
+
+Aquifer MCP aims to maximize operational visibility while preserving user anonymity by default.
+
+Telemetry should measure system behavior, not people:
+
+- Collect aggregate operational counters (JSON-RPC method counts, tool-call totals, tool leaderboards, consumer-label leaderboards, label-source counts)
+- Track all `tools/call` usage automatically at the server transport layer (no client opt-in required)
+- Treat consumer labels as transparent self-declarations (for openness/gamification), not identity proof unless allowlisted as verified
+- Apply weighted leaderboard scoring where verified clients are worth `10x` per tool call
+- Incentivize richer self-report metadata through a public transparency leaderboard and badge system
+- Do not collect user-identifying or content-bearing data by default
+- Do not collect raw prompts, raw query text, article content, model responses, names, emails, IP addresses, or fingerprint data
+
+For in-band client guidance, call the `telemetry_policy` tool from your client integration.
+For aggregate transparency and gamified usage visibility, call `telemetry_public`.
+For a single-page governance reference, see `docs/telemetry-governance-snapshot.md`.
+
+Supported `surface` values:
+
+- `mcp-client`
+- `aquifer-window`
+
+If no surface is provided, `telemetry_policy` returns the base policy.
+
+`telemetry_public` returns:
+
+- aggregate request and tool-call totals
+- top calling consumer labels
+- weighted consumer leaderboard (verified clients score `10x`)
+- transparency leaderboard (self-report completeness + badges)
+- top-used MCP tools
+- method counts, consumer-label source counts, verification-class counts, and self-report field coverage counts
+- explicit tracked/excluded field lists
+- last telemetry update timestamp
+
+Optional env var for weighted verification:
+
+- `TELEMETRY_VERIFIED_CLIENTS` - comma-separated consumer labels treated as verified for the 10x weighted leaderboard (example: `Cursor,ClaudeDesktop,AquiferWindow`)
+
+Recommended self-report headers (honor-system unless verified):
+
+- `x-aquifer-client`
+- `x-aquifer-client-version`
+- `x-aquifer-agent-name`
+- `x-aquifer-agent-version`
+- `x-aquifer-surface`
+- `x-aquifer-contact-url`
+- `x-aquifer-policy-url`
+- `x-aquifer-capabilities`
 
 ---
 

@@ -2,6 +2,28 @@
 
 All notable changes to aquifer-mcp will be documented in this file.
 
+## [0.6.0] - 2026-03-19
+
+### Added
+
+- New `telemetry_policy` MCP tool for in-band telemetry-sharing guidance, including allowed/excluded fields and surface-specific guidance (`mcp-client`, `aquifer-window`).
+- New `telemetry_public` MCP tool exposing public aggregate telemetry and leaderboard data (consumer labels, top tools, method counts, label-source counts).
+- New telemetry capture module in `src/telemetry.ts` with `/mcp` envelope instrumentation and KV-backed aggregate counters.
+- New telemetry tests in `src/telemetry.test.ts` covering explicit client labels, batch JSON-RPC handling, and snapshot output.
+- `docs/branch-and-deployment-strategy.md` — branch model (`main` / `staging` / feature branches), staging vs production Workers, CI and deploy secrets.
+- Wrangler `[env.staging]` — Worker `aquifer-mcp-staging` with preview KV (testable Cloudflare deploy without touching production KV).
+- GitHub Actions: `ci.yml` (build + test on all PRs/pushes), `deploy-staging.yml`, `deploy-production.yml` (Wrangler deploy when secrets are set).
+- npm scripts `deploy:staging` and `deploy:production`.
+
+### Changed
+
+- Updated telemetry disclosures to match observed collection exactly (aggregate counters only, no per-request raw event log claims).
+- Added consumer label source tracking (`x-aquifer-client`, `initialize.clientInfo.name`, `user-agent`, `unknown`) to make leaderboard provenance explicit.
+- Enforced automatic tracking for all `tools/call` usage and added weighted consumer leaderboard scoring (verified clients `10x` via allowlist).
+- Added self-report transparency scoring and badge leaderboard to incentivize richer model/agent metadata disclosure.
+- Updated README telemetry section to document public transparency + gamification behavior and exact tracked/excluded fields.
+- Bumped runtime, package metadata, and User-Agent strings to `0.6.0`.
+
 ## [0.5.2] - 2026-03-19
 
 ### Changed

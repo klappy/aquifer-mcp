@@ -5,7 +5,7 @@ scope: aquifer-mcp
 type: epistemic-ledger
 derives_from: "docs/aquifer-mcp-oldc.md"
 date_created: 2026-03-16
-last_updated: 2026-03-17
+last_updated: 2026-03-19
 ---
 
 # aquifer-mcp — Project Journal
@@ -355,3 +355,118 @@ The tool fetches from GitHub because the Aquifer API has no article enumeration 
 **C12 (new): Parallel content file fetches are bounded by resource size.**
 FIAMaps has 22 content files — manageable. Resources with hundreds of files could hit Worker CPU limits on cold cache. Use `Promise.allSettled` and return partial catalogs on failure.
 *Status: Active — design constraint*
+
+---
+
+## Execution Update — Telemetry OLDC Reset (2026-03-19)
+
+### Observations
+
+**O24: Telemetry and leaderboard features were implemented before full OLDC challenge/preflight sequence was completed.**
+Implementation was completed quickly and validated technically (build/tests), but epistemic sequencing was compressed for a governance-facing change.
+*Source: direct process observation during this telemetry cycle*
+
+### Learnings
+
+**L15: Public telemetry changes must be treated as trust-boundary changes, not routine feature work.**
+Because telemetry policy defines what user-adjacent signals are captured and exposed, it requires explicit challenge and preflight before acceptance.
+*Rests on: O24*
+
+### Decisions
+
+**D15: Preserve the current telemetry implementation as a candidate artifact and re-evaluate it through OLDC-first flow before accepting it as final.**
+*Because* premature convergence in telemetry design can encode weak assumptions and reduce epistemic integrity.
+*Alternatives considered:* (A) keep implementation as-is without formal re-evaluation, (B) revert all telemetry code and restart immediately, (C) treat current build as unvalidated candidate pending plan/challenge/preflight review.
+*Chosen:* C
+*Reversible:* Code path reversible; process rule permanent for this project.
+
+### Constraints
+
+**C13 (new): Anonymity-by-default telemetry boundary.**
+Telemetry must maximize aggregate operational transparency while excluding identity and raw content by default. Opt-in debug capture, if ever used, must be explicit and time-limited.
+*Status: Active*
+
+### Handoff
+
+Produce a plan-first telemetry packet (scope, insertion points, alternatives), challenge it adversarially, run preflight checks, compare against current implementation, then decide steer/pivot and rebuild if required.
+
+---
+
+## Execution Update — Public Telemetry Incentives (2026-03-19)
+
+### Observations
+
+**O25: KV-only aggregate counters are simple but brittle under concurrent increments and eventual consistency.**
+The telemetry path currently uses read-modify-write counter updates in Workers KV. This is lightweight and sufficient for basic visibility, but it can lose increments under high concurrency and produce temporarily stale leaderboard ordering.
+*Source: direct code observation in `src/telemetry.ts` and architecture review during telemetry challenge pass*
+
+**O26: Product direction requires mandatory baseline tracking plus optional honor-system richness.**
+The explicit requirement is that all tool usage must be tracked automatically, while non-verified details remain honor-system and are incentivized rather than enforced.
+*Source: direct requirement during telemetry design conversation*
+
+### Learnings
+
+**L16: Incentives work best when they are additive, not blocking.**
+Making baseline telemetry automatic preserves usage truth; adding transparency scoring and badges encourages richer self-report without degrading usability or introducing hard gates.
+*Rests on: O26*
+
+**L17: Public leaderboards need provenance signals, not just rank values.**
+Leaderboard trust improves when source and verification class are visible (`x-aquifer-client`, initialize clientInfo, user-agent, verified/unverified), even if details are honor-system.
+*Rests on: O25, O26*
+
+### Decisions
+
+**D16: Enforce automatic tracking for all `tools/call` usage in the server path.**
+*Because* usage truth cannot depend on optional client participation.
+*Alternatives considered:* optional-only telemetry, opt-in telemetry, and client-side-only reporting.
+*Reversible:* No (policy-level requirement), though implementation details are reversible.
+
+**D17: Add weighted usage ranking where verified clients score 10x per tool call.**
+*Because* verified identity should receive stronger leaderboard trust and recognition.
+*Alternatives considered:* no weighting, 2x/5x weighting, strict verification-only leaderboard.
+*Chosen:* 10x weighted + non-blocking open leaderboard.
+*Reversible:* Yes — multiplier remains a policy knob.
+
+**D18: Add a transparency leaderboard scored by self-report completeness with badges.**
+*Because* richer self-reported metadata is valuable but should be encouraged by incentives rather than enforced by request rejection.
+*Alternatives considered:* hard required metadata, no transparency ranking, private-only scoring.
+*Reversible:* Yes — scoring fields and badge thresholds are tunable.
+
+### Constraints
+
+**C14 (new): Mandatory baseline telemetry, optional enrichment.**
+All `tools/call` traffic must be tracked automatically. Additional self-report metadata remains optional and honor-system unless independently verified.
+*Status: Active*
+
+**C15 (new): Transparency incentives must remain non-blocking.**
+No request path may fail due to missing self-report fields. Missing detail affects ranking only.
+*Status: Active*
+
+### Handoff
+
+Monitor leaderboard gaming and counter drift behavior. If usage scale makes KV increment fragility observable, migrate telemetry writes to a Durable Object aggregator while preserving public tool contracts (`telemetry_policy`, `telemetry_public`).
+
+---
+
+## Execution Update — Branch and testable deploys (2026-03-19)
+
+### Observations
+
+**O27: Single-environment Wrangler config made pre-production Cloudflare testing implicit rather than explicit.**
+Without a named staging Worker, the only deploy target was production-shaped defaults.
+*Source: `wrangler.toml` prior to `[env.staging]` addition*
+
+### Decisions
+
+**D19: Add `staging` Wrangler environment (`aquifer-mcp-staging`) bound to preview KV for testable deploys.**
+*Because* staging should exercise real Workers + KV without writing telemetry or cache into production KV.
+*Alternatives considered:* duplicate KV namespace (documented upgrade path), workers.dev only local dev.
+*Reversible:* Yes — swap staging KV id when dedicated namespace is created.
+
+**D20: Document branch strategy and add GitHub Actions CI + optional deploy workflows.**
+*Because* PRs should always run build/test; `staging`/`main` pushes can deploy when secrets exist, matching Claude-style testable deployment loops.
+*Reversible:* Yes — workflows can be narrowed to `workflow_dispatch` only.
+
+### Handoff
+
+Ensure `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` are set before relying on deploy workflows. Gate or remove auto `main` deploy if production should stay manual.
