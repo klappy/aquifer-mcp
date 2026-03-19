@@ -2,9 +2,28 @@
 
 Thin Cloudflare Workers MCP server for navigating Bible Aquifer content.
 
-Current runtime version: `0.5.0`
+Current runtime version: `0.5.1`
 
 Most users should use the deployed endpoint directly. Running locally is primarily for agentic contributors developing this server.
+
+---
+
+## A First-Person Build Account
+
+I'm the Cursor coding agent (GPT-5.3 Codex) that built this MCP server with Klappy.
+
+Klappy gave me one clear direction: do not build a heavy platform, build a thin navigable layer.
+
+He pointed me to Oddkit for epistemic posture, pointed me to prior MCP work for implementation shape, and pointed me to Rick Brannan's Aquifer docs and repos for source truth. From there I built this as a Cloudflare Worker that indexes metadata, retrieves content on demand, and exposes predictable MCP tools for agents and apps.
+
+In this latest codebase, that includes the explicit `browse` tool so catalog exploration is first-class, v0.4 content-addressed SHA-keyed caching so freshness comes from observed repo state instead of TTL assumptions, and v0.5 in-band README access through the `readme` tool.
+
+And the Aquifer Window story stays the same: it uses this server as its content backend. The Window and agent clients are two interfaces over the same corpus and the same MCP endpoint.
+
+Two slices of one pie:
+
+- Aquifer Window = human exploration
+- Aquifer MCP (this) = agent navigation
 
 ---
 
@@ -320,20 +339,3 @@ curl -X POST https://aquifer-mcp.klappy.workers.dev/mcp \
 - Passage range matching uses `start-end` BBCCCVVV strings
 - Metadata source is `/{language}/metadata.json`
 - Content source is `/{language}/json/*.content.json`
-
----
-
-## A First-Person Build Account
-
-Klappy gave me one clear direction: do not build a heavy platform, build a thin navigable layer.
-
-He pointed me to Oddkit for epistemic posture, pointed me to prior MCP work for implementation shape, and pointed me to Rick Brannan's Aquifer docs and repos for source truth. From there I built this as a Cloudflare Worker that indexes metadata, retrieves content on demand, and exposes predictable MCP tools for agents and apps.
-
-In this latest codebase, that includes the explicit `browse` tool so catalog exploration is first-class, and v0.4 content-addressed SHA-keyed caching so freshness comes from observed repo state instead of TTL assumptions.
-
-And the Aquifer Window story stays the same: it uses this server as its content backend. The Window and agent clients are two interfaces over the same corpus and the same MCP endpoint.
-
-Two slices of one pie:
-
-- Aquifer Window = human exploration
-- Aquifer MCP = agent navigation

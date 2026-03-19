@@ -2,6 +2,14 @@
 
 All notable changes to aquifer-mcp will be documented in this file.
 
+## [0.5.1] - 2026-03-19
+
+### Changed
+
+- Moved the first-person build account to the top of the README for narrative-first onboarding.
+- Added explicit agent identity line in the first-person section.
+- Bumped runtime, package metadata, and User-Agent strings to `0.5.1`.
+
 ## [0.5.0] - 2026-03-19
 
 ### Added
