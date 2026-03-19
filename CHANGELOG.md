@@ -14,6 +14,7 @@ All notable changes to aquifer-mcp will be documented in this file.
 - Wrangler `[env.staging]` — Worker `aquifer-mcp-staging` with preview KV (testable Cloudflare deploy without touching production KV).
 - GitHub Actions: `ci.yml` (build + test on all PRs/pushes).
 - npm scripts `deploy:staging` and `deploy:production`.
+- `docs/github-branch-protection-main.md` — document GitHub `main` protection (PR + `CI / build-test`, strict); linked from branch strategy doc.
 
 ### Changed
 

@@ -7,6 +7,8 @@
 
 **CI:** GitHub Actions runs **build + test** on pushes and PRs; it does **not** deploy.
 
+**`main` is branch-protected** on GitHub: merges require a **pull request**, **`CI / build-test`** must pass (**strict** / up-to-date), **no force-push or branch delete**. Details and how to change settings: [`docs/github-branch-protection-main.md`](github-branch-protection-main.md).
+
 ## Branches
 
 | Branch | Role |
@@ -54,6 +56,7 @@ Production often uses a Worker route (e.g. `aquifer.klappy.dev`). Staging previe
 
 ## Related docs
 
+- [`github-branch-protection-main.md`](github-branch-protection-main.md) — protect `main` (PR + CI checks)
 - [`DEPLOY-SETUP.md`](../DEPLOY-SETUP.md) — Cloudflare Git + preview URL pattern
 - `docs/telemetry-governance-snapshot.md` — telemetry behavior and KV storage notes
 - `README.md` — local dev, health checks, MCP URLs

@@ -521,3 +521,15 @@ Prior docs assumed a separate worker hostname pattern that did not match the acc
 **D23: Document preview URL pattern and dashboard as source of truth for the full hostname; distinguish Git previews from Wrangler `[env.staging]`.**
 
 **O31: For this account, git branch `staging` preview host is `staging-aquifer-mcp.klappy.workers.dev` (pattern `<branch-slug>-aquifer-mcp.klappy.workers.dev`).** Verified `GET /health` returns `0.6.0`.
+
+---
+
+## Execution Update — GitHub `main` branch protection (2026-03-19)
+
+### Decisions
+
+**D24: Protect `main` with required PR path, strict required check `CI / build-test`, no force-push/deletion; 0 required approvals for solo merge after green CI.**
+
+### Handoff
+
+Canonical doc: `docs/github-branch-protection-main.md`. Change rules in GitHub Settings if team grows (e.g. require 1 approval).
