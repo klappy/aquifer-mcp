@@ -273,19 +273,33 @@ export async function recordPublicTelemetry(request: Request, env: Env): Promise
 }
 
 export async function getPublicTelemetrySnapshot(env: Env, limit: number): Promise<PublicTelemetrySnapshot> {
-  const mcpRequestsRaw = await env.AQUIFER_CACHE.get(`${TELEMETRY_PREFIX}:mcp_requests`);
-  const toolCallsRaw = await env.AQUIFER_CACHE.get(`${TELEMETRY_PREFIX}:tool_calls`);
-  const lastRecordedAt = await env.AQUIFER_CACHE.get(`${TELEMETRY_PREFIX}:last_recorded_at`);
-
-  const consumerCounters = await readCounters(env, CONSUMER_PREFIX);
-  const consumerWeightedCounters = await readCounters(env, CONSUMER_WEIGHTED_PREFIX);
-  const toolCounters = await readCounters(env, TOOL_PREFIX);
-  const methodCounters = await readCounters(env, METHOD_PREFIX);
-  const sourceCounters = await readCounters(env, LABEL_SOURCE_PREFIX);
-  const verificationCounters = await readCounters(env, CONSUMER_VERIFICATION_PREFIX);
-  const selfReportPointsCounters = await readCounters(env, CONSUMER_SELF_REPORT_POINTS_PREFIX);
-  const selfReportMaxCounters = await readCounters(env, CONSUMER_SELF_REPORT_MAX_PREFIX);
-  const selfReportFieldCounters = await readCounters(env, SELF_REPORT_FIELD_PREFIX);
+  const [
+    mcpRequestsRaw,
+    toolCallsRaw,
+    lastRecordedAt,
+    consumerCounters,
+    consumerWeightedCounters,
+    toolCounters,
+    methodCounters,
+    sourceCounters,
+    verificationCounters,
+    selfReportPointsCounters,
+    selfReportMaxCounters,
+    selfReportFieldCounters,
+  ] = await Promise.all([
+    env.AQUIFER_CACHE.get(`${TELEMETRY_PREFIX}:mcp_requests`),
+    env.AQUIFER_CACHE.get(`${TELEMETRY_PREFIX}:tool_calls`),
+    env.AQUIFER_CACHE.get(`${TELEMETRY_PREFIX}:last_recorded_at`),
+    readCounters(env, CONSUMER_PREFIX),
+    readCounters(env, CONSUMER_WEIGHTED_PREFIX),
+    readCounters(env, TOOL_PREFIX),
+    readCounters(env, METHOD_PREFIX),
+    readCounters(env, LABEL_SOURCE_PREFIX),
+    readCounters(env, CONSUMER_VERIFICATION_PREFIX),
+    readCounters(env, CONSUMER_SELF_REPORT_POINTS_PREFIX),
+    readCounters(env, CONSUMER_SELF_REPORT_MAX_PREFIX),
+    readCounters(env, SELF_REPORT_FIELD_PREFIX),
+  ]);
 
   const consumers = consumerCounters
     .map((item) => ({ name: item.key.replace(`${TELEMETRY_PREFIX}:consumer:`, ""), calls: item.calls }))
