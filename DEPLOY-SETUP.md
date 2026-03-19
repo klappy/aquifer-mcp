@@ -1,8 +1,8 @@
 # Deploy setup — Cloudflare Git integration
 
-**Deploys are not driven by GitHub Actions in this repo.** Production (and any other Workers you wire up) deploy when **Cloudflare builds from your connected Git repository** — the same flow you configure in the **Cloudflare dashboard** (Git connection / Workers Builds). A push to the branch Cloudflare watches triggers a deploy.
+**Deploys are not driven by GitHub Actions in this repo.** The Worker deploys when **Cloudflare builds from your connected Git repository** (dashboard Git integration / Workers Builds). A push to the branch Cloudflare watches triggers a deploy.
 
-This doc is the checklist so expectations match `wrangler.toml` and branches.
+**There is one deployed Worker in the normal setup:** **`aquifer-mcp`** (default environment in `wrangler.toml`). The git branch named `staging` is for **integration and CI**, not a second Cloudflare deployment you “turn on” by pushing.
 
 ---
 
@@ -10,13 +10,11 @@ This doc is the checklist so expectations match `wrangler.toml` and branches.
 
 1. Log in: **https://dash.cloudflare.com**
 2. Open **Workers & Pages** → your Worker project for Aquifer MCP (or create one from this repo).
-3. Use Cloudflare’s **Git integration** to connect **this GitHub repo** and pick:
-   - **Production branch** (often `main`) — maps to the **default** Wrangler environment → Worker name **`aquifer-mcp`** in `wrangler.toml`.
-   - If you use a **staging** Worker: either a **second Cloudflare project** bound to branch **`staging`** with build settings that run `wrangler deploy --env staging`, or Cloudflare’s **branch preview / environment** options if your plan supports them — match whatever the dashboard shows to **`[env.staging]`** (`aquifer-mcp-staging`).
+3. Connect **this GitHub repo** and set the **production branch** (often `main`) to match how you release. The build should use the **default** Wrangler project (worker name **`aquifer-mcp`**).
 
-Exact UI labels change over time; the invariant is: **the dashboard decides which branch deploys which Worker**, not this README.
+Exact UI labels change over time; the invariant is: **the dashboard decides which branch deploys**, not this README.
 
-4. Confirm **build command** and **root directory** in the Cloudflare project match how this repo builds (typically `npm ci` + `npm run build` / deploy step Wrangler expects — align with Cloudflare’s Worker build docs for Node projects).
+4. Confirm **build command** and **root directory** in the Cloudflare project match how this repo builds (typically `npm ci` + `npm run build` / whatever Wrangler expects — align with Cloudflare’s Worker build docs for Node projects).
 
 ---
 
@@ -33,14 +31,13 @@ You do **not** need GitHub repository secrets for deploy **unless** you add your
 
 ## Local / emergency CLI
 
-Maintainers can still run Wrangler from a machine with credentials:
+Maintainers can run Wrangler from a machine with credentials:
 
 ```bash
-npm run deploy:staging   # staging env
-npm run deploy           # production (default env)
+npm run deploy           # production Worker (default env)
 ```
 
-Use when debugging builds or when the dashboard path is unavailable — not required for day-to-day deploys if Git integration is on.
+Optional: `npm run deploy:staging` targets `[env.staging]` in `wrangler.toml` for **local experiments** — it is **not** the same as “push the `staging` git branch to Cloudflare.”
 
 ---
 
@@ -52,4 +49,4 @@ Workflow **`.github/workflows/ci.yml`** runs on pushes and PRs: install, `build`
 
 ## More detail
 
-- Branch roles and Worker names: [`docs/branch-and-deployment-strategy.md`](docs/branch-and-deployment-strategy.md)
+- Branch roles: [`docs/branch-and-deployment-strategy.md`](docs/branch-and-deployment-strategy.md)

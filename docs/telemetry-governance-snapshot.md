@@ -161,5 +161,5 @@ Mandatory truth at baseline, optional richness by incentive:
 
 ## Related docs
 
-- `docs/branch-and-deployment-strategy.md` — staging vs production Workers and CI
+- `docs/branch-and-deployment-strategy.md` — git branches, one Cloudflare Worker deploy, CI
 - `README.md` — local dev, deploy commands, MCP URLs

@@ -488,4 +488,21 @@ The account already deploys on push via Cloudflare’s connected repo; separate 
 
 ### Handoff
 
-`ci.yml` remains (build + test). Staging vs production still depends on Cloudflare project/branch wiring to `wrangler.toml` environments.
+`ci.yml` remains (build + test). Default deploy is one Worker from Cloudflare Git; git branch `staging` is not a second deploy path unless explicitly configured outside repo docs.
+
+---
+
+## Execution Update — Git `staging` is not Cloudflare staging deploy (2026-03-19)
+
+### Observations
+
+**O29: Docs implied pushing branch `staging` or using `--env staging` matched “test staging in Cloudflare.”**  
+In this setup, **only the default Worker** is deployed from Git integration; the `staging` branch is for integration/CI, not a separate published staging Worker.
+
+### Decisions
+
+**D22: Align README, DEPLOY-SETUP, branch strategy, and `wrangler.toml` comments with single-Worker deploy; demote `[env.staging]` to optional local/maintainer Wrangler use.**
+
+### Handoff
+
+Do not tell contributors to “deploy staging” via Cloudflare for routine releases.

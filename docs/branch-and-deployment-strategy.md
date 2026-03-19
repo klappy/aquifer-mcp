@@ -1,33 +1,32 @@
 # Branch and deployment strategy
 
-This repo follows a **small-team, testable deploy** model: **every change can be CI-tested in GitHub**, and **Cloudflare runs the actual deploy** when you push to whatever branch is connected in the **Cloudflare dashboard** (Git integration / Workers build from repo).
+**Deploy:** one Worker (**`aquifer-mcp`**) via **Cloudflare Git integration** on whatever branch you connect (usually **`main`**). Pushing the git branch **`staging` does not mean “deploy staging”** — it is only a collaboration/integration branch unless you deliberately configure something else in Cloudflare (this repo’s docs assume you do not).
+
+**CI:** GitHub Actions runs **build + test** on pushes and PRs; it does **not** deploy.
 
 ## Branches
 
 | Branch | Role |
 |--------|------|
-| `main` | **Production** source of truth for code. Merges here should follow your review process. **Whether `main` auto-deploys** depends on Cloudflare: connect `main` to the production Worker project. |
-| `staging` | **Pre-production integration** (optional). Use when you have a **staging Worker** (`aquifer-mcp-staging` in `wrangler.toml`) wired to this branch in Cloudflare. |
-| `feature/*`, `fix/*`, `chore/*` | Short-lived branches. Open **PRs** into `main` (or into `staging` first if you stack integration there). |
+| `main` | **Production** source of truth. When Cloudflare is tied to `main`, merges here are what go live. |
+| `staging` | **Git integration branch** (optional): stack work, run CI, open PRs toward `main`. **Not** a separate Cloudflare staging deploy in the default setup. |
+| `feature/*`, `fix/*`, `chore/*` | Short-lived branches. Open **PRs** into `main` (or into `staging` first if your team stacks there). |
 
 ### Flow (recommended)
 
 1. Branch from `main` → `feature/my-change`
 2. Open PR → **CI** runs `build` + `test` (no deploy)
-3. Optional: merge to `staging` → Cloudflare deploys **if** that branch is connected to the staging Worker in the dashboard
-4. Smoke-test staging URL (`/health`, MCP `tools/list`, etc.)
-5. PR → `main` → Cloudflare deploys **if** `main` is connected to production
+3. Optional: merge to `staging` for integration — **still no separate “staging deploy”** unless you have explicitly built that in Cloudflare yourself
+4. PR → `main` → Cloudflare deploys when your connected branch updates
 
-## Cloudflare environments
-
-Defined in `wrangler.toml`:
+## Wrangler environments (`wrangler.toml`)
 
 | Environment | Worker name | KV (`AQUIFER_CACHE`) | Use |
 |-------------|-------------|----------------------|-----|
-| *(default)* | `aquifer-mcp` | Production namespace id | Live users, custom route (e.g. `aquifer.klappy.dev`). |
-| `staging` | `aquifer-mcp-staging` | **Preview** namespace id | Isolated from **production** KV; shared with local `wrangler dev` preview data unless you swap the namespace id. |
+| *(default)* | `aquifer-mcp` | Production namespace id | **What Cloudflare Git deploys** in the normal setup. Live route (e.g. `aquifer.klappy.dev`). |
+| `staging` | `aquifer-mcp-staging` | **Preview** namespace id | **Optional:** local `wrangler dev --env staging` or rare maintainer `wrangler deploy --env staging`. **Not** implied by pushing the `staging` git branch. |
 
-**Note:** Staging uses the **preview** KV id so you can avoid a second paid namespace. Tradeoff: local `wrangler dev` and the staging Worker can share that KV. For full isolation, create a dedicated KV namespace and set it under `[[env.staging.kv_namespaces]]`.
+The preview KV id keeps local/preview data out of production KV when you use the staging **Wrangler** environment locally.
 
 ## Commands
 
@@ -35,25 +34,22 @@ Defined in `wrangler.toml`:
 # CI parity (run before push)
 npm run build && npm run test
 
-# Deploy: push to the branch your Cloudflare project is connected to (see DEPLOY-SETUP.md)
+# Live deploy: push to the branch Cloudflare watches (see DEPLOY-SETUP.md)
 
-# Emergency / maintainer CLI only:
-npm run deploy:staging
-npm run deploy
-# or: npm run deploy:production
+# Maintainer CLI (not Cloudflare Git):
+npm run deploy              # default Worker
+npm run deploy:staging      # optional Wrangler env only — not “git branch staging”
 ```
 
-Find Worker URLs in **Cloudflare → Workers** after a successful build, or in the Git integration build log.
+Find the live Worker URL in **Cloudflare → Workers** after a successful build.
 
 ## GitHub Actions
 
-Only **`.github/workflows/ci.yml`** remains: on push and PR, install, `build`, `test`. **No deploy, no Cloudflare secrets required.**
-
-If you later add a custom deploy workflow, you would supply `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` yourself — that is **not** part of the default repo setup.
+Only **`.github/workflows/ci.yml`**: install, `build`, `test`. **No deploy, no Cloudflare secrets required.**
 
 ## Custom domains
 
-Production often uses a Worker route (e.g. `aquifer.klappy.dev`). Staging can stay on `*.workers.dev` or a dedicated hostname in the dashboard.
+Production often uses a Worker route (e.g. `aquifer.klappy.dev`). Configure in the dashboard.
 
 ## Related docs
 

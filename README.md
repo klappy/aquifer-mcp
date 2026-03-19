@@ -135,11 +135,11 @@ npm run test
 npm run deploy
 ```
 
-**Branch strategy and testable Cloudflare deploys** (staging Worker vs production) are documented in [`docs/branch-and-deployment-strategy.md`](docs/branch-and-deployment-strategy.md).
+**Branch strategy** (git `staging` vs **`main` deploy**) is in [`docs/branch-and-deployment-strategy.md`](docs/branch-and-deployment-strategy.md). **Cloudflare deploys one Worker** (`aquifer-mcp`) from the branch you connect in the dashboard — pushing git branch `staging` is **not** a separate staging deploy unless you set that up yourself outside this doc.
 
-**Preferred deploy path:** push or merge to the branch(es) your **Cloudflare Worker project** is connected to (often `main` for production; `staging` if you set up a second project or branch environment). No GitHub secrets required for deploy in this repo.
+**Preferred deploy path:** push or merge to the branch your **Cloudflare** project is connected to (usually **`main`**). No GitHub secrets required for deploy in this repo.
 
-- **CLI fallback (emergency):** `npm run deploy:staging` / `npm run deploy` — logged-in Wrangler on a machine
+- **CLI fallback (emergency):** `npm run deploy` — logged-in Wrangler on a machine (`deploy:staging` in `package.json` is optional Wrangler env for local/maintainer use, not “deploy the staging branch”)
 
 GitHub Actions: **build + test only** (`.github/workflows/ci.yml` on PRs and pushes).
 
