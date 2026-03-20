@@ -29,6 +29,7 @@ const TELEMETRY_POLICY_BASE = [
   "- Language access counts by language code.",
   "- Article access counts by compound key (resource_code:language:content_id).",
   "- Search type breakdown (passage, entity, title) classified from query pattern, not raw query text.",
+  "- Passage hierarchy rollup counters (testament, book, chapter, verse) for passage searches.",
   "- Last article accessed (compound key + tool + timestamp).",
   "- Last telemetry update timestamp.",
   "",
@@ -92,7 +93,7 @@ export async function handleReadme(
 
   try {
     const resp = await fetch(README_RAW_URL, {
-      headers: { "User-Agent": "aquifer-mcp/0.7.0" },
+      headers: { "User-Agent": "aquifer-mcp/0.8.0" },
     });
     if (!resp.ok) {
       const cached = await env.AQUIFER_CACHE.get(cacheKey);
@@ -744,7 +745,11 @@ async function buildCatalog(
   }
 
   if (catalog.length > 0) {
-    await env.AQUIFER_CACHE.put(cacheKey, JSON.stringify(catalog), { expirationTtl: GC_TTL });
+    try {
+      await env.AQUIFER_CACHE.put(cacheKey, JSON.stringify(catalog), { expirationTtl: GC_TTL });
+    } catch {
+      // Catalog may exceed KV's 25 MiB limit for large resources.
+    }
   }
   return catalog;
 }

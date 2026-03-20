@@ -39,6 +39,7 @@ interface TelemetryPrefixes {
   passageChapter: string;
   passageBook: string;
   passageTestament: string;
+  listType: string;
 }
 
 function buildPrefixes(env: Env): TelemetryPrefixes {
@@ -67,6 +68,7 @@ function buildPrefixes(env: Env): TelemetryPrefixes {
     passageChapter: `${base}:passage-chapter:`,
     passageBook: `${base}:passage-book:`,
     passageTestament: `${base}:passage-testament:`,
+    listType: `${base}:list-type:`,
   };
 }
 
@@ -208,7 +210,7 @@ function parseToolArguments(payload: unknown): ToolArguments | null {
 export function classifySearchType(query: string): "passage" | "entity" | "title" {
   const trimmed = query.trim();
   if (/^[a-z]+:/i.test(trimmed)) return "entity";
-  if (/\d+:\d+/.test(trimmed) || /^\d{8}$/.test(trimmed)) return "passage";
+  if (/\d+:\d+/.test(trimmed) || /^\d{8}$/.test(trimmed) || /^\d{8}-\d{8}$/.test(trimmed)) return "passage";
   return "title";
 }
 
@@ -406,7 +408,7 @@ export async function recordPublicTelemetry(request: Request, env: Env): Promise
           await incrementCounter(env, `${p.language}${toolArgs.language}`);
         }
         if (toolName === "list" && toolArgs.type) {
-          await incrementCounter(env, `${p.resource}type:${toolArgs.type}`);
+          await incrementCounter(env, `${p.listType}${toolArgs.type}`);
         }
         if (toolArgs.resource_code && toolArgs.language && toolArgs.content_id) {
           const articleKey = `${toolArgs.resource_code}:${toolArgs.language}:${toolArgs.content_id}`;

@@ -1,6 +1,7 @@
 import type { Env } from "./types.js";
 
 const GITHUB_RAW = "https://raw.githubusercontent.com";
+const GITHUB_API = "https://api.github.com";
 
 // 30 days — garbage collection only, NOT a correctness mechanism.
 // Correctness comes from the SHA check on every request.
@@ -19,6 +20,52 @@ export function contentUrl(org: string, resourceCode: string, language: string, 
 }
 
 /**
+ * Discover all repos in a GitHub organization.
+ * Uses ETag-based conditional requests so 304s don't consume rate limit.
+ * Returns repo names exactly as GitHub reports them.
+ */
+export async function fetchOrgRepos(org: string, env: Env): Promise<string[]> {
+  const etagKey = `etag:orgrepos:${org}`;
+  const cachedKey = `orgrepos:${org}`;
+
+  const [etag, cached] = await Promise.all([
+    env.AQUIFER_CACHE.get(etagKey),
+    env.AQUIFER_CACHE.get(cachedKey, "json") as Promise<string[] | null>,
+  ]);
+
+  const headers: Record<string, string> = {
+    "User-Agent": "aquifer-mcp/0.8.0",
+    "Accept": "application/vnd.github.v3+json",
+  };
+  if (etag && cached) headers["If-None-Match"] = etag;
+
+  const resp = await fetch(
+    `${GITHUB_API}/orgs/${org}/repos?per_page=100`,
+    { headers },
+  );
+
+  if (resp.status === 304 && cached) return cached;
+
+  if (!resp.ok) {
+    if (cached) return cached;
+    throw new Error(`Cannot list repos for ${org}: ${resp.status}`);
+  }
+
+  const repos = (await resp.json()) as Array<{ name: string }>;
+  const names = repos.map((r) => r.name);
+
+  const newEtag = resp.headers.get("ETag");
+  await Promise.all([
+    env.AQUIFER_CACHE.put(cachedKey, JSON.stringify(names), { expirationTtl: GC_TTL }),
+    newEtag
+      ? env.AQUIFER_CACHE.put(etagKey, newEtag, { expirationTtl: GC_TTL })
+      : Promise.resolve(),
+  ]);
+
+  return names;
+}
+
+/**
  * Fetch the current commit SHA for a repo's main branch.
  * Uses conditional requests (If-None-Match) to avoid GitHub API rate limit hits.
  * Stores the ETag and SHA in KV for subsequent conditional requests.
@@ -33,7 +80,7 @@ export async function fetchRepoSha(org: string, repo: string, env: Env): Promise
   ]);
 
   const headers: Record<string, string> = {
-    "User-Agent": "aquifer-mcp/0.7.0",
+    "User-Agent": "aquifer-mcp/0.8.0",
     "Accept": "application/vnd.github.v3.sha",
   };
   if (etag && cachedSha) headers["If-None-Match"] = etag;
@@ -85,7 +132,7 @@ export async function fetchJson<T>(url: string, env?: Env, cacheKey?: string, sh
   }
 
   const resp = await fetch(url, {
-    headers: { "User-Agent": "aquifer-mcp/0.7.0" },
+    headers: { "User-Agent": "aquifer-mcp/0.8.0" },
   });
 
   if (!resp.ok) return null;
@@ -93,9 +140,14 @@ export async function fetchJson<T>(url: string, env?: Env, cacheKey?: string, sh
   const data = await resp.json() as T;
 
   if (env && resolvedKey) {
-    await env.AQUIFER_CACHE.put(resolvedKey, JSON.stringify(data), {
-      expirationTtl: GC_TTL,
-    });
+    try {
+      await env.AQUIFER_CACHE.put(resolvedKey, JSON.stringify(data), {
+        expirationTtl: GC_TTL,
+      });
+    } catch {
+      // KV has a 25 MiB value limit. Large metadata files (e.g. UWTranslationNotes
+      // at 35 MB) exceed this. The data is still valid — just uncacheable.
+    }
   }
 
   return data;

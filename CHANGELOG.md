@@ -2,6 +2,29 @@
 
 All notable changes to aquifer-mcp will be documented in this file.
 
+## [0.8.0] - 2026-03-20
+
+### Changed
+
+- **Dynamic resource discovery**: Replaced hardcoded `KNOWN_REPOS` array (17 resources) with live GitHub org API discovery. The server now queries `BibleAquifer` org repos on each index build, so new resources appear automatically with zero code changes.
+- All resource metadata (type, ordering scheme, title, localizations) now derived from each repo's `metadata.json` at runtime instead of hardcoded mappings.
+- Non-resource repos (`.github`, `docs`, `ACAI`, org website) naturally excluded by missing metadata — no exclusion list needed.
+- Index cache key bumped to `v6` to reflect new dynamic composition.
+- Bumped runtime, package metadata, and User-Agent strings to `0.8.0`.
+
+### Fixed
+
+- KV cache writes for oversized values no longer crash resource discovery. `fetchJson`, index serialization, and browse catalog writes are wrapped in try-catch to handle the 25 MiB KV value limit gracefully (e.g. UWTranslationNotes at 35 MB metadata).
+- Resources with large metadata files (like UWTranslationNotes with 70,220 articles) are now served correctly — data is used even when it cannot be cached.
+
+### Added
+
+- `fetchOrgRepos()` in `src/github.ts` — discovers all repos in a GitHub org with ETag-based conditional requests (304s free of rate limit cost) and KV-backed caching.
+
+### Removed
+
+- `KNOWN_REPOS` constant in `src/registry.ts` — the static 17-resource list that required manual updates for every new resource.
+
 ## [0.7.0] - 2026-03-19
 
 ### Added
