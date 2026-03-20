@@ -93,7 +93,7 @@ export async function handleReadme(
 
   try {
     const resp = await fetch(README_RAW_URL, {
-      headers: { "User-Agent": "aquifer-mcp/0.7.0" },
+      headers: { "User-Agent": "aquifer-mcp/0.8.0" },
     });
     if (!resp.ok) {
       const cached = await env.AQUIFER_CACHE.get(cacheKey);
@@ -745,7 +745,11 @@ async function buildCatalog(
   }
 
   if (catalog.length > 0) {
-    await env.AQUIFER_CACHE.put(cacheKey, JSON.stringify(catalog), { expirationTtl: GC_TTL });
+    try {
+      await env.AQUIFER_CACHE.put(cacheKey, JSON.stringify(catalog), { expirationTtl: GC_TTL });
+    } catch {
+      // Catalog may exceed KV's 25 MiB limit for large resources.
+    }
   }
   return catalog;
 }
