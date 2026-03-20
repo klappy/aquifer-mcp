@@ -2,7 +2,7 @@
 
 Thin Cloudflare Workers MCP server for navigating Bible Aquifer content.
 
-Current runtime version: `0.8.0`
+Current runtime version: `0.9.0`
 
 **Deploy:** Cloudflare **dashboard Git integration** builds and deploys this repo when you push (see **[DEPLOY-SETUP.md](DEPLOY-SETUP.md)**). GitHub Actions here only runs **tests**, not deploy.
 

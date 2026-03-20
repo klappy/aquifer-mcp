@@ -2,6 +2,18 @@
 
 All notable changes to aquifer-mcp will be documented in this file.
 
+## [0.9.0] - 2026-03-20
+
+### Changed
+
+- **Full Bible reference parsing**: `parseReference` now handles book-only (`Mark`, `MRK`), chapter-only (`Mark 4`, `MRK 4`), and chapter-range (`Mark 4-6`, `MRK 4-6`) references in addition to existing chapter:verse formats. All new patterns produce sentinel BBCCCVVV ranges that work with the existing `rangesOverlap` search pipeline — zero changes to tool handlers.
+- `rangeToReadable` detects sentinel ranges and displays them cleanly (`MRK`, `MRK 4`, `MRK 4-6`) instead of `MRK 4:1-999`.
+- Bumped runtime, package metadata, and User-Agent strings to `0.9.0`.
+
+### Fixed
+
+- Searching "Mark 4" no longer falls through to fuzzy title matching (returning maps and "market"). It now resolves to passage search for Mark chapter 4 across all indexed resources.
+
 ## [0.8.0] - 2026-03-20
 
 ### Changed

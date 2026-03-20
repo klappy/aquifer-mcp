@@ -110,6 +110,68 @@ export function parseReference(input: string): string | null {
     return start;
   }
 
+  const usfmChRangeMatch = trimmed.match(/^(\d?[A-Z]{2,3})\s+(\d{1,3})\s*[-–]\s*(\d{1,3})$/i);
+  if (usfmChRangeMatch) {
+    const [, bookCode, startChStr, endChStr] = usfmChRangeMatch;
+    if (!bookCode || !startChStr || !endChStr) return null;
+    const bookNum = USFM_TO_BOOK_NUM[bookCode.toUpperCase()];
+    if (!bookNum) return null;
+    return `${toBBCCCVVV(bookNum, parseInt(startChStr, 10), 1)}-${toBBCCCVVV(bookNum, parseInt(endChStr, 10), 999)}`;
+  }
+
+  const nameChRangeMatch = trimmed.match(/^(\d?\s*[a-zA-Z]+(?:\s+[a-zA-Z]+)?)\s+(\d{1,3})\s*[-–]\s*(\d{1,3})$/i);
+  if (nameChRangeMatch) {
+    const [, bookName, startChStr, endChStr] = nameChRangeMatch;
+    if (!bookName || !startChStr || !endChStr) return null;
+    const usfm = BOOK_NAME_TO_USFM[bookName.toLowerCase().trim()];
+    if (!usfm) return null;
+    const bookNum = USFM_TO_BOOK_NUM[usfm];
+    if (!bookNum) return null;
+    return `${toBBCCCVVV(bookNum, parseInt(startChStr, 10), 1)}-${toBBCCCVVV(bookNum, parseInt(endChStr, 10), 999)}`;
+  }
+
+  const usfmChMatch = trimmed.match(/^(\d?[A-Z]{2,3})\s+(\d{1,3})$/i);
+  if (usfmChMatch) {
+    const [, bookCode, chStr] = usfmChMatch;
+    if (!bookCode || !chStr) return null;
+    const bookNum = USFM_TO_BOOK_NUM[bookCode.toUpperCase()];
+    if (!bookNum) return null;
+    const ch = parseInt(chStr, 10);
+    return `${toBBCCCVVV(bookNum, ch, 1)}-${toBBCCCVVV(bookNum, ch, 999)}`;
+  }
+
+  const nameChMatch = trimmed.match(/^(\d?\s*[a-zA-Z]+(?:\s+[a-zA-Z]+)?)\s+(\d{1,3})$/i);
+  if (nameChMatch) {
+    const [, bookName, chStr] = nameChMatch;
+    if (!bookName || !chStr) return null;
+    const usfm = BOOK_NAME_TO_USFM[bookName.toLowerCase().trim()];
+    if (!usfm) return null;
+    const bookNum = USFM_TO_BOOK_NUM[usfm];
+    if (!bookNum) return null;
+    const ch = parseInt(chStr, 10);
+    return `${toBBCCCVVV(bookNum, ch, 1)}-${toBBCCCVVV(bookNum, ch, 999)}`;
+  }
+
+  const usfmBookMatch = trimmed.match(/^(\d?[A-Z]{2,3})$/i);
+  if (usfmBookMatch) {
+    const [, bookCode] = usfmBookMatch;
+    if (!bookCode) return null;
+    const bookNum = USFM_TO_BOOK_NUM[bookCode.toUpperCase()];
+    if (!bookNum) return null;
+    return `${toBBCCCVVV(bookNum, 1, 1)}-${toBBCCCVVV(bookNum, 999, 999)}`;
+  }
+
+  const nameBookMatch = trimmed.match(/^(\d?\s*[a-zA-Z]+(?:\s+[a-zA-Z]+)?)$/i);
+  if (nameBookMatch) {
+    const [, bookName] = nameBookMatch;
+    if (!bookName) return null;
+    const usfm = BOOK_NAME_TO_USFM[bookName.toLowerCase().trim()];
+    if (!usfm) return null;
+    const bookNum = USFM_TO_BOOK_NUM[usfm];
+    if (!bookNum) return null;
+    return `${toBBCCCVVV(bookNum, 1, 1)}-${toBBCCCVVV(bookNum, 999, 999)}`;
+  }
+
   return null;
 }
 
@@ -149,6 +211,11 @@ export function rangeToReadable(range: string): string {
   if (!s || !e) return range;
   const usfm = BOOK_NUM_TO_USFM[s.book];
   if (!usfm) return range;
+  if (s.book === e.book && s.verse === 1 && e.verse === 999) {
+    if (s.chapter === 1 && e.chapter === 999) return usfm;
+    if (s.chapter === e.chapter) return `${usfm} ${s.chapter}`;
+    return `${usfm} ${s.chapter}-${e.chapter}`;
+  }
   if (s.book === e.book && s.chapter === e.chapter) {
     return `${usfm} ${s.chapter}:${s.verse}-${e.verse}`;
   }

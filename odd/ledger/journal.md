@@ -5,7 +5,7 @@ scope: aquifer-mcp
 type: epistemic-ledger
 derives_from: "docs/aquifer-mcp-oldc.md"
 date_created: 2026-03-16
-last_updated: 2026-03-19
+last_updated: 2026-03-20
 ---
 
 # aquifer-mcp — Project Journal
@@ -678,3 +678,65 @@ The server discovers resources from the GitHub org API at runtime. Resource type
 **C8 update (from D3): The constraint "Adding a new resource requires a code change" is retired.**
 Replaced by C15. Discovery is now fully dynamic.
 *Status: Retired, replaced by C15*
+
+---
+
+## Execution Update — Full Bible Reference Parsing (2026-03-20)
+
+*Execution mode. Extends `parseReference` to handle all reference granularities — book-only, chapter-only, and chapter-range — in addition to the existing chapter:verse patterns.*
+
+### Observations
+
+**O38: `parseReference` only matched references containing a verse number, leaving chapter-only and book-only queries to fall through to fuzzy title search.**
+Both regex paths in `parseReference` required `:(\d{1,3})` (colon + verse). Queries like "Mark 4", "Mark 4-6", or "Mark" returned `null` from `parseReference`, causing `handleSearch` to route them to `searchByTitle`. Title search then fuzzy-matched "mark" against article titles, returning false positives like FIAMaps entries with "mark" in the title and dictionary entry "market."
+*Source: Direct observation of `src/references.ts` lines 69 and 90 (USFM and name regex patterns); confirmed by Aquifer Window search returning map titles and "market" for query "Mark 4"*
+
+**O39: Sentinel BBCCCVVV values (999) pass existing validation and maintain correct boundaries under string comparison.**
+`parseBBCCCVVV` validates that book exists in the lookup table and that chapter/verse are numbers — it does not enforce range limits. `rangesOverlap` uses string comparison (`<=`), and zero-padded BBCCCVVV is lexicographically ordered: `41004999` < `41005001` (chapter boundary safe), `41999999` < `42001001` (book boundary safe). Both confirmed with direct Node.js execution before implementation.
+*Source: Pre-implementation string comparison proof — 6 assertions, all passed*
+
+**O40: The search pipeline required zero changes to support the new reference formats.**
+`handleSearch` calls `parseReference` → if non-null, calls `searchByPassage` → which calls `rangesOverlap` against the passage index. All three functions already handle BBCCCVVV ranges. The only change needed was making `parseReference` produce ranges for inputs it previously rejected.
+*Source: Direct observation of `src/tools.ts` lines 289-329 — no edits required*
+
+### Learnings
+
+**L22: Sentinel values in a zero-padded positional format are safe for range overlap without needing actual verse/chapter counts.**
+Because BBCCCVVV is lexicographically ordered by construction (BB then CCC then VVV, all zero-padded), using 999 as "all" for any positional field naturally respects boundaries. You don't need to know that Mark 4 has 41 verses — `41004999` is always less than `41005001`. This eliminates the need for a verse-count lookup table.
+*Rests on: O39*
+
+**L23: Extending a parser is lower-risk than adding a second code path.**
+The alternative was a client-side Bible reference parser in the Aquifer Window that pre-converts "Mark 4" before calling the MCP search tool. This would have duplicated reference resolution logic across two codebases. Fixing `parseReference` at the source means every consumer (MCP clients, Aquifer Window, future integrations) benefits from one change.
+*Rests on: O40*
+
+### Decisions
+
+**D32: Extend `parseReference` with six new regex blocks for book-only, chapter-only, and chapter-range references in both USFM and human-readable name formats.**
+*Because* any reasonable Bible reference should route to passage search, not title search. The existing regex patterns only handled `chapter:verse` — three common granularities were missing.
+*Formats added:* `Mark` / `MRK` (book only → `41001001-41999999`), `Mark 4` / `MRK 4` (chapter only → `41004001-41004999`), `Mark 4-6` / `MRK 4-6` (chapter range → `41004001-41006999`).
+*Alternatives considered:* (A) Client-side parser in Aquifer Window — rejected because it duplicates logic. (B) Hybrid search: try `parseReference`, on null try book name lookup before title search — rejected as unnecessary complexity when extending the parser is simpler.
+*Rests on: O38, O39, O40*
+*Reversible: Yes — regex blocks can be removed independently*
+
+**D33: Update `rangeToReadable` to detect sentinel ranges and display them as book-only, chapter-only, or chapter-range format.**
+*Because* sentinel ranges like `41004001-41004999` would otherwise render as "MRK 4:1-999" in search results. Detection logic: when `s.verse === 1 && e.verse === 999`, check chapter patterns to render "MRK", "MRK 4", or "MRK 4-6".
+*Rests on: D32*
+*Reversible: Yes*
+
+### Constraint Updates
+
+**C3 strengthened: BBCCCVVV is the location standard at all granularities.**
+Previously, BBCCCVVV was used only for verse-level and verse-range references. Now it also represents chapter-only (`BBCCC001-BBCCC999`), chapter-range (`BBccc001-BBCCC999`), and book-only (`BB001001-BB999999`) queries via sentinel values.
+*Status: Active, verified*
+
+### Evidence
+
+- 104 tests passed (53 references, 34 tools, 17 telemetry), 0 failures
+- 20+ new test cases covering all 6 new reference formats, sentinel display in `rangeToReadable`, and sentinel boundary correctness in `rangesOverlap`
+- Pre-implementation boundary proof: 6 string comparison assertions confirming sentinel safety at chapter and book boundaries
+- Files changed: `src/references.ts`, `src/references.test.ts` only
+
+### Known Tradeoffs
+
+- Book names that are common English words ("Job", "Numbers", "Ruth", "Mark") will resolve to book references instead of keyword searches. Acceptable in the Bible-focused context; revisit if false-positive reports emerge.
+- Sentinel verse value 999 exceeds real verse counts (max is 176 in Psalm 119). This is a search range, not a data integrity assertion — no correctness impact.
