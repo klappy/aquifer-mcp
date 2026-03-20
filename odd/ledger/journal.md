@@ -628,3 +628,53 @@ A single JSON record of the most recent article access (compound key + tool + ti
 - `telemetry:v1:{env}:article:{resource_code}:{language}:{content_id}` — article access counter
 - `telemetry:v1:{env}:search-type:{passage|entity|title}` — search type counter
 - `telemetry:v1:{env}:last_article` — JSON record of last article accessed
+
+---
+
+## v0.8.0 — Dynamic Resource Discovery (2026-03-20)
+
+*Execution mode. Replaces hardcoded resource list with GitHub org API discovery.*
+
+### Observations
+
+**O35: The hardcoded KNOWN_REPOS array covered 17 of 54 repos in the BibleAquifer org.**
+37 resources were invisible to the server, including UWTranslationNotes (70,220 articles), SILOpenTranslatorsNotes, UWTranslationManual, VideoBibleDictionary, DictionaryBibleThemes, BiblicaOpenBibleMaps, multiple Bible repos, and several Tyndale/Aquifer study note variants.
+
+**O36: UWTranslationNotes was in KNOWN_REPOS but silently failed because its 35 MB metadata.json exceeds KV's 25 MiB value limit.**
+The `fetchJson` function threw on KV put, `Promise.allSettled` caught it, and the resource vanished from the registry with no error trace.
+
+**O37: The GitHub org API returns all repos in a single page (54 repos, per_page=100) and supports ETag-based conditional requests where 304s do not consume rate limit.**
+
+### Learnings
+
+**L20: Hardcoded resource lists are the opposite of antifragile.**
+Every new resource Rick publishes requires a code change, a PR, and a deploy. This creates a maintenance bottleneck that scales linearly with the org's growth rate. The governance pattern in CLAUDE.md already said "no code change required" — the code contradicted the spec.
+*Rests on: O35*
+
+**L21: Silent failure on KV size limits is a correctness bug, not a caching optimization.**
+When a cache write failure kills the data return path, the system silently drops resources. The fix is trivial (try-catch the put) but the impact was total invisibility of a 70,220-article resource.
+*Rests on: O36*
+
+### Decisions
+
+**D29: Replace KNOWN_REPOS with dynamic GitHub org API discovery.**
+*Because* the hardcoded list contradicted the governance pattern, required manual maintenance, and missed 37 of 54 repos. The org API with ETag caching adds one API call per index build (free on 304) and discovers all repos automatically.
+*Alternatives considered:* (A) Parse `aquifer_full_inventory.md` as the discovery source — rejected because Rick would still need to update it manually. (B) Keep KNOWN_REPOS but add missing entries — rejected because it perpetuates the maintenance burden.
+*Reversible:* Yes — could re-add a static list as fallback if the org API becomes unreliable.
+
+**D30: Wrap all KV puts in try-catch where the data can still be served from memory.**
+*Because* KV has a 25 MiB value limit and several Aquifer resources produce metadata, indexes, or catalogs that exceed it. A failed cache write should not kill the request.
+*Reversible:* No reason to reverse.
+
+**D31: Bump index cache key to v6.**
+*Because* the index composition changed (dynamic discovery yields different repos than the static list). Old cached indexes must not be reused.
+
+### Constraint Updates
+
+**C15: No hardcoded resource lists. All resource discovery must be dynamic.**
+The server discovers resources from the GitHub org API at runtime. Resource type, ordering, and metadata come from each repo's own `metadata.json`. Adding a new resource requires only that it exist in the org with valid metadata.
+*Status: Active, verified*
+
+**C8 update (from D3): The constraint "Adding a new resource requires a code change" is retired.**
+Replaced by C15. Discovery is now fully dynamic.
+*Status: Retired, replaced by C15*

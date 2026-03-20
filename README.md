@@ -2,7 +2,7 @@
 
 Thin Cloudflare Workers MCP server for navigating Bible Aquifer content.
 
-Current runtime version: `0.6.0`
+Current runtime version: `0.8.0`
 
 **Deploy:** Cloudflare **dashboard Git integration** builds and deploys this repo when you push (see **[DEPLOY-SETUP.md](DEPLOY-SETUP.md)**). GitHub Actions here only runs **tests**, not deploy.
 
@@ -18,7 +18,7 @@ Klappy gave me one clear direction: do not build a heavy platform, build a thin 
 
 He pointed me to Oddkit for epistemic posture, pointed me to prior MCP work for implementation shape, and pointed me to Rick Brannan's Aquifer docs and repos for source truth. From there I built this as a Cloudflare Worker that indexes metadata, retrieves content on demand, and exposes predictable MCP tools for agents and apps.
 
-In this latest codebase, that includes the explicit `browse` tool so catalog exploration is first-class, v0.4 content-addressed SHA-keyed caching so freshness comes from observed repo state instead of TTL assumptions, and v0.5 in-band README access through the `readme` tool.
+In this latest codebase, that includes the explicit `browse` tool so catalog exploration is first-class, v0.4 content-addressed SHA-keyed caching so freshness comes from observed repo state instead of TTL assumptions, v0.5 in-band README access through the `readme` tool, and v0.8 dynamic resource discovery — the server queries the BibleAquifer GitHub org directly so new resources appear automatically with zero code changes.
 
 And the Aquifer Window story stays the same: it uses this server as its content backend. The Window and agent clients are two interfaces over the same corpus and the same MCP endpoint.
 
@@ -369,9 +369,13 @@ curl -X POST https://aquifer.klappy.dev/mcp \
 - MCP server created with `@modelcontextprotocol/sdk` and `agents/mcp`
 - tools wired directly to handlers in `src/tools.ts`
 
+### Resource discovery
+
+Resources are discovered dynamically from the BibleAquifer GitHub organization — no hardcoded list. On each index build the server queries the org API (ETag-cached), fetches `eng/metadata.json` from every repo, and includes any repo that has valid `resource_metadata`. New resources Rick adds appear automatically; repos without metadata are silently excluded.
+
 ### Retrieval model
 
-1. Build/load navigability index from Aquifer metadata
+1. Discover repos from GitHub org, build/load navigability index from metadata
 2. Resolve references from index for `list` and `search`
 3. Fetch content files on demand for `get`, `related`, and `browse`
 4. Return text content payloads in MCP responses

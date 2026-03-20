@@ -48,7 +48,7 @@ This project uses the **oddkit MCP server** as its epistemic guide. Use oddkit t
 
 An MCP server on Cloudflare Workers that makes all Bible Aquifer GitHub repos (`github.com/BibleAquifer`) navigable by AI agents. Thin, stateless, edge-deployed. Modeled on `klappy/translation-helps-mcp`.
 
-**The core problem**: Aquifer has 48 repos of Bible translation resources (study notes, dictionaries, translation guides, images, Bibles). The flat files are structured JSON but not navigable — to find what Aquifer says about a specific verse, you'd have to know which repos exist, fetch metadata from each, download full content files, and parse them. This server solves that.
+**The core problem**: Aquifer has 50+ repos of Bible translation resources (study notes, dictionaries, translation guides, images, Bibles). The flat files are structured JSON but not navigable — to find what Aquifer says about a specific verse, you'd have to know which repos exist, fetch metadata from each, download full content files, and parse them. This server solves that.
 
 ## Reference Implementations
 
@@ -122,9 +122,15 @@ Following oddkit's governance pattern: Rick's `BibleAquifer/docs` repo is the ca
 
 These define resource types, ordering schemes, association structures. They govern how the server indexes and interprets everything. See `schemas/` folder in this project for local copies.
 
-### 2. Navigability Index
+### 2. Dynamic Resource Discovery
 
-Build a lightweight index from `metadata.json` files across Aquifer repos. Three components:
+Resources are **not hardcoded**. On each index build, the server calls the GitHub org API (`/orgs/BibleAquifer/repos`) to discover all repos dynamically. For each discovered repo, it fetches `eng/metadata.json` — repos with valid `resource_metadata` are included; repos without (infrastructure, docs, ACAI) are silently excluded. Ordering, type, and all other metadata come from the repo's own `metadata.json`, not from a static list.
+
+The org repo list is cached in KV with ETag-based conditional requests (304s don't consume GitHub rate limit). When Rick adds a new resource repo, it appears automatically — no code change or deploy required.
+
+### 3. Navigability Index
+
+Built from `metadata.json` files across all discovered Aquifer repos. Three components:
 
 **Resource registry**: Which repos exist, resource type (StudyNotes/Dictionary/Guide/Bible/Images/Videos), available languages, ordering scheme (canonical/alphabetical/monograph), article count.
 
@@ -132,9 +138,9 @@ Build a lightweight index from `metadata.json` files across Aquifer repos. Three
 
 **Entity index**: ACAI entity IDs → articles that reference them. When two articles from different resources share `keyterm:Justification`, they're findable together.
 
-This index is keys and references only — not content. Cache in Workers KV with daily TTL.
+This index is keys and references only — not content. Cache in Workers KV keyed by composite SHA (content-addressed, not TTL-based). KV writes that exceed the 25 MiB value limit are handled gracefully — the in-memory index still serves the request.
 
-### 3. On-Demand Content Fetch
+### 4. On-Demand Content Fetch
 
 Content fetched from GitHub raw URLs only when requested:
 
@@ -148,7 +154,7 @@ Metadata:
 https://raw.githubusercontent.com/BibleAquifer/{resource_code}/main/{language}/metadata.json
 ```
 
-### 4. MCP Tool Surface
+### 5. MCP Tool Surface
 
 **`list`** — Show available resources, languages, coverage percentages. Sourced from the registry.
 
@@ -223,30 +229,11 @@ Every article can have:
 - `resource`: array of `{reference_id, content_id, resource_code, label, language}` — links to articles in other resources
 - `acai`: array of `{id, type, preferred_label, confidence, match_method}` — named entity annotations
 
-### Known Aquifer Repos (from inventory)
+### Aquifer Repos (dynamically discovered)
 
-Non-Bible resources:
+Resources are **not listed here** — they are discovered at runtime from the `BibleAquifer` GitHub org. Any repo with a valid `eng/metadata.json` containing `resource_metadata` is automatically included. As of v0.8.0, the server discovers ~28 resources across study notes, dictionaries, translation guides, images, videos, and Bibles.
 
-- `TyndaleBibleDictionary` (Dictionary, 6103 articles, alphabetical)
-- `BiblicaStudyNotesKeyTerms` (Dictionary, 551 articles, alphabetical)
-- `UWOpenBibleStories` (Foundational Bible Stories, 50 articles, monograph)
-- `FIAKeyTerms` (Dictionary, 416 articles, alphabetical)
-- `UbsImages` (Images, 1054 articles)
-- `FIAImages` (Images, 793 articles)
-- `FIAMaps` (Images, 76 articles)
-- `TyndaleStudyNotes` (Study Notes, 16922 articles, canonical)
-- `BiblicaStudyNotes` (Study Notes, 751 articles, canonical)
-- `TyndaleStudyNotesBookIntros` (Study Notes, canonical)
-- `AquiferOpenStudyNotes` (Study Notes, canonical)
-- `AquiferOpenStudyNotesBookIntros` (Study Notes, canonical)
-- `UWTranslationNotes` (Translation Guide, canonical)
-- `UWTranslationQuestions` (Comprehension Testing, canonical)
-- `UWTranslationWords` (Translation Glossary, alphabetical)
-- `FIATranslationGuide` (Translation Guide, monograph)
-- `AquiferOpenBibleDictionary` (Dictionary, alphabetical)
-- Various video resources
-
-Plus ~20 Bible repos.
+For a point-in-time snapshot of available resources (titles, article counts, localizations), see `schemas/aquifer_full_inventory.md`. But treat the live `list` tool output as the source of truth — the inventory doc may lag behind what Rick has actually published.
 
 ## Sample Data
 
@@ -259,7 +246,7 @@ Study these to understand the actual data shape before writing code.
 
 ## Deployment
 
-Cloudflare Workers. Use Workers KV for the navigability index cache. Use the Cache API or Workers KV for content fetch caching. No other storage.
+Cloudflare Workers. Use Workers KV for the navigability index cache. Use the Cache API or Workers KV for content fetch caching. No other storage. KV has a 25 MiB value limit — large metadata files and indexes that exceed this are served from memory but not cached (handled gracefully via try-catch on KV puts).
 
 ## What This Is NOT
 
