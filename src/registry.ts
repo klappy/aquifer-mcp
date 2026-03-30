@@ -49,11 +49,12 @@ export async function getOrBuildIndex(env: Env, ctx?: ExecutionContext): Promise
     await env.AQUIFER_CACHE.put(cacheKey, serializeIndex(index), {
       expirationTtl: GC_TTL,
     });
+    await updatePointer(env, compositeHash);
   } catch {
-    // Index may exceed KV's 25 MiB value limit when many resources are included.
+    // Cache write failed (e.g. oversized index) — don't update pointer so
+    // any previously-cached index remains reachable on subsequent requests.
   }
 
-  await updatePointer(env, compositeHash);
   return index;
 }
 
@@ -92,11 +93,11 @@ async function refreshShasIfStale(env: Env): Promise<void> {
       await env.AQUIFER_CACHE.put(cacheKey, serializeIndex(index), {
         expirationTtl: GC_TTL,
       });
+      await updatePointer(env, compositeHash);
     } catch {
-      // Oversized index — still update pointer for in-memory use next cold start
+      // Cache write failed (e.g. oversized index) — preserve existing pointer
+      // so the hot path continues serving the previously-cached index.
     }
-
-    await updatePointer(env, compositeHash);
   } catch {
     // Background refresh failed — stale pointer remains valid (truthful degradation)
   }
