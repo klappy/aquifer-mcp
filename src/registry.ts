@@ -8,9 +8,27 @@ import type {
 import { metadataUrl, fetchJson, fetchRepoSha, fetchOrgRepos, GC_TTL } from "./github.js";
 import { isValidIndexReference } from "./references.js";
 
-const INDEX_CACHE_KEY = "index:navigability:v6";
+const INDEX_CACHE_KEY = "index:navigability:v7";
+const LATEST_SHA_KEY = "index:latest-composite-sha";
+const SHA_STALE_MS = 5 * 60 * 1000; // 5 minutes
 
-export async function getOrBuildIndex(env: Env): Promise<NavigabilityIndex> {
+export async function getOrBuildIndex(env: Env, ctx?: ExecutionContext): Promise<NavigabilityIndex> {
+  // --- HOT PATH: serve from cached KV pointer ---
+  const latestSha = await env.AQUIFER_CACHE.get(LATEST_SHA_KEY, "json") as { sha: string; checked_at: number } | null;
+  if (latestSha?.sha) {
+    const cacheKey = `${latestSha.sha}:${INDEX_CACHE_KEY}`;
+    const cached = await env.AQUIFER_CACHE.get(cacheKey, "json") as SerializedIndex | null;
+    if (cached?.registry) {
+      const index = deserializeIndex(cached);
+      // Schedule background refresh if stale
+      if (ctx && Date.now() - latestSha.checked_at > SHA_STALE_MS) {
+        ctx.waitUntil(refreshShasIfStale(env));
+      }
+      return index;
+    }
+  }
+
+  // --- COLD PATH: no cached index, build from scratch ---
   const repoCodes = await fetchOrgRepos(env.AQUIFER_ORG, env);
   const repoShas = await fetchAllRepoShas(repoCodes, env);
   const compositeHash = await computeCompositeHash(repoShas);
@@ -18,6 +36,8 @@ export async function getOrBuildIndex(env: Env): Promise<NavigabilityIndex> {
 
   const cached = await env.AQUIFER_CACHE.get(cacheKey, "json") as SerializedIndex | null;
   if (cached?.registry) {
+    // Index exists but pointer was missing — restore pointer
+    await updatePointer(env, compositeHash);
     return deserializeIndex(cached);
   }
 
@@ -33,7 +53,53 @@ export async function getOrBuildIndex(env: Env): Promise<NavigabilityIndex> {
     // Index may exceed KV's 25 MiB value limit when many resources are included.
   }
 
+  await updatePointer(env, compositeHash);
   return index;
+}
+
+async function updatePointer(env: Env, sha: string): Promise<void> {
+  await env.AQUIFER_CACHE.put(LATEST_SHA_KEY, JSON.stringify({ sha, checked_at: Date.now() }), {
+    expirationTtl: GC_TTL,
+  });
+}
+
+async function refreshShasIfStale(env: Env): Promise<void> {
+  try {
+    const repoCodes = await fetchOrgRepos(env.AQUIFER_ORG, env);
+    const repoShas = await fetchAllRepoShas(repoCodes, env);
+    const compositeHash = await computeCompositeHash(repoShas);
+
+    const currentPointer = await env.AQUIFER_CACHE.get(LATEST_SHA_KEY, "json") as { sha: string } | null;
+    if (currentPointer?.sha === compositeHash) {
+      // No change — just update checked_at timestamp
+      await updatePointer(env, compositeHash);
+      return;
+    }
+
+    // SHA changed — rebuild index in background
+    const cacheKey = `${compositeHash}:${INDEX_CACHE_KEY}`;
+    const existing = await env.AQUIFER_CACHE.get(cacheKey, "json") as SerializedIndex | null;
+    if (existing?.registry) {
+      await updatePointer(env, compositeHash);
+      return;
+    }
+
+    const index = await buildIndex(repoCodes, env, repoShas);
+    index.composite_sha = compositeHash;
+    index.repo_shas = repoShas;
+
+    try {
+      await env.AQUIFER_CACHE.put(cacheKey, serializeIndex(index), {
+        expirationTtl: GC_TTL,
+      });
+    } catch {
+      // Oversized index — still update pointer for in-memory use next cold start
+    }
+
+    await updatePointer(env, compositeHash);
+  } catch {
+    // Background refresh failed — stale pointer remains valid (truthful degradation)
+  }
 }
 
 async function fetchAllRepoShas(repoCodes: string[], env: Env): Promise<Map<string, string>> {
@@ -82,6 +148,16 @@ async function buildIndex(repoCodes: string[], env: Env, repoShas: Map<string, s
     const { code, metadata } = result.value;
     const rm = metadata.resource_metadata;
 
+    // Compute article count — Bible resources may lack article_metadata
+    let articleCount = Object.keys(metadata.article_metadata ?? {}).length;
+    if (articleCount === 0 && (rm.order === "canonical" || rm.aquifer_type.toLowerCase() === "bible")) {
+      const ingredients = Object.keys(metadata.scripture_burrito?.ingredients ?? {});
+      const contentFiles = ingredients.filter(k => k.endsWith(".content.json"));
+      if (contentFiles.length > 0) {
+        articleCount = contentFiles.length;
+      }
+    }
+
     registry.push({
       resource_code: code,
       aquifer_type: rm.aquifer_type,
@@ -91,7 +167,7 @@ async function buildIndex(repoCodes: string[], env: Env, repoShas: Map<string, s
       order: rm.order ?? "canonical",
       language: rm.language,
       localizations: rm.localizations ?? [],
-      article_count: Object.keys(metadata.article_metadata ?? {}).length,
+      article_count: articleCount,
       version: rm.version,
     });
 

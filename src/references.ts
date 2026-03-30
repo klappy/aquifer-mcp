@@ -20,6 +20,7 @@ const BOOK_NUM_TO_USFM: Record<string, string> = Object.fromEntries(
 );
 
 const BOOK_NAME_TO_USFM: Record<string, string> = {
+  // Full English names
   genesis: "GEN", exodus: "EXO", leviticus: "LEV", numbers: "NUM",
   deuteronomy: "DEU", joshua: "JOS", judges: "JDG", ruth: "RUT",
   "1 samuel": "1SA", "2 samuel": "2SA", "1 kings": "1KI", "2 kings": "2KI",
@@ -38,6 +39,94 @@ const BOOK_NAME_TO_USFM: Record<string, string> = {
   hebrews: "HEB", james: "JAS", "1 peter": "1PE", "2 peter": "2PE",
   "1 john": "1JN", "2 john": "2JN", "3 john": "3JN", jude: "JUD",
   revelation: "REV", revelations: "REV",
+
+  // Common English abbreviations
+  gen: "GEN", ge: "GEN", gn: "GEN",
+  ex: "EXO", exod: "EXO",
+  lev: "LEV", lv: "LEV",
+  num: "NUM", nm: "NUM", nu: "NUM",
+  deut: "DEU", dt: "DEU",
+  josh: "JOS",
+  judg: "JDG", jdg: "JDG", jg: "JDG",
+  ru: "RUT",
+  "1 sam": "1SA", "1sam": "1SA",
+  "2 sam": "2SA", "2sam": "2SA",
+  "1 kgs": "1KI", "1kgs": "1KI", "1 ki": "1KI", "1ki": "1KI",
+  "2 kgs": "2KI", "2kgs": "2KI", "2 ki": "2KI", "2ki": "2KI",
+  "1 chr": "1CH", "1chr": "1CH", "1 chron": "1CH", "1chron": "1CH",
+  "2 chr": "2CH", "2chr": "2CH", "2 chron": "2CH", "2chron": "2CH",
+  ezr: "EZR",
+  neh: "NEH", ne: "NEH",
+  est: "EST", esth: "EST",
+  ps: "PSA", psa: "PSA",
+  prov: "PRO", pr: "PRO",
+  eccl: "ECC", eccles: "ECC",
+  isa: "ISA", is: "ISA",
+  jer: "JER", je: "JER",
+  lam: "LAM", la: "LAM",
+  ezek: "EZK", eze: "EZK",
+  dan: "DAN", da: "DAN",
+  hos: "HOS", ho: "HOS",
+  joe: "JOL",
+  am: "AMO",
+  ob: "OBA", obad: "OBA",
+  jon: "JON", jnh: "JON",
+  mic: "MIC",
+  nah: "NAM", na: "NAM",
+  hab: "HAB",
+  zeph: "ZEP", zep: "ZEP",
+  hag: "HAG",
+  zech: "ZEC", zec: "ZEC",
+  mal: "MAL",
+  matt: "MAT", mt: "MAT",
+  mk: "MRK", mr: "MRK",
+  lk: "LUK", lu: "LUK",
+  jn: "JHN", jhn: "JHN",
+  ac: "ACT",
+  rom: "ROM", ro: "ROM",
+  "1 cor": "1CO", "1cor": "1CO",
+  "2 cor": "2CO", "2cor": "2CO",
+  gal: "GAL", ga: "GAL",
+  eph: "EPH",
+  phil: "PHP", php: "PHP",
+  col: "COL",
+  "1 thess": "1TH", "1thess": "1TH", "1 th": "1TH", "1th": "1TH",
+  "2 thess": "2TH", "2thess": "2TH", "2 th": "2TH", "2th": "2TH",
+  "1 tim": "1TI", "1tim": "1TI",
+  "2 tim": "2TI", "2tim": "2TI",
+  tit: "TIT",
+  phlm: "PHM", phm: "PHM",
+  heb: "HEB",
+  jas: "JAS",
+  "1 pet": "1PE", "1pet": "1PE", "1 pt": "1PE", "1pt": "1PE",
+  "2 pet": "2PE", "2pet": "2PE", "2 pt": "2PE", "2pt": "2PE",
+  "1 jn": "1JN", "1jn": "1JN",
+  "2 jn": "2JN", "2jn": "2JN",
+  "3 jn": "3JN", "3jn": "3JN",
+  rev: "REV", re: "REV",
+
+  // Multi-language aliases (Spanish, French, Portuguese)
+  génesis: "GEN", "genèse": "GEN",
+  éxodo: "EXO", exode: "EXO",
+  levítico: "LEV", lévitique: "LEV",
+  números: "NUM", nombres: "NUM",
+  deuteronomio: "DEU", deutéronome: "DEU",
+  josué: "JOS",
+  jueces: "JDG", juges: "JDG",
+  rut: "RUT",
+  mateo: "MAT", matthieu: "MAT", mateus: "MAT",
+  marcos: "MRK", marc: "MRK",
+  lucas: "LUK", luc: "LUK",
+  juan: "JHN", jean: "JHN", joão: "JHN",
+  hechos: "ACT", actes: "ACT", atos: "ACT",
+  romanos: "ROM", romains: "ROM",
+  gálatas: "GAL", galates: "GAL",
+  efesios: "EPH", éphésiens: "EPH",
+  filipenses: "PHP", philippiens: "PHP",
+  colosenses: "COL", colossiens: "COL",
+  hebreos: "HEB", hébreux: "HEB",
+  santiago: "JAS", jacques: "JAS", tiago: "JAS",
+  apocalipsis: "REV", "apocalypse": "REV", apocalipse: "REV",
 };
 
 export function parseBBCCCVVV(ref: string): { book: string; chapter: number; verse: number } | null {
@@ -69,22 +158,24 @@ export function parseReference(input: string): string | null {
   const usfmMatch = trimmed.match(/^(\d?[A-Z]{2,3})\s+(\d{1,3}):(\d{1,3})(?:\s*[-–]\s*(\d{1,3}):(\d{1,3})|(?:\s*[-–]\s*(\d{1,3})))?$/i);
   if (usfmMatch) {
     const [, bookCode, chStr, vStr, endChStr, endVStr, sameChEndV] = usfmMatch;
-    if (!bookCode || !chStr || !vStr) return null;
-    const usfm = bookCode.toUpperCase();
-    const bookNum = USFM_TO_BOOK_NUM[usfm];
-    if (!bookNum) return null;
+    if (bookCode && chStr && vStr) {
+      const usfm = bookCode.toUpperCase();
+      const bookNum = USFM_TO_BOOK_NUM[usfm];
+      if (bookNum) {
+        const ch = parseInt(chStr, 10);
+        const v = parseInt(vStr, 10);
+        const start = toBBCCCVVV(bookNum, ch, v);
 
-    const ch = parseInt(chStr, 10);
-    const v = parseInt(vStr, 10);
-    const start = toBBCCCVVV(bookNum, ch, v);
-
-    if (endChStr && endVStr) {
-      return `${start}-${toBBCCCVVV(bookNum, parseInt(endChStr, 10), parseInt(endVStr, 10))}`;
+        if (endChStr && endVStr) {
+          return `${start}-${toBBCCCVVV(bookNum, parseInt(endChStr, 10), parseInt(endVStr, 10))}`;
+        }
+        if (sameChEndV) {
+          return `${start}-${toBBCCCVVV(bookNum, ch, parseInt(sameChEndV, 10))}`;
+        }
+        return start;
+      }
     }
-    if (sameChEndV) {
-      return `${start}-${toBBCCCVVV(bookNum, ch, parseInt(sameChEndV, 10))}`;
-    }
-    return start;
+    // Fall through to name-based lookup for abbreviations like "Ro", "Jn", "Mt"
   }
 
   const nameMatch = trimmed.match(/^(\d?\s*[a-zA-Z]+(?:\s+[a-zA-Z]+)?)\s+(\d{1,3}):(\d{1,3})(?:\s*[-–]\s*(\d{1,3}):(\d{1,3})|(?:\s*[-–]\s*(\d{1,3})))?$/i);
@@ -113,10 +204,12 @@ export function parseReference(input: string): string | null {
   const usfmChRangeMatch = trimmed.match(/^(\d?[A-Z]{2,3})\s+(\d{1,3})\s*[-–]\s*(\d{1,3})$/i);
   if (usfmChRangeMatch) {
     const [, bookCode, startChStr, endChStr] = usfmChRangeMatch;
-    if (!bookCode || !startChStr || !endChStr) return null;
-    const bookNum = USFM_TO_BOOK_NUM[bookCode.toUpperCase()];
-    if (!bookNum) return null;
-    return `${toBBCCCVVV(bookNum, parseInt(startChStr, 10), 1)}-${toBBCCCVVV(bookNum, parseInt(endChStr, 10), 999)}`;
+    if (bookCode && startChStr && endChStr) {
+      const bookNum = USFM_TO_BOOK_NUM[bookCode.toUpperCase()];
+      if (bookNum) {
+        return `${toBBCCCVVV(bookNum, parseInt(startChStr, 10), 1)}-${toBBCCCVVV(bookNum, parseInt(endChStr, 10), 999)}`;
+      }
+    }
   }
 
   const nameChRangeMatch = trimmed.match(/^(\d?\s*[a-zA-Z]+(?:\s+[a-zA-Z]+)?)\s+(\d{1,3})\s*[-–]\s*(\d{1,3})$/i);
@@ -133,11 +226,13 @@ export function parseReference(input: string): string | null {
   const usfmChMatch = trimmed.match(/^(\d?[A-Z]{2,3})\s+(\d{1,3})$/i);
   if (usfmChMatch) {
     const [, bookCode, chStr] = usfmChMatch;
-    if (!bookCode || !chStr) return null;
-    const bookNum = USFM_TO_BOOK_NUM[bookCode.toUpperCase()];
-    if (!bookNum) return null;
-    const ch = parseInt(chStr, 10);
-    return `${toBBCCCVVV(bookNum, ch, 1)}-${toBBCCCVVV(bookNum, ch, 999)}`;
+    if (bookCode && chStr) {
+      const bookNum = USFM_TO_BOOK_NUM[bookCode.toUpperCase()];
+      if (bookNum) {
+        const ch = parseInt(chStr, 10);
+        return `${toBBCCCVVV(bookNum, ch, 1)}-${toBBCCCVVV(bookNum, ch, 999)}`;
+      }
+    }
   }
 
   const nameChMatch = trimmed.match(/^(\d?\s*[a-zA-Z]+(?:\s+[a-zA-Z]+)?)\s+(\d{1,3})$/i);
@@ -155,10 +250,12 @@ export function parseReference(input: string): string | null {
   const usfmBookMatch = trimmed.match(/^(\d?[A-Z]{2,3})$/i);
   if (usfmBookMatch) {
     const [, bookCode] = usfmBookMatch;
-    if (!bookCode) return null;
-    const bookNum = USFM_TO_BOOK_NUM[bookCode.toUpperCase()];
-    if (!bookNum) return null;
-    return `${toBBCCCVVV(bookNum, 1, 1)}-${toBBCCCVVV(bookNum, 999, 999)}`;
+    if (bookCode) {
+      const bookNum = USFM_TO_BOOK_NUM[bookCode.toUpperCase()];
+      if (bookNum) {
+        return `${toBBCCCVVV(bookNum, 1, 1)}-${toBBCCCVVV(bookNum, 999, 999)}`;
+      }
+    }
   }
 
   const nameBookMatch = trimmed.match(/^(\d?\s*[a-zA-Z]+(?:\s+[a-zA-Z]+)?)$/i);

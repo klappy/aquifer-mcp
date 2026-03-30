@@ -93,7 +93,7 @@ export async function handleReadme(
 
   try {
     const resp = await fetch(README_RAW_URL, {
-      headers: { "User-Agent": "aquifer-mcp/0.9.0" },
+      headers: { "User-Agent": "aquifer-mcp/1.0.0" },
     });
     if (!resp.ok) {
       const cached = await env.AQUIFER_CACHE.get(cacheKey);
@@ -257,8 +257,9 @@ export async function handleTelemetryPublic(
 export async function handleList(
   args: Record<string, unknown>,
   env: Env,
+  ctx?: ExecutionContext,
 ) {
-  const index = await getOrBuildIndex(env);
+  const index = await getOrBuildIndex(env, ctx);
   let resources = index.registry;
 
   if (args.type) {
@@ -276,10 +277,16 @@ export async function handleList(
 
   if (resources.length === 0) return textResult("No resources found matching the given filters.");
 
-  const lines = resources.map(
-    (r) =>
-      `- **${r.title}** (${r.resource_code})\n  Type: ${r.resource_type} | Order: ${r.order} | Articles: ${r.article_count} | Language: ${r.language} | Localizations: ${r.localizations.join(", ") || "none"}`,
-  );
+  const lines = resources.map((r) => {
+    const capabilities: string[] = ["search", "get", "related", "browse"];
+    if (
+      r.resource_type.toLowerCase().includes("bible") ||
+      r.aquifer_type.toLowerCase() === "bible"
+    ) {
+      capabilities.unshift("scripture");
+    }
+    return `- **${r.title}** (${r.resource_code})\n  Type: ${r.resource_type} | Order: ${r.order} | Articles: ${r.article_count} | Language: ${r.language} | Localizations: ${r.localizations.join(", ") || "none"} | Tools: ${capabilities.join(", ")}`;
+  });
 
   return textResult(
     `Found ${resources.length} resource(s):\n\n${lines.join("\n\n")}`,
@@ -289,11 +296,12 @@ export async function handleList(
 export async function handleSearch(
   args: Record<string, unknown>,
   env: Env,
+  ctx?: ExecutionContext,
 ) {
   const query = String(args.query ?? "").trim();
   if (!query) return textResult("Please provide a search query.");
 
-  const index = await getOrBuildIndex(env);
+  const index = await getOrBuildIndex(env, ctx);
 
   const bbcccvvv = parseReference(query);
   if (bbcccvvv) {
@@ -381,6 +389,7 @@ function searchByTitle(query: string, index: NavigabilityIndex) {
 export async function handleGet(
   args: Record<string, unknown>,
   env: Env,
+  ctx?: ExecutionContext,
 ) {
   const resourceCode = String(args.resource_code ?? "");
   const language = String(args.language ?? "");
@@ -390,7 +399,7 @@ export async function handleGet(
     return textResult("Missing required fields: resource_code, language, and content_id are all required.");
   }
 
-  const index = await getOrBuildIndex(env);
+  const index = await getOrBuildIndex(env, ctx);
   const entry = index.registry.find((r) => r.resource_code === resourceCode);
   if (!entry) {
     return textResult(`Resource "${resourceCode}" not found in the registry.`);
@@ -411,6 +420,7 @@ export async function handleGet(
 export async function handleRelated(
   args: Record<string, unknown>,
   env: Env,
+  ctx?: ExecutionContext,
 ) {
   const resourceCode = String(args.resource_code ?? "");
   const language = String(args.language ?? "");
@@ -420,7 +430,7 @@ export async function handleRelated(
     return textResult("Missing required fields: resource_code, language, and content_id are all required.");
   }
 
-  const index = await getOrBuildIndex(env);
+  const index = await getOrBuildIndex(env, ctx);
   const entry = index.registry.find((r) => r.resource_code === resourceCode);
   if (!entry) return textResult(`Resource "${resourceCode}" not found.`);
 
@@ -631,29 +641,48 @@ async function bootstrapEntityMatches(
   }
 
   const matches: ArticleRef[] = [];
-  for (const entry of index.registry) {
-    const repoSha = index.repo_shas.get(entry.resource_code);
-    if (!repoSha) continue;
-    const files = await listContentFiles(entry.resource_code, entry.language, entry.order, env, repoSha);
-    for (const file of files) {
-      const articles = await fetchContentFile(entry.resource_code, entry.language, file, env, repoSha);
-      if (!articles?.length) continue;
 
-      for (const article of articles) {
-        const acaiAssociations = article.associations?.acai ?? [];
-        if (!acaiAssociations.some((a) => String(a.id || "").toLowerCase() === normalizedEntityId)) {
-          continue;
-        }
-        matches.push({
-          resource_code: entry.resource_code,
-          language: article.language || entry.language,
-          content_id: String(article.content_id),
-          title: article.title || `Article ${article.content_id}`,
-          resource_type: entry.resource_type,
-          index_reference: article.index_reference,
-        });
+  // Parallel across resources
+  const resourceResults = await Promise.allSettled(
+    index.registry.map(async (entry) => {
+      const repoSha = index.repo_shas.get(entry.resource_code);
+      if (!repoSha) return [];
+      const files = await listContentFiles(entry.resource_code, entry.language, entry.order, env, repoSha);
+
+      // Parallel across files within each resource
+      const fileResults = await Promise.allSettled(
+        files.map(async (file) => {
+          const articles = await fetchContentFile(entry.resource_code, entry.language, file, env, repoSha);
+          if (!articles?.length) return [];
+          const found: ArticleRef[] = [];
+          for (const article of articles) {
+            const acaiAssociations = article.associations?.acai ?? [];
+            if (!acaiAssociations.some((a) => String(a.id || "").toLowerCase() === normalizedEntityId)) {
+              continue;
+            }
+            found.push({
+              resource_code: entry.resource_code,
+              language: article.language || entry.language,
+              content_id: String(article.content_id),
+              title: article.title || `Article ${article.content_id}`,
+              resource_type: entry.resource_type,
+              index_reference: article.index_reference,
+            });
+          }
+          return found;
+        }),
+      );
+
+      const refs: ArticleRef[] = [];
+      for (const fr of fileResults) {
+        if (fr.status === "fulfilled") refs.push(...fr.value);
       }
-    }
+      return refs;
+    }),
+  );
+
+  for (const rr of resourceResults) {
+    if (rr.status === "fulfilled") matches.push(...rr.value);
   }
 
   const deduped = deduplicateRefs(matches);
@@ -757,6 +786,7 @@ async function buildCatalog(
 export async function handleBrowse(
   args: Record<string, unknown>,
   env: Env,
+  ctx?: ExecutionContext,
 ) {
   const resourceCode = String(args.resource_code ?? "").trim();
   if (!resourceCode) return textResult("Missing required field: resource_code.");
@@ -765,7 +795,7 @@ export async function handleBrowse(
   const page = Math.max(1, Number(args.page) || 1);
   const pageSize = Math.min(100, Math.max(1, Number(args.page_size) || 50));
 
-  const index = await getOrBuildIndex(env);
+  const index = await getOrBuildIndex(env, ctx);
   const entry = index.registry.find((r) => r.resource_code === resourceCode);
   if (!entry) return textResult(`Resource "${resourceCode}" not found in the registry.`);
 
@@ -797,6 +827,187 @@ export async function handleBrowse(
   const footer = page < totalPages ? `\n\n*Page ${page} of ${totalPages}. Use page=${page + 1} to see more.*` : "";
 
   return textResult(`${header}\n\n${lines.join("\n\n")}${footer}`);
+}
+
+// --- Scripture tool ---
+
+function stripHtml(html: string): string {
+  return html
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/p>/gi, "\n")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+export async function handleScripture(
+  args: Record<string, unknown>,
+  env: Env,
+  ctx?: ExecutionContext,
+) {
+  const reference = String(args.reference ?? "").trim();
+  if (!reference) return textResult('Please provide a Bible reference (e.g. "John 3:16", "Rom 8:28").');
+
+  const language = String(args.language ?? "eng").trim();
+  const requestedResource = args.resource_code ? String(args.resource_code).trim() : null;
+
+  const parsed = parseReference(reference);
+  if (!parsed) {
+    return textResult(`Could not parse "${reference}" as a Bible reference. Try formats like "John 3:16", "Rom 8:28", "Gen 1:1-3".`);
+  }
+
+  const index = await getOrBuildIndex(env, ctx);
+
+  // Find Bible resources
+  const bibleResources = index.registry.filter((r) => {
+    if (requestedResource && r.resource_code !== requestedResource) return false;
+    return r.aquifer_type.toLowerCase() === "bible" || r.resource_type.toLowerCase().includes("bible");
+  });
+
+  if (bibleResources.length === 0) {
+    const msg = requestedResource
+      ? `Bible resource "${requestedResource}" not found.`
+      : "No Bible resources found in the Aquifer.";
+    return textResult(msg);
+  }
+
+  // Determine which content file to fetch based on the reference
+  const startRef = parsed.includes("-") ? parsed.split("-")[0]! : parsed;
+  const bookNum = startRef.slice(0, 2);
+  const contentFile = `${bookNum}.content.json`;
+
+  // Fetch from all matching Bible resources in parallel
+  const results = await Promise.allSettled(
+    bibleResources.map(async (entry) => {
+      const sha = index.repo_shas.get(entry.resource_code) ?? "";
+      if (!sha) return null;
+      const articles = await fetchContentFile(entry.resource_code, language, contentFile, env, sha);
+      if (!articles?.length) return null;
+
+      // Find articles whose passage associations overlap with the requested reference
+      const matching: Array<{ title: string; text: string }> = [];
+      for (const article of articles) {
+        const passages = article.associations?.passage ?? [];
+        const articleRange = article.index_reference && isValidIndexReference(article.index_reference)
+          ? article.index_reference
+          : null;
+
+        let overlaps = false;
+        if (articleRange && rangesOverlap(parsed, articleRange)) {
+          overlaps = true;
+        }
+        if (!overlaps) {
+          for (const p of passages) {
+            const passageRange = `${p.start_ref}-${p.end_ref}`;
+            if (rangesOverlap(parsed, passageRange)) {
+              overlaps = true;
+              break;
+            }
+          }
+        }
+
+        if (overlaps) {
+          matching.push({
+            title: article.title,
+            text: stripHtml(article.content || ""),
+          });
+        }
+      }
+
+      if (matching.length === 0) return null;
+      return { resource: entry, matching };
+    }),
+  );
+
+  const sections: string[] = [];
+  const readableRef = rangeToReadable(parsed);
+
+  for (const result of results) {
+    if (result.status !== "fulfilled" || !result.value) continue;
+    const { resource, matching } = result.value;
+    sections.push(`## ${resource.title} (${resource.resource_code})`);
+    for (const m of matching) {
+      if (m.title) sections.push(`### ${m.title}`);
+      sections.push(m.text);
+      sections.push("");
+    }
+  }
+
+  if (sections.length === 0) {
+    return textResult(`No Bible text found for ${readableRef}. The passage may not be available in current Aquifer Bible resources.`);
+  }
+
+  return textResult(`# Scripture: ${readableRef}\n\n${sections.join("\n")}`);
+}
+
+// --- Entity profile tool ---
+
+export async function handleEntity(
+  args: Record<string, unknown>,
+  env: Env,
+  ctx?: ExecutionContext,
+) {
+  const entityId = String(args.entity_id ?? "").trim();
+  if (!entityId) return textResult('Please provide an entity ID (e.g. "person:David", "place:Jerusalem").');
+
+  const language = String(args.language ?? "eng").trim();
+  const index = await getOrBuildIndex(env, ctx);
+  const normalized = entityId.toLowerCase();
+
+  // Find all articles referencing this entity
+  let refs = index.entity.get(normalized);
+  if (!refs?.length) {
+    refs = await bootstrapEntityMatches(normalized, index, env);
+  }
+
+  if (!refs?.length) {
+    return textResult(`No articles found for entity "${entityId}".`);
+  }
+
+  // Group by resource type for progressive disclosure
+  const grouped = new Map<string, ArticleRef[]>();
+  for (const ref of refs) {
+    const type = ref.resource_type || "Other";
+    const existing = grouped.get(type) ?? [];
+    existing.push(ref);
+    grouped.set(type, existing);
+  }
+
+  const sections: string[] = [];
+  sections.push(`# Entity Profile: ${entityId}`);
+  sections.push(`Found ${refs.length} article(s) across ${grouped.size} resource type(s).\n`);
+
+  // Order: Dictionary first (definition), then StudyNotes, then everything else
+  const typeOrder = ["Dictionary", "StudyNotes", "Guide", "Images", "Maps", "Videos"];
+  const sortedTypes = [...grouped.keys()].sort((a, b) => {
+    const ai = typeOrder.findIndex((t) => a.toLowerCase().includes(t.toLowerCase()));
+    const bi = typeOrder.findIndex((t) => b.toLowerCase().includes(t.toLowerCase()));
+    return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
+  });
+
+  for (const type of sortedTypes) {
+    const typeRefs = grouped.get(type)!;
+    sections.push(`## ${type} (${typeRefs.length})`);
+    const shown = typeRefs.slice(0, 5);
+    for (const ref of shown) {
+      sections.push(formatArticleRef(ref));
+    }
+    if (typeRefs.length > 5) {
+      sections.push(`\n_...and ${typeRefs.length - 5} more. Use search or browse to see all._`);
+    }
+    sections.push("");
+  }
+
+  sections.push("---");
+  sections.push("_Use `get` with any article's resource_code/language/content_id to fetch full content._");
+
+  return textResult(sections.join("\n"));
 }
 
 function deduplicateRefs(refs: ArticleRef[]): ArticleRef[] {
