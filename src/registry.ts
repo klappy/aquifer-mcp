@@ -153,7 +153,7 @@ async function buildIndex(repoCodes: string[], env: Env, repoShas: Map<string, s
     let articleCount = Object.keys(metadata.article_metadata ?? {}).length;
     if (articleCount === 0 && (rm.order === "canonical" || rm.aquifer_type.toLowerCase() === "bible")) {
       const ingredients = Object.keys(metadata.scripture_burrito?.ingredients ?? {});
-      const contentFiles = ingredients.filter(k => k.endsWith(".content.json"));
+      const contentFiles = ingredients.filter(k => k.startsWith("json/") && k.endsWith(".content.json"));
       if (contentFiles.length > 0) {
         articleCount = contentFiles.length;
       }
