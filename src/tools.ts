@@ -970,6 +970,11 @@ export async function handleEntity(
     return textResult(`No articles found for entity "${entityId}".`);
   }
 
+  refs = refs.filter((r) => r.language === language);
+  if (!refs.length) {
+    return textResult(`No articles found for entity "${entityId}" in language "${language}".`);
+  }
+
   // Group by resource type for progressive disclosure
   const grouped = new Map<string, ArticleRef[]>();
   for (const ref of refs) {
@@ -984,7 +989,7 @@ export async function handleEntity(
   sections.push(`Found ${refs.length} article(s) across ${grouped.size} resource type(s).\n`);
 
   // Order: Dictionary first (definition), then StudyNotes, then everything else
-  const typeOrder = ["Dictionary", "StudyNotes", "Guide", "Images", "Maps", "Videos"];
+  const typeOrder = ["Dictionary", "Study Notes", "Guide", "Images", "Maps", "Videos"];
   const sortedTypes = [...grouped.keys()].sort((a, b) => {
     const ai = typeOrder.findIndex((t) => a.toLowerCase().includes(t.toLowerCase()));
     const bi = typeOrder.findIndex((t) => b.toLowerCase().includes(t.toLowerCase()));
