@@ -139,6 +139,8 @@ async function buildIndex(
     }),
   );
 
+  const writePromises: Promise<unknown>[] = [];
+
   for (const result of results) {
     if (result.status !== "fulfilled" || !result.value) continue;
     const { code, metadata } = result.value;
@@ -200,16 +202,17 @@ async function buildIndex(
 
     const repoSha = repoShas.get(code)!;
 
-    // Write per-resource indexes to R2 in parallel (fire-and-forget during build)
-    await Promise.allSettled([
-      resourcePassage.size > 0
-        ? storage.putJSON(passageIndexKey(code, repoSha), Array.from(resourcePassage.entries()))
-        : Promise.resolve(),
-      resourceTitles.length > 0
-        ? storage.putJSON(titleIndexKey(code, repoSha), resourceTitles)
-        : Promise.resolve(),
-    ]);
+    // Collect per-resource index writes to parallelize across all resources
+    if (resourcePassage.size > 0) {
+      writePromises.push(storage.putJSON(passageIndexKey(code, repoSha), Array.from(resourcePassage.entries())));
+    }
+    if (resourceTitles.length > 0) {
+      writePromises.push(storage.putJSON(titleIndexKey(code, repoSha), resourceTitles));
+    }
   }
+
+  // Write all per-resource indexes to R2 in parallel
+  await Promise.allSettled(writePromises);
 
   // Return lightweight index — passage/title/entity are empty.
   // Queries use fan-out functions to load per-resource indexes on demand.
