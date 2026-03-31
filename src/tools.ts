@@ -5,6 +5,7 @@ import { getOrBuildIndex, fanOutPassageSearch, fanOutTitleSearch, loadArticleLoo
 import { getPublicTelemetrySnapshot } from "./telemetry.js";
 import { AquiferStorage, contentKey, metadataKey, catalogKey, entityKey } from "./storage.js";
 import type { RequestTracer } from "./tracing.js";
+import { VERSION } from "./version.js";
 
 const README_RAW_URL = "https://raw.githubusercontent.com/klappy/aquifer-mcp/main/README.md";
 
@@ -95,7 +96,7 @@ export async function handleReadme(
 
   try {
     const resp = await fetch(README_RAW_URL, {
-      headers: { "User-Agent": "aquifer-mcp/1.2.0" },
+      headers: { "User-Agent": `aquifer-mcp/${VERSION}` },
     });
     if (!resp.ok) {
       const cached = await env.AQUIFER_CACHE.get(cacheKey);
