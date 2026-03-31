@@ -21,36 +21,23 @@ const LATEST_SHA_KEY = "index:latest-composite-sha";
 const SHA_STALE_MS = 5 * 60 * 1000; // 5 minutes
 
 export async function getOrBuildIndex(env: Env, storage: AquiferStorage, ctx?: ExecutionContext, tracer?: RequestTracer): Promise<NavigabilityIndex> {
-  const g0 = Date.now();
-
   // --- HOT PATH: pointer (KV) → registry (R2 via Cache API) ---
   const pointerStart = performance.now();
   const latestSha = await env.AQUIFER_CACHE.get(LATEST_SHA_KEY, "json") as { sha: string; checked_at: number } | null;
   tracer?.addSpan("kv-pointer", Math.round(performance.now() - pointerStart), "kv",
     latestSha ? `sha=${latestSha.sha.slice(0, 8)}` : "miss");
 
-  const g1 = Date.now();
-
   if (latestSha?.sha) {
     const key = indexKey(latestSha.sha);
     const { data } = await storage.getJSON<SerializedIndex>(key, tracer);
 
-    const g2 = Date.now();
-
     if (data?.registry) {
       const index = deserializeIndex(data);
-
-      const g3 = Date.now();
 
       // Schedule background refresh if stale
       if (ctx && Date.now() - latestSha.checked_at > SHA_STALE_MS) {
         ctx.waitUntil(refreshShasIfStale(env, storage));
       }
-
-      tracer?.addSpan("gap-kv", g1 - g0, undefined, "Date.now");
-      tracer?.addSpan("gap-cache", g2 - g1, undefined, "Date.now");
-      tracer?.addSpan("gap-deserialize", g3 - g2, undefined, "Date.now");
-      tracer?.addSpan("gap-total", g3 - g0, undefined, "Date.now");
 
       return index;
     }

@@ -207,13 +207,9 @@ export default {
       return new Response(null, { status: 204, headers: CORS_PREFLIGHT_HEADERS });
     }
 
-    const t0 = Date.now();
-
     if (url.pathname === "/mcp" && request.method === "POST") {
       ctx.waitUntil(recordPublicTelemetry(request, env));
     }
-
-    const t1 = Date.now();
 
     // Streamable HTTP transport (agents >=0.7) requires Accept to include
     // both application/json and text/event-stream.  Older MCP clients
@@ -232,16 +228,10 @@ export default {
       effectiveRequest = new Request(request, { headers });
     }
 
-    const t2 = Date.now();
-
     const tracer = new RequestTracer();
     const server = createServer(env, ctx, tracer);
 
-    const t3 = Date.now();
-
     const response = await createMcpHandler(server, { route: "/mcp", enableJsonResponse: true })(effectiveRequest, env, ctx);
-
-    const t4 = Date.now();
 
     // Ensure CORS headers on actual responses include x-aquifer-* headers.
     // The agents handler sets Access-Control-Allow-Origin: * but its
@@ -251,12 +241,9 @@ export default {
       patched.headers.set("Access-Control-Allow-Headers", ALLOWED_HEADERS);
       patched.headers.set("X-Aquifer-Trace", tracer.toHeader());
 
-      const gaps = `t0-t1=${t1-t0}ms, t1-t2=${t2-t1}ms, t2-t3=${t3-t2}ms, await-sdk=${t4-t3}ms, total=${t4-t0}ms`;
-      patched.headers.set("X-Aquifer-Gaps", gaps);
-
       const existingExpose = patched.headers.get("Access-Control-Expose-Headers");
       patched.headers.set("Access-Control-Expose-Headers",
-        [existingExpose, "X-Aquifer-Trace", "X-Aquifer-Gaps"].filter(Boolean).join(", "));
+        [existingExpose, "X-Aquifer-Trace"].filter(Boolean).join(", "));
       return patched;
     }
 

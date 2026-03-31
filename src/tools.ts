@@ -264,11 +264,7 @@ export async function handleList(
   ctx?: ExecutionContext,
   tracer?: RequestTracer,
 ) {
-  const h0 = Date.now();
-
   const index = await getOrBuildIndex(env, storage, ctx, tracer);
-
-  const h1 = Date.now();
 
   let resources = index.registry;
 
@@ -300,18 +296,9 @@ export async function handleList(
     return `- **${r.title}** (${r.resource_code})\n  Type: ${r.resource_type} | Order: ${r.order} | Articles: ${r.article_count} | Language: ${r.language} | Localizations: ${r.localizations.join(", ") || "none"} | Tools: ${capabilities.join(", ")}`;
   });
 
-  const h2 = Date.now();
-
-  const result = textResult(
+  return textResult(
     `Found ${resources.length} resource(s):\n\n${lines.join("\n\n")}`,
   );
-
-  result.content.push({
-    type: "text",
-    text: `\n---\nX-Handler-Gaps: getOrBuildIndex=${h1-h0}ms, format=${h2-h1}ms, handler-total=${h2-h0}ms`,
-  });
-
-  return result;
 }
 
 export async function handleSearch(
