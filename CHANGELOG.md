@@ -2,6 +2,23 @@
 
 All notable changes to aquifer-mcp will be documented in this file.
 
+## [1.2.0] - 2026-03-31
+
+### Changed
+
+- **Scripture output flows as joined verse text**: Removed per-verse `### Title` headers. Verse numbers are already inline from stripped HTML `<sup>` tags. Multi-verse requests now read as natural flowing scripture, matching translation-helps-mcp's output pattern.
+- **README updated to reflect 10 tools**: Removed stale "eight tools" count and inline version references (v0.4, v0.5, v0.8). Added `scripture` and `entity` to tool list, Aquifer Window mapping, and JSON-RPC examples. First-person build account rewritten to describe capabilities, not version history.
+- **List type filter uses exact match first**: `list({ type: "Bible" })` now exact-matches `aquifer_type` before falling back to substring match on `resource_type`. Returns only actual Bibles, not "Bible Dictionary" or "Bible Translation Manual".
+
+### Fixed
+
+- **Scripture error for non-Bible resource_code**: `scripture({ reference: "Gen 1:1", resource_code: "AquiferOpenBibleDictionary" })` now returns a helpful message identifying the resource type and listing available Bibles, instead of a misleading "No Bible text found" error.
+- **Large scripture results truncated**: Book-only and large chapter-range references (e.g. "Psalms", "Philemon") are truncated to 30 verses per translation with a note to narrow the range. Prevents context window overflow for AI agents.
+
+### Added
+
+- **Search-to-entity hint**: Single-word keyword searches now append a tip suggesting the `entity` tool for comprehensive ACAI coverage (e.g. `entity("person:David")` vs `search("David")`).
+
 ## [1.1.0] - 2026-03-31
 
 ### Added
