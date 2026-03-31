@@ -45,18 +45,23 @@ const CORS_PREFLIGHT_HEADERS: Record<string, string> = {
 type ToolResult = { content: Array<{ type: "text"; text: string }> };
 
 /**
- * Wrap a tool handler to append X-Ray trace data to the response content.
+ * Wrap a tool handler to optionally append X-Ray trace data to the response.
  *
- * The MCP handler uses SSE streaming — response headers are committed before
- * tool execution starts. So the trace MUST be inside the tool response body,
- * not in headers. Each traced tool appends a final content block with timing.
+ * Trace output is gated behind the AQUIFER_TRACE env var (set to "true" or "1"
+ * to enable). When disabled (the default), no infrastructure diagnostics are
+ * exposed to LLM clients, avoiding leaked architecture details and wasted
+ * context tokens.
  */
 function traced(
   tracer: RequestTracer,
   fn: () => Promise<ToolResult>,
+  env: Env,
 ): Promise<ToolResult> {
   return fn().then((result) => {
-    result.content.push({ type: "text", text: `\n---\nX-Aquifer-Trace: ${tracer.toHeader()}` });
+    const enabled = env.AQUIFER_TRACE === "true" || env.AQUIFER_TRACE === "1";
+    if (enabled) {
+      result.content.push({ type: "text", text: `\n---\nX-Aquifer-Trace: ${tracer.toHeader()}` });
+    }
     return result;
   });
 }
@@ -109,7 +114,7 @@ function createServer(env: Env, ctx: ExecutionContext, tracer: RequestTracer) {
         "Filter by language code (e.g. eng, spa, fra). Omit for all."
       ),
     },
-    async (args) => traced(tracer, () => handleList(args, env, storage, ctx, tracer)),
+    async (args) => traced(tracer, () => handleList(args, env, storage, ctx, tracer), env),
   );
 
   server.tool(
@@ -120,7 +125,7 @@ function createServer(env: Env, ctx: ExecutionContext, tracer: RequestTracer) {
         'A passage reference, ACAI entity (e.g. "keyterm:Justification", "person:Paul"), or keyword to search article titles.'
       ),
     },
-    async (args) => traced(tracer, () => handleSearch(args, env, storage, ctx, tracer)),
+    async (args) => traced(tracer, () => handleSearch(args, env, storage, ctx, tracer), env),
   );
 
   server.tool(
@@ -131,7 +136,7 @@ function createServer(env: Env, ctx: ExecutionContext, tracer: RequestTracer) {
       language: z.string().describe("Language code (e.g. eng)."),
       content_id: z.string().describe("The article content ID."),
     },
-    async (args) => traced(tracer, () => handleGet(args, env, storage, ctx, tracer)),
+    async (args) => traced(tracer, () => handleGet(args, env, storage, ctx, tracer), env),
   );
 
   server.tool(
@@ -142,7 +147,7 @@ function createServer(env: Env, ctx: ExecutionContext, tracer: RequestTracer) {
       language: z.string().describe("Language code."),
       content_id: z.string().describe("The article content ID."),
     },
-    async (args) => traced(tracer, () => handleRelated(args, env, storage, ctx, tracer)),
+    async (args) => traced(tracer, () => handleRelated(args, env, storage, ctx, tracer), env),
   );
 
   server.tool(
@@ -154,7 +159,7 @@ function createServer(env: Env, ctx: ExecutionContext, tracer: RequestTracer) {
       page: z.number().optional().describe("Page number, 1-indexed (default: 1)."),
       page_size: z.number().optional().describe("Articles per page, 1-100 (default: 50)."),
     },
-    async (args) => traced(tracer, () => handleBrowse(args, env, storage, ctx, tracer)),
+    async (args) => traced(tracer, () => handleBrowse(args, env, storage, ctx, tracer), env),
   );
 
   server.tool(
@@ -167,7 +172,7 @@ function createServer(env: Env, ctx: ExecutionContext, tracer: RequestTracer) {
       resource_code: z.string().optional().describe("Specific Bible resource code. Omit for all available."),
       language: z.string().optional().describe("Language code (default: eng)."),
     },
-    async (args) => traced(tracer, () => handleScripture(args, env, storage, ctx, tracer)),
+    async (args) => traced(tracer, () => handleScripture(args, env, storage, ctx, tracer), env),
   );
 
   server.tool(
@@ -182,7 +187,7 @@ function createServer(env: Env, ctx: ExecutionContext, tracer: RequestTracer) {
       ),
       language: z.string().optional().describe("Language code (default: eng)."),
     },
-    async (args) => traced(tracer, () => handleEntity(args, env, storage, ctx, tracer)),
+    async (args) => traced(tracer, () => handleEntity(args, env, storage, ctx, tracer), env),
   );
 
   return server;
@@ -237,10 +242,13 @@ export default {
     if (url.pathname === "/mcp") {
       const patched = new Response(response.body, response);
       patched.headers.set("Access-Control-Allow-Headers", ALLOWED_HEADERS);
-      patched.headers.set("X-Aquifer-Trace", tracer.toHeader());
-      const existingExpose = patched.headers.get("Access-Control-Expose-Headers");
-      patched.headers.set("Access-Control-Expose-Headers",
-        [existingExpose, "X-Aquifer-Trace"].filter(Boolean).join(", "));
+      const traceEnabled = env.AQUIFER_TRACE === "true" || env.AQUIFER_TRACE === "1";
+      if (traceEnabled) {
+        patched.headers.set("X-Aquifer-Trace", tracer.toHeader());
+        const existingExpose = patched.headers.get("Access-Control-Expose-Headers");
+        patched.headers.set("Access-Control-Expose-Headers",
+          [existingExpose, "X-Aquifer-Trace"].filter(Boolean).join(", "));
+      }
       return patched;
     }
 

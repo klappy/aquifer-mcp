@@ -4,6 +4,7 @@ export interface Env {
   AQUIFER_ORG: string;
   DOCS_REPO: string;
   WORKER_ENV?: string;
+  AQUIFER_TRACE?: string;
   TELEMETRY_VERIFIED_CLIENTS?: string;
 }
 

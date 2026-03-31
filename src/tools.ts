@@ -789,7 +789,9 @@ async function buildCatalogFast(
   const isMedia = entry.aquifer_type.toLowerCase() === "images" || entry.aquifer_type.toLowerCase() === "videos";
 
   if (lookup && !isMedia) {
-    // For non-media resources, the article index has everything browse needs
+    // Fast path from article index — returns only index_reference as passage,
+    // not full associations.passage. Do NOT persist to R2 so that a subsequent
+    // buildCatalog call can still populate the cache with complete passage data.
     const catalog: BrowseCatalogEntry[] = Object.entries(lookup).map(([contentId, loc]) => ({
       content_id: contentId,
       title: loc.title,
@@ -800,9 +802,6 @@ async function buildCatalogFast(
         : [],
     }));
 
-    if (catalog.length > 0) {
-      await storage.putJSON(key, catalog);
-    }
     return catalog;
   }
 
