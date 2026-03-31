@@ -5,7 +5,7 @@ import type {
   ResourceMetadata,
   NavigabilityIndex,
 } from "./types.js";
-import { metadataUrl, fetchJson, fetchRepoSha, fetchOrgRepos, GC_TTL } from "./github.js";
+import { metadataUrl, fetchJson, fetchRepoSha, fetchOrgRepos } from "./github.js";
 import { isValidIndexReference, rangesOverlap } from "./references.js";
 import { AquiferStorage, indexKey, metadataKey, passageIndexKey, titleIndexKey, articleIndexKey } from "./storage.js";
 
@@ -17,33 +17,39 @@ export interface ArticleLookupEntry {
 }
 import type { RequestTracer } from "./tracing.js";
 
-const LATEST_SHA_KEY = "index:latest-composite-sha";
-const SHA_STALE_MS = 5 * 60 * 1000; // 5 minutes
+/** Well-known R2 key for the current index — eliminates KV pointer read from hot path. */
+const CURRENT_INDEX_KEY = "index/current/navigability.json";
+const SHA_STALE_MS = 15 * 60 * 1000; // 15 minutes
+const INDEX_MEMORY_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
+/** Module-level memory cache — survives across requests within the same isolate. */
+let cachedIndex: NavigabilityIndex | null = null;
+let indexFetchedAt = 0;
 
 export async function getOrBuildIndex(env: Env, storage: AquiferStorage, ctx?: ExecutionContext, tracer?: RequestTracer): Promise<NavigabilityIndex> {
-  // --- HOT PATH: pointer (KV) → registry (R2 via Cache API) ---
-  const pointerStart = performance.now();
-  const latestSha = await env.AQUIFER_CACHE.get(LATEST_SHA_KEY, "json") as { sha: string; checked_at: number } | null;
-  tracer?.addSpan("kv-pointer", Math.round(performance.now() - pointerStart), "kv",
-    latestSha ? `sha=${latestSha.sha.slice(0, 8)}` : "miss");
-
-  if (latestSha?.sha) {
-    const key = indexKey(latestSha.sha);
-    const { data } = await storage.getJSON<SerializedIndex>(key, tracer);
-
-    if (data?.registry) {
-      const index = deserializeIndex(data);
-
-      if (ctx && Date.now() - latestSha.checked_at > SHA_STALE_MS) {
-        ctx.waitUntil(refreshShasIfStale(env, storage));
-      }
-
-      return index;
-    }
+  // --- Tier 1: Module-level memory cache (0 subrequests) ---
+  if (cachedIndex && Date.now() - indexFetchedAt < INDEX_MEMORY_TTL_MS) {
+    tracer?.addSpan("index", 0, "memory");
+    return cachedIndex;
   }
 
-  // --- COLD PATH: no cached index, build from scratch ---
-  tracer?.addSpan("cold-path", 0, undefined, "no cached pointer, rebuilding");
+  // --- Tier 2: Well-known R2 key via Cache API (1 subrequest max) ---
+  const { data } = await storage.getJSON<SerializedIndex>(CURRENT_INDEX_KEY, tracer);
+  if (data?.registry) {
+    const index = deserializeIndex(data);
+    cachedIndex = index;
+    indexFetchedAt = Date.now();
+
+    // Background refresh if SHAs are stale
+    if (ctx && data.checked_at && Date.now() - data.checked_at > SHA_STALE_MS) {
+      ctx.waitUntil(refreshAndUpdateCurrentIndex(env, storage));
+    }
+
+    return index;
+  }
+
+  // --- Tier 3: Cold build (no cached index exists) ---
+  tracer?.addSpan("cold-path", 0, undefined, "no cached index, rebuilding");
 
   const orgStart = performance.now();
   const repoCodes = await fetchOrgRepos(env.AQUIFER_ORG, env);
@@ -54,13 +60,20 @@ export async function getOrBuildIndex(env: Env, storage: AquiferStorage, ctx?: E
   tracer?.addSpan("repo-shas", Math.round(performance.now() - shaStart), "github", `${repoShas.size} resolved`);
 
   const compositeHash = await computeCompositeHash(repoShas);
-  const key = indexKey(compositeHash);
+  const shaKey = indexKey(compositeHash);
 
-  // Check R2 for this composite (pointer was missing but index may exist)
-  const { data: existing } = await storage.getJSON<SerializedIndex>(key, tracer);
+  // Check R2 for this composite (well-known key was missing but SHA-keyed index may exist)
+  const { data: existing } = await storage.getJSON<SerializedIndex>(shaKey, tracer);
   if (existing?.registry) {
-    await updatePointer(env, compositeHash);
-    return deserializeIndex(existing);
+    existing.checked_at = Date.now();
+    await Promise.all([
+      storage.putJSON(shaKey, existing),
+      storage.putJSON(CURRENT_INDEX_KEY, existing),
+    ]);
+    const index = deserializeIndex(existing);
+    cachedIndex = index;
+    indexFetchedAt = Date.now();
+    return index;
   }
 
   const buildStart = performance.now();
@@ -69,42 +82,48 @@ export async function getOrBuildIndex(env: Env, storage: AquiferStorage, ctx?: E
   index.composite_sha = compositeHash;
   index.repo_shas = repoShas;
 
-  // Store lightweight registry in R2 (no passage/title/entity — those are per-resource)
+  // Store in R2: SHA-keyed (immutable) + well-known current (mutable)
+  const serialized = serializeForStorage(index);
+  serialized.checked_at = Date.now();
   const writeStart = performance.now();
-  const written = await storage.putJSON(key, serializeForStorage(index));
+  const written = await storage.putJSON(shaKey, serialized);
   tracer?.addSpan("r2-write", Math.round(performance.now() - writeStart), "r2");
   if (written) {
-    await updatePointer(env, compositeHash);
+    await storage.putJSON(CURRENT_INDEX_KEY, serialized);
   }
-  // Pointer only advances if write succeeded (bugbot fix preserved)
 
+  cachedIndex = index;
+  indexFetchedAt = Date.now();
   return index;
 }
 
-async function updatePointer(env: Env, sha: string): Promise<void> {
-  await env.AQUIFER_CACHE.put(LATEST_SHA_KEY, JSON.stringify({ sha, checked_at: Date.now() }), {
-    expirationTtl: GC_TTL,
-  });
-}
-
-async function refreshShasIfStale(env: Env, storage: AquiferStorage): Promise<void> {
+async function refreshAndUpdateCurrentIndex(env: Env, storage: AquiferStorage): Promise<void> {
   try {
     const repoCodes = await fetchOrgRepos(env.AQUIFER_ORG, env);
     const repoShas = await fetchAllRepoShas(repoCodes, env);
     const compositeHash = await computeCompositeHash(repoShas);
 
-    const currentPointer = await env.AQUIFER_CACHE.get(LATEST_SHA_KEY, "json") as { sha: string } | null;
-    if (currentPointer?.sha === compositeHash) {
-      // No change — just update checked_at timestamp
-      await updatePointer(env, compositeHash);
+    // Read current to check if SHA changed
+    const { data: current } = await storage.getJSON<SerializedIndex>(CURRENT_INDEX_KEY);
+    if (current?.composite_sha === compositeHash) {
+      // No change — update checked_at only
+      current.checked_at = Date.now();
+      await storage.putJSON(CURRENT_INDEX_KEY, current);
       return;
     }
 
     // SHA changed — check if index already exists in R2
-    const key = indexKey(compositeHash);
-    const { data: existing } = await storage.getJSON<SerializedIndex>(key);
+    const shaKey = indexKey(compositeHash);
+    const { data: existing } = await storage.getJSON<SerializedIndex>(shaKey);
     if (existing?.registry) {
-      await updatePointer(env, compositeHash);
+      existing.checked_at = Date.now();
+      await Promise.all([
+        storage.putJSON(shaKey, existing),
+        storage.putJSON(CURRENT_INDEX_KEY, existing),
+      ]);
+      // Update module-level cache
+      cachedIndex = deserializeIndex(existing);
+      indexFetchedAt = Date.now();
       return;
     }
 
@@ -113,12 +132,17 @@ async function refreshShasIfStale(env: Env, storage: AquiferStorage): Promise<vo
     index.composite_sha = compositeHash;
     index.repo_shas = repoShas;
 
-    const written = await storage.putJSON(key, serializeForStorage(index));
+    const serialized = serializeForStorage(index);
+    serialized.checked_at = Date.now();
+    const written = await storage.putJSON(shaKey, serialized);
     if (written) {
-      await updatePointer(env, compositeHash);
+      await storage.putJSON(CURRENT_INDEX_KEY, serialized);
+      // Update module-level cache
+      cachedIndex = index;
+      indexFetchedAt = Date.now();
     }
   } catch {
-    // Background refresh failed — stale pointer remains valid (truthful degradation)
+    // Background refresh failed — current index remains valid (truthful degradation)
   }
 }
 
@@ -413,6 +437,7 @@ interface SerializedIndex {
   built_at: number;
   composite_sha: string;
   repo_shas: Array<[string, string]>;
+  checked_at: number; // when SHAs were last verified against GitHub
 }
 
 function serializeForStorage(index: NavigabilityIndex): SerializedIndex {
@@ -424,6 +449,7 @@ function serializeForStorage(index: NavigabilityIndex): SerializedIndex {
     built_at: index.built_at,
     composite_sha: index.composite_sha,
     repo_shas: Array.from(index.repo_shas.entries()),
+    checked_at: 0,
   };
 }
 
