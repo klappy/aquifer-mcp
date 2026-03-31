@@ -28,7 +28,6 @@ function createMockStorage(): AquiferStorage {
       store.set(key, JSON.stringify(data));
       return true;
     }),
-    delete: vi.fn(async () => {}),
   } as unknown as AquiferStorage;
 }
 

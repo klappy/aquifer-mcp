@@ -6,6 +6,9 @@ import type { Env } from "./types.js";
  */
 const APP_VERSION = "1.1.0";
 
+/** Cap memory cache to avoid OOM during large traversals (e.g. entity bootstrap). */
+const MAX_MEMORY_ENTRIES = 50;
+
 /**
  * Three-tier storage: Memory → Cache API → R2.
  *
@@ -53,7 +56,9 @@ export class AquiferStorage {
       const hit = await c.match(this.cacheRequest(key));
       if (hit) {
         const text = await hit.text();
-        this.memoryCache.set(key, text);
+        if (this.memoryCache.size < MAX_MEMORY_ENTRIES) {
+          this.memoryCache.set(key, text);
+        }
         return { data: JSON.parse(text) as T, source: "cache" };
       }
     }
@@ -64,7 +69,9 @@ export class AquiferStorage {
     if (!obj) return { data: null, source: "miss" };
 
     const text = await obj.text();
-    this.memoryCache.set(key, text);
+    if (this.memoryCache.size < MAX_MEMORY_ENTRIES) {
+      this.memoryCache.set(key, text);
+    }
 
     // Populate Cache API for next request
     if (c) {
@@ -121,17 +128,6 @@ export class AquiferStorage {
     }
 
     return true;
-  }
-
-  /** Delete from R2 + Cache API */
-  async delete(key: string): Promise<void> {
-    const c = this.cache;
-    if (c) {
-      try { await c.delete(this.cacheRequest(key)); } catch { /* ignore */ }
-    }
-    if (this.env.AQUIFER_CONTENT) {
-      try { await this.env.AQUIFER_CONTENT.delete(key); } catch { /* ignore */ }
-    }
   }
 }
 
