@@ -317,7 +317,7 @@ export async function handleSearch(
   }
 
   if (query.includes(":") && /^[a-z]+:/i.test(query)) {
-    return searchByEntity(query, index, env, storage);
+    return searchByEntity(query, index, env, storage, tracer);
   }
 
   return searchByTitle(query, index, storage, tracer);
@@ -338,7 +338,7 @@ async function searchByPassage(ref: string, index: NavigabilityIndex, storage: A
   );
 }
 
-async function searchByEntity(entityQuery: string, index: NavigabilityIndex, env: Env, storage: AquiferStorage) {
+async function searchByEntity(entityQuery: string, index: NavigabilityIndex, env: Env, storage: AquiferStorage, tracer?: RequestTracer) {
   const matches: ArticleRef[] = [];
   const normalized = entityQuery.toLowerCase();
 
@@ -349,7 +349,7 @@ async function searchByEntity(entityQuery: string, index: NavigabilityIndex, env
   }
 
   if (matches.length === 0) {
-    const bootstrapped = await bootstrapEntityMatches(normalized, index, env, storage);
+    const bootstrapped = await bootstrapEntityMatches(normalized, index, env, storage, tracer);
     matches.push(...bootstrapped);
   }
 
@@ -642,10 +642,11 @@ async function bootstrapEntityMatches(
   index: NavigabilityIndex,
   env: Env,
   storage: AquiferStorage,
+  tracer?: RequestTracer,
 ): Promise<ArticleRef[]> {
   // Entity bootstrap cache stored in R2, keyed by composite SHA + entity ID
   const key = entityKey(index.composite_sha, normalizedEntityId);
-  const { data: cached } = await storage.getJSON<ArticleRef[]>(key);
+  const { data: cached } = await storage.getJSON<ArticleRef[]>(key, tracer);
   if (cached?.length) {
     index.entity.set(normalizedEntityId, cached);
     return cached;
