@@ -12,6 +12,24 @@ import {
   handleEntity,
 } from "./tools.js";
 import type { Env, NavigabilityIndex, ResourceEntry, ArticleRef, ArticleContent, ResourceMetadata } from "./types.js";
+import type { AquiferStorage } from "./storage.js";
+
+// --- Mock AquiferStorage ---
+
+function createMockStorage(): AquiferStorage {
+  const store = new Map<string, string>();
+  return {
+    getJSON: vi.fn(async (key: string) => {
+      const val = store.get(key);
+      if (!val) return { data: null, source: "miss" as const };
+      return { data: JSON.parse(val), source: "memory" as const };
+    }),
+    putJSON: vi.fn(async (key: string, data: unknown) => {
+      store.set(key, JSON.stringify(data));
+      return true;
+    }),
+  } as unknown as AquiferStorage;
+}
 
 // --- Mock KV store ---
 
@@ -219,93 +237,99 @@ const mockFetchJson = vi.mocked(fetchJson);
 
 describe("handleList", () => {
   let env: Env;
+  let storage: AquiferStorage;
 
   beforeEach(() => {
-    env = { AQUIFER_CACHE: createMockKV(), AQUIFER_ORG: "BibleAquifer", DOCS_REPO: "docs", WORKER_ENV: "production" };
+    env = { AQUIFER_CACHE: createMockKV(), AQUIFER_CONTENT: {} as R2Bucket, AQUIFER_ORG: "BibleAquifer", DOCS_REPO: "docs", WORKER_ENV: "production" };
+    storage = createMockStorage();
     mockGetOrBuildIndex.mockResolvedValue(buildMockIndex([STUDY_NOTES_ENTRY, FIA_MAPS_ENTRY]));
   });
 
   it("returns all resources when no filters", async () => {
-    const result = await handleList({}, env);
+    const result = await handleList({}, env, storage);
     expect(result.content[0]!.text).toContain("Found 2 resource(s)");
     expect(result.content[0]!.text).toContain("Biblica Study Notes");
     expect(result.content[0]!.text).toContain("FIAMaps");
   });
 
   it("filters by type", async () => {
-    const result = await handleList({ type: "Images" }, env);
+    const result = await handleList({ type: "Images" }, env, storage);
     expect(result.content[0]!.text).toContain("Found 1 resource(s)");
     expect(result.content[0]!.text).toContain("FIAMaps");
     expect(result.content[0]!.text).not.toContain("Biblica Study Notes");
   });
 
   it("filters by language", async () => {
-    const result = await handleList({ language: "spa" }, env);
+    const result = await handleList({ language: "spa" }, env, storage);
     expect(result.content[0]!.text).toContain("Found 1 resource(s)");
     expect(result.content[0]!.text).toContain("Biblica Study Notes");
   });
 
   it("returns message when no match", async () => {
-    const result = await handleList({ type: "NonExistent" }, env);
+    const result = await handleList({ type: "NonExistent" }, env, storage);
     expect(result.content[0]!.text).toContain("No resources found");
   });
 });
 
 describe("handleSearch", () => {
   let env: Env;
+  let storage: AquiferStorage;
 
   beforeEach(() => {
-    env = { AQUIFER_CACHE: createMockKV(), AQUIFER_ORG: "BibleAquifer", DOCS_REPO: "docs", WORKER_ENV: "production" };
+    env = { AQUIFER_CACHE: createMockKV(), AQUIFER_CONTENT: {} as R2Bucket, AQUIFER_ORG: "BibleAquifer", DOCS_REPO: "docs", WORKER_ENV: "production" };
+    storage = createMockStorage();
     mockGetOrBuildIndex.mockResolvedValue(buildMockIndex([STUDY_NOTES_ENTRY, FIA_MAPS_ENTRY]));
     mockFetchJson.mockResolvedValue(null);
   });
 
   it("requires a query", async () => {
-    const result = await handleSearch({}, env);
+    const result = await handleSearch({}, env, storage);
     expect(result.content[0]!.text).toContain("Please provide a search query");
   });
 
   it("searches by passage reference", async () => {
-    const result = await handleSearch({ query: "ROM 1:1" }, env);
+    const result = await handleSearch({ query: "ROM 1:1" }, env, storage);
     expect(result.content[0]!.text).toContain("Romans 1:1–17");
   });
 
   it("searches by human-readable reference", async () => {
-    const result = await handleSearch({ query: "Romans 1:5" }, env);
+    const result = await handleSearch({ query: "Romans 1:5" }, env, storage);
     expect(result.content[0]!.text).toContain("Romans 1:1–17");
   });
 
   it("returns no results for uncovered passage", async () => {
-    const result = await handleSearch({ query: "REV 22:21" }, env);
+    const result = await handleSearch({ query: "REV 22:21" }, env, storage);
     expect(result.content[0]!.text).toContain("No articles found for passage");
   });
 
   it("searches by keyword", async () => {
-    const result = await handleSearch({ query: "Abram" }, env);
+    const result = await handleSearch({ query: "Abram" }, env, storage);
     expect(result.content[0]!.text).toContain("Abram's Journey");
   });
 
   it("returns no results for unmatched keyword", async () => {
-    const result = await handleSearch({ query: "xyznonexistent" }, env);
+    const result = await handleSearch({ query: "xyznonexistent" }, env, storage);
     expect(result.content[0]!.text).toContain("No articles found matching");
   });
 });
 
 describe("handleGet", () => {
   let env: Env;
+  let storage: AquiferStorage;
 
   beforeEach(() => {
-    env = { AQUIFER_CACHE: createMockKV(), AQUIFER_ORG: "BibleAquifer", DOCS_REPO: "docs", WORKER_ENV: "production" };
+    env = { AQUIFER_CACHE: createMockKV(), AQUIFER_CONTENT: {} as R2Bucket, AQUIFER_ORG: "BibleAquifer", DOCS_REPO: "docs", WORKER_ENV: "production" };
+    storage = createMockStorage();
     mockGetOrBuildIndex.mockResolvedValue(buildMockIndex([STUDY_NOTES_ENTRY]));
   });
 
   it("requires all three fields", async () => {
-    const result = await handleGet({ resource_code: "BiblicaStudyNotes" }, env);
+    const result = await handleGet({ resource_code: "BiblicaStudyNotes" }, env, storage);
     expect(result.content[0]!.text).toContain("Missing required fields");
   });
 
   it("returns error for unknown resource", async () => {
-    const result = await handleGet({ resource_code: "NonExistent", language: "eng", content_id: "123" }, env);
+    const result = await handleGet({ resource_code: "NonExistent", language: "eng", content_id: "123" }, env, storage);
     expect(result.content[0]!.text).toContain("not found in the registry");
   });
 
@@ -327,7 +351,7 @@ describe("handleGet", () => {
       return null;
     });
 
-    const result = await handleGet({ resource_code: "BiblicaStudyNotes", language: "eng", content_id: "132828" }, env);
+    const result = await handleGet({ resource_code: "BiblicaStudyNotes", language: "eng", content_id: "132828" }, env, storage);
     const text = result.content[0]!.text;
     expect(text).toContain("Romans 1:1–17");
     expect(text).toContain("Paul longed to see the believers");
@@ -349,16 +373,18 @@ describe("handleGet", () => {
       return null;
     });
 
-    const result = await handleGet({ resource_code: "BiblicaStudyNotes", language: "eng", content_id: "999999" }, env);
+    const result = await handleGet({ resource_code: "BiblicaStudyNotes", language: "eng", content_id: "999999" }, env, storage);
     expect(result.content[0]!.text).toContain("not found");
   });
 });
 
 describe("handleRelated", () => {
   let env: Env;
+  let storage: AquiferStorage;
 
   beforeEach(() => {
-    env = { AQUIFER_CACHE: createMockKV(), AQUIFER_ORG: "BibleAquifer", DOCS_REPO: "docs", WORKER_ENV: "production" };
+    env = { AQUIFER_CACHE: createMockKV(), AQUIFER_CONTENT: {} as R2Bucket, AQUIFER_ORG: "BibleAquifer", DOCS_REPO: "docs", WORKER_ENV: "production" };
+    storage = createMockStorage();
     const otherRef: ArticleRef = {
       resource_code: "AquiferOpenStudyNotes",
       language: "eng",
@@ -373,7 +399,7 @@ describe("handleRelated", () => {
   });
 
   it("requires all three fields", async () => {
-    const result = await handleRelated({ resource_code: "BiblicaStudyNotes" }, env);
+    const result = await handleRelated({ resource_code: "BiblicaStudyNotes" }, env, storage);
     expect(result.content[0]!.text).toContain("Missing required fields");
   });
 
@@ -395,6 +421,7 @@ describe("handleRelated", () => {
     const result = await handleRelated(
       { resource_code: "BiblicaStudyNotes", language: "eng", content_id: "132828" },
       env,
+      storage,
     );
     const text = result.content[0]!.text;
     expect(text).toContain("Passage overlap");
@@ -404,19 +431,21 @@ describe("handleRelated", () => {
 
 describe("handleBrowse", () => {
   let env: Env;
+  let storage: AquiferStorage;
 
   beforeEach(() => {
-    env = { AQUIFER_CACHE: createMockKV(), AQUIFER_ORG: "BibleAquifer", DOCS_REPO: "docs", WORKER_ENV: "production" };
+    env = { AQUIFER_CACHE: createMockKV(), AQUIFER_CONTENT: {} as R2Bucket, AQUIFER_ORG: "BibleAquifer", DOCS_REPO: "docs", WORKER_ENV: "production" };
+    storage = createMockStorage();
     mockGetOrBuildIndex.mockResolvedValue(buildMockIndex([STUDY_NOTES_ENTRY, FIA_MAPS_ENTRY]));
   });
 
   it("requires resource_code", async () => {
-    const result = await handleBrowse({}, env);
+    const result = await handleBrowse({}, env, storage);
     expect(result.content[0]!.text).toContain("Missing required field: resource_code");
   });
 
   it("returns error for unknown resource", async () => {
-    const result = await handleBrowse({ resource_code: "NonExistent" }, env);
+    const result = await handleBrowse({ resource_code: "NonExistent" }, env, storage);
     expect(result.content[0]!.text).toContain("not found in the registry");
   });
 
@@ -436,7 +465,7 @@ describe("handleBrowse", () => {
       return null;
     });
 
-    const result = await handleBrowse({ resource_code: "FIAMaps" }, env);
+    const result = await handleBrowse({ resource_code: "FIAMaps" }, env, storage);
     const text = result.content[0]!.text;
     expect(text).toContain("FIAMaps/eng");
     expect(text).toContain("2 articles total");
@@ -463,12 +492,12 @@ describe("handleBrowse", () => {
     });
 
     // page_size=1 → 2 pages
-    const page1 = await handleBrowse({ resource_code: "FIAMaps", page_size: 1 }, env);
+    const page1 = await handleBrowse({ resource_code: "FIAMaps", page_size: 1 }, env, storage);
     expect(page1.content[0]!.text).toContain("page 1/2");
     expect(page1.content[0]!.text).toContain("Abram's Journey");
     expect(page1.content[0]!.text).toContain("Use page=2 to see more");
 
-    const page2 = await handleBrowse({ resource_code: "FIAMaps", page_size: 1, page: 2 }, env);
+    const page2 = await handleBrowse({ resource_code: "FIAMaps", page_size: 1, page: 2 }, env, storage);
     expect(page2.content[0]!.text).toContain("page 2/2");
     expect(page2.content[0]!.text).toContain("Aerial View");
     expect(page2.content[0]!.text).not.toContain("Use page=3");
@@ -487,7 +516,7 @@ describe("handleBrowse", () => {
       return null;
     });
 
-    const result = await handleBrowse({ resource_code: "FIAMaps", page: 99 }, env);
+    const result = await handleBrowse({ resource_code: "FIAMaps", page: 99 }, env, storage);
     expect(result.content[0]!.text).toContain("out of range");
   });
 
@@ -504,7 +533,7 @@ describe("handleBrowse", () => {
       return null;
     });
 
-    const result = await handleBrowse({ resource_code: "FIAMaps" }, env);
+    const result = await handleBrowse({ resource_code: "FIAMaps" }, env, storage);
     const text = result.content[0]!.text;
     expect(text).toContain("https://cdn.aquifer.bible/aquifer-content/resources/FIAMaps/c37-abrams-journey.png");
   });
@@ -522,11 +551,11 @@ describe("handleBrowse", () => {
       return null;
     });
 
-    const result = await handleBrowse({ resource_code: "FIAMaps" }, env);
+    const result = await handleBrowse({ resource_code: "FIAMaps" }, env, storage);
     expect(result.content[0]!.text).toContain("FIAMaps/eng");
   });
 
-  it("caches catalog in KV on first call", async () => {
+  it("caches catalog in R2 on first call", async () => {
     mockFetchJson.mockImplementation(async (url: string) => {
       if (url.includes("metadata.json")) {
         return {
@@ -539,11 +568,11 @@ describe("handleBrowse", () => {
       return null;
     });
 
-    await handleBrowse({ resource_code: "FIAMaps" }, env);
+    await handleBrowse({ resource_code: "FIAMaps" }, env, storage);
 
     // Second call should use cache — reset fetchJson to return null
     mockFetchJson.mockResolvedValue(null);
-    const result = await handleBrowse({ resource_code: "FIAMaps" }, env);
+    const result = await handleBrowse({ resource_code: "FIAMaps" }, env, storage);
     expect(result.content[0]!.text).toContain("Abram's Journey");
   });
 
@@ -559,7 +588,7 @@ describe("handleBrowse", () => {
       return null; // content file fetch fails
     });
 
-    const result = await handleBrowse({ resource_code: "FIAMaps" }, env);
+    const result = await handleBrowse({ resource_code: "FIAMaps" }, env, storage);
     expect(result.content[0]!.text).toContain("No articles found");
   });
 
@@ -577,11 +606,11 @@ describe("handleBrowse", () => {
     });
 
     // page_size=0 → clamped to 1
-    const result = await handleBrowse({ resource_code: "FIAMaps", page_size: 0 }, env);
+    const result = await handleBrowse({ resource_code: "FIAMaps", page_size: 0 }, env, storage);
     expect(result.content[0]!.text).toContain("page 1/1");
 
     // page_size=999 → clamped to 100
-    const result2 = await handleBrowse({ resource_code: "FIAMaps", page_size: 999 }, env);
+    const result2 = await handleBrowse({ resource_code: "FIAMaps", page_size: 999 }, env, storage);
     expect(result2.content[0]!.text).toContain("page 1/1");
   });
 });
@@ -590,7 +619,7 @@ describe("handleReadme", () => {
   let env: Env;
 
   beforeEach(() => {
-    env = { AQUIFER_CACHE: createMockKV(), AQUIFER_ORG: "BibleAquifer", DOCS_REPO: "docs", WORKER_ENV: "production" };
+    env = { AQUIFER_CACHE: createMockKV(), AQUIFER_CONTENT: {} as R2Bucket, AQUIFER_ORG: "BibleAquifer", DOCS_REPO: "docs", WORKER_ENV: "production" };
   });
 
   it("fetches README and caches it", async () => {
@@ -630,7 +659,7 @@ describe("handleTelemetryPolicy", () => {
   let env: Env;
 
   beforeEach(() => {
-    env = { AQUIFER_CACHE: createMockKV(), AQUIFER_ORG: "BibleAquifer", DOCS_REPO: "docs", WORKER_ENV: "production" };
+    env = { AQUIFER_CACHE: createMockKV(), AQUIFER_CONTENT: {} as R2Bucket, AQUIFER_ORG: "BibleAquifer", DOCS_REPO: "docs", WORKER_ENV: "production" };
   });
 
   it("returns base policy with no surface", async () => {
@@ -661,7 +690,7 @@ describe("handleTelemetryPublic", () => {
   let env: Env;
 
   beforeEach(() => {
-    env = { AQUIFER_CACHE: createMockKV(), AQUIFER_ORG: "BibleAquifer", DOCS_REPO: "docs", WORKER_ENV: "production" };
+    env = { AQUIFER_CACHE: createMockKV(), AQUIFER_CONTENT: {} as R2Bucket, AQUIFER_ORG: "BibleAquifer", DOCS_REPO: "docs", WORKER_ENV: "production" };
   });
 
   it("returns empty leaderboard state when no telemetry exists", async () => {
@@ -706,19 +735,21 @@ describe("handleTelemetryPublic", () => {
 
 describe("handleScripture", () => {
   let env: Env;
+  let storage: AquiferStorage;
 
   beforeEach(() => {
-    env = { AQUIFER_CACHE: createMockKV(), AQUIFER_ORG: "BibleAquifer", DOCS_REPO: "docs", WORKER_ENV: "production" };
+    env = { AQUIFER_CACHE: createMockKV(), AQUIFER_CONTENT: {} as R2Bucket, AQUIFER_ORG: "BibleAquifer", DOCS_REPO: "docs", WORKER_ENV: "production" };
+    storage = createMockStorage();
     mockGetOrBuildIndex.mockResolvedValue(buildMockIndex([STUDY_NOTES_ENTRY, BIBLE_ENTRY]));
   });
 
   it("requires a reference", async () => {
-    const result = await handleScripture({}, env);
+    const result = await handleScripture({}, env, storage);
     expect(result.content[0]!.text).toContain("Please provide a Bible reference");
   });
 
   it("returns error for unparseable reference", async () => {
-    const result = await handleScripture({ reference: "not a reference!!" }, env);
+    const result = await handleScripture({ reference: "not a reference!!" }, env, storage);
     expect(result.content[0]!.text).toContain("Could not parse");
   });
 
@@ -728,7 +759,7 @@ describe("handleScripture", () => {
       return null;
     });
 
-    const result = await handleScripture({ reference: "Romans 3:23" }, env);
+    const result = await handleScripture({ reference: "Romans 3:23" }, env, storage);
     const text = result.content[0]!.text;
     expect(text).toContain("Scripture:");
     expect(text).toContain("Biblica Bible");
@@ -741,39 +772,41 @@ describe("handleScripture", () => {
       return null;
     });
 
-    const result = await handleScripture({ reference: "Rom 3:23" }, env);
+    const result = await handleScripture({ reference: "Rom 3:23" }, env, storage);
     expect(result.content[0]!.text).toContain("all have sinned");
   });
 
   it("returns no-text message when no Bible articles match", async () => {
     mockFetchJson.mockResolvedValue(null);
-    const result = await handleScripture({ reference: "Rev 22:21" }, env);
+    const result = await handleScripture({ reference: "Rev 22:21" }, env, storage);
     expect(result.content[0]!.text).toContain("No Bible text found");
   });
 
   it("filters by resource_code when specified", async () => {
     mockFetchJson.mockResolvedValue(null);
-    const result = await handleScripture({ reference: "Rom 3:23", resource_code: "NonExistentBible" }, env);
+    const result = await handleScripture({ reference: "Rom 3:23", resource_code: "NonExistentBible" }, env, storage);
     expect(result.content[0]!.text).toContain("not found");
   });
 });
 
 describe("handleEntity", () => {
   let env: Env;
+  let storage: AquiferStorage;
 
   beforeEach(() => {
-    env = { AQUIFER_CACHE: createMockKV(), AQUIFER_ORG: "BibleAquifer", DOCS_REPO: "docs", WORKER_ENV: "production" };
+    env = { AQUIFER_CACHE: createMockKV(), AQUIFER_CONTENT: {} as R2Bucket, AQUIFER_ORG: "BibleAquifer", DOCS_REPO: "docs", WORKER_ENV: "production" };
+    storage = createMockStorage();
     mockGetOrBuildIndex.mockResolvedValue(buildMockIndex([STUDY_NOTES_ENTRY, FIA_MAPS_ENTRY]));
     mockFetchJson.mockResolvedValue(null);
   });
 
   it("requires an entity_id", async () => {
-    const result = await handleEntity({}, env);
+    const result = await handleEntity({}, env, storage);
     expect(result.content[0]!.text).toContain("Please provide an entity ID");
   });
 
   it("returns grouped results for known entity", async () => {
-    const result = await handleEntity({ entity_id: "person:Paul" }, env);
+    const result = await handleEntity({ entity_id: "person:Paul" }, env, storage);
     const text = result.content[0]!.text;
     expect(text).toContain("Entity Profile: person:Paul");
     expect(text).toContain("Romans 1:1–17");
@@ -781,27 +814,29 @@ describe("handleEntity", () => {
   });
 
   it("returns not-found for unknown entity", async () => {
-    const result = await handleEntity({ entity_id: "person:UnknownEntity" }, env);
+    const result = await handleEntity({ entity_id: "person:UnknownEntity" }, env, storage);
     expect(result.content[0]!.text).toContain("No articles found");
   });
 });
 
 describe("handleList capabilities", () => {
   let env: Env;
+  let storage: AquiferStorage;
 
   beforeEach(() => {
-    env = { AQUIFER_CACHE: createMockKV(), AQUIFER_ORG: "BibleAquifer", DOCS_REPO: "docs", WORKER_ENV: "production" };
+    env = { AQUIFER_CACHE: createMockKV(), AQUIFER_CONTENT: {} as R2Bucket, AQUIFER_ORG: "BibleAquifer", DOCS_REPO: "docs", WORKER_ENV: "production" };
+    storage = createMockStorage();
     mockGetOrBuildIndex.mockResolvedValue(buildMockIndex([STUDY_NOTES_ENTRY, BIBLE_ENTRY]));
   });
 
   it("shows scripture in capabilities for Bible resources", async () => {
-    const result = await handleList({ type: "Bible" }, env);
+    const result = await handleList({ type: "Bible" }, env, storage);
     const text = result.content[0]!.text;
     expect(text).toContain("Tools: scripture, search, get, related, browse");
   });
 
   it("does not show scripture for non-Bible resources", async () => {
-    const result = await handleList({ type: "StudyNotes" }, env);
+    const result = await handleList({ type: "StudyNotes" }, env, storage);
     const text = result.content[0]!.text;
     expect(text).toContain("Tools: search, get, related, browse");
     expect(text).not.toContain("scripture");

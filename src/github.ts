@@ -1,4 +1,5 @@
 import type { Env } from "./types.js";
+import type { AquiferStorage } from "./storage.js";
 
 const GITHUB_RAW = "https://raw.githubusercontent.com";
 const GITHUB_API = "https://api.github.com";
@@ -34,7 +35,7 @@ export async function fetchOrgRepos(org: string, env: Env): Promise<string[]> {
   ]);
 
   const headers: Record<string, string> = {
-    "User-Agent": "aquifer-mcp/1.0.0",
+    "User-Agent": "aquifer-mcp/1.1.0",
     "Accept": "application/vnd.github.v3+json",
   };
   if (etag && cached) headers["If-None-Match"] = etag;
@@ -80,7 +81,7 @@ export async function fetchRepoSha(org: string, repo: string, env: Env): Promise
   ]);
 
   const headers: Record<string, string> = {
-    "User-Agent": "aquifer-mcp/1.0.0",
+    "User-Agent": "aquifer-mcp/1.1.0",
     "Accept": "application/vnd.github.v3.sha",
   };
   if (etag && cachedSha) headers["If-None-Match"] = etag;
@@ -119,35 +120,26 @@ export async function fetchRepoSha(org: string, repo: string, env: Env): Promise
 }
 
 /**
- * Fetch JSON from a URL with optional SHA-keyed KV caching.
- * When sha is provided, the cache key becomes `{sha}:{cacheKey}` — content-addressed.
- * Without sha, no caching occurs (enforces anti-cache-lying constraint).
+ * Fetch JSON from a URL with three-tier caching (Memory → Cache API → R2).
+ * The storageKey must be content-addressed (SHA in the key path).
+ * Without storage or storageKey, no caching occurs (enforces anti-cache-lying constraint).
  */
-export async function fetchJson<T>(url: string, env?: Env, cacheKey?: string, sha?: string): Promise<T | null> {
-  const resolvedKey = sha && cacheKey ? `${sha}:${cacheKey}` : undefined;
-
-  if (env && resolvedKey) {
-    const cached = await env.AQUIFER_CACHE.get(resolvedKey, "json");
-    if (cached) return cached as T;
+export async function fetchJson<T>(url: string, storage?: AquiferStorage | null, storageKey?: string): Promise<T | null> {
+  if (storage && storageKey) {
+    const { data } = await storage.getJSON<T>(storageKey);
+    if (data) return data;
   }
 
   const resp = await fetch(url, {
-    headers: { "User-Agent": "aquifer-mcp/1.0.0" },
+    headers: { "User-Agent": "aquifer-mcp/1.1.0" },
   });
 
   if (!resp.ok) return null;
 
   const data = await resp.json() as T;
 
-  if (env && resolvedKey) {
-    try {
-      await env.AQUIFER_CACHE.put(resolvedKey, JSON.stringify(data), {
-        expirationTtl: GC_TTL,
-      });
-    } catch {
-      // KV has a 25 MiB value limit. Large metadata files (e.g. UWTranslationNotes
-      // at 35 MB) exceed this. The data is still valid — just uncacheable.
-    }
+  if (storage && storageKey) {
+    await storage.putJSON(storageKey, data);
   }
 
   return data;

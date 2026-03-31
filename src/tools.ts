@@ -3,6 +3,7 @@ import { parseReference, rangesOverlap, rangeToReadable, isValidIndexReference }
 import { contentUrl, metadataUrl, fetchJson, GC_TTL } from "./github.js";
 import { getOrBuildIndex } from "./registry.js";
 import { getPublicTelemetrySnapshot } from "./telemetry.js";
+import { AquiferStorage, contentKey, metadataKey, catalogKey, entityKey } from "./storage.js";
 
 const README_RAW_URL = "https://raw.githubusercontent.com/klappy/aquifer-mcp/main/README.md";
 
@@ -257,9 +258,10 @@ export async function handleTelemetryPublic(
 export async function handleList(
   args: Record<string, unknown>,
   env: Env,
+  storage: AquiferStorage,
   ctx?: ExecutionContext,
 ) {
-  const index = await getOrBuildIndex(env, ctx);
+  const index = await getOrBuildIndex(env, storage, ctx);
   let resources = index.registry;
 
   if (args.type) {
@@ -296,12 +298,13 @@ export async function handleList(
 export async function handleSearch(
   args: Record<string, unknown>,
   env: Env,
+  storage: AquiferStorage,
   ctx?: ExecutionContext,
 ) {
   const query = String(args.query ?? "").trim();
   if (!query) return textResult("Please provide a search query.");
 
-  const index = await getOrBuildIndex(env, ctx);
+  const index = await getOrBuildIndex(env, storage, ctx);
 
   const bbcccvvv = parseReference(query);
   if (bbcccvvv) {
@@ -309,7 +312,7 @@ export async function handleSearch(
   }
 
   if (query.includes(":") && /^[a-z]+:/i.test(query)) {
-    return searchByEntity(query, index, env);
+    return searchByEntity(query, index, env, storage);
   }
 
   return searchByTitle(query, index);
@@ -336,7 +339,7 @@ function searchByPassage(ref: string, index: NavigabilityIndex) {
   );
 }
 
-async function searchByEntity(entityQuery: string, index: NavigabilityIndex, env: Env) {
+async function searchByEntity(entityQuery: string, index: NavigabilityIndex, env: Env, storage: AquiferStorage) {
   const matches: ArticleRef[] = [];
   const normalized = entityQuery.toLowerCase();
 
@@ -347,7 +350,7 @@ async function searchByEntity(entityQuery: string, index: NavigabilityIndex, env
   }
 
   if (matches.length === 0) {
-    const bootstrapped = await bootstrapEntityMatches(normalized, index, env);
+    const bootstrapped = await bootstrapEntityMatches(normalized, index, env, storage);
     matches.push(...bootstrapped);
   }
 
@@ -389,6 +392,7 @@ function searchByTitle(query: string, index: NavigabilityIndex) {
 export async function handleGet(
   args: Record<string, unknown>,
   env: Env,
+  storage: AquiferStorage,
   ctx?: ExecutionContext,
 ) {
   const resourceCode = String(args.resource_code ?? "");
@@ -399,7 +403,7 @@ export async function handleGet(
     return textResult("Missing required fields: resource_code, language, and content_id are all required.");
   }
 
-  const index = await getOrBuildIndex(env, ctx);
+  const index = await getOrBuildIndex(env, storage, ctx);
   const entry = index.registry.find((r) => r.resource_code === resourceCode);
   if (!entry) {
     return textResult(`Resource "${resourceCode}" not found in the registry.`);
@@ -407,7 +411,7 @@ export async function handleGet(
 
   const sha = index.repo_shas.get(resourceCode) ?? "";
   if (!sha) return textResult(`No SHA available for resource "${resourceCode}".`);
-  const article = await findArticle(resourceCode, language, contentId, entry, env, sha, index);
+  const article = await findArticle(resourceCode, language, contentId, entry, env, storage, sha, index);
   if (!article) {
     return textResult(
       `Article ${contentId} not found in ${resourceCode}/${language}. Verify the content_id is correct.`,
@@ -420,6 +424,7 @@ export async function handleGet(
 export async function handleRelated(
   args: Record<string, unknown>,
   env: Env,
+  storage: AquiferStorage,
   ctx?: ExecutionContext,
 ) {
   const resourceCode = String(args.resource_code ?? "");
@@ -430,13 +435,13 @@ export async function handleRelated(
     return textResult("Missing required fields: resource_code, language, and content_id are all required.");
   }
 
-  const index = await getOrBuildIndex(env, ctx);
+  const index = await getOrBuildIndex(env, storage, ctx);
   const entry = index.registry.find((r) => r.resource_code === resourceCode);
   if (!entry) return textResult(`Resource "${resourceCode}" not found.`);
 
   const sha = index.repo_shas.get(resourceCode) ?? "";
   if (!sha) return textResult(`No SHA available for resource "${resourceCode}".`);
-  const article = await findArticle(resourceCode, language, contentId, entry, env, sha, index);
+  const article = await findArticle(resourceCode, language, contentId, entry, env, storage, sha, index);
   if (!article) return textResult(`Article ${contentId} not found.`);
 
   const related: Array<{ type: string; refs: ArticleRef[] }> = [];
@@ -504,11 +509,13 @@ async function findArticle(
   contentId: string,
   entry: ResourceEntry,
   env: Env,
+  storage: AquiferStorage,
   sha: string,
   index: NavigabilityIndex,
 ): Promise<ArticleContent | null> {
-  const indexReference = await resolveIndexReference(resourceCode, language, contentId, env, sha);
-  const metadataFiles = await listContentFiles(resourceCode, language, entry.order, env, sha);
+  const indexReference = await resolveIndexReference(resourceCode, language, contentId, env, storage, sha);
+  const metadataFiles = await listContentFiles(resourceCode, language, entry.order, env, storage, sha);
+  // Article-file location hint stays in KV (tiny, pointer-shaped)
   const articleFileKey = `${sha}:article-file:v2:${resourceCode}:${language}:${contentId}`;
   const cachedFile = await env.AQUIFER_CACHE.get(articleFileKey);
 
@@ -522,7 +529,7 @@ async function findArticle(
   const uniqueFiles = Array.from(new Set(candidateFiles));
   for (const file of uniqueFiles) {
     if (!file) continue;
-    const articles = await fetchContentFile(resourceCode, language, file, env, sha);
+    const articles = await fetchContentFile(resourceCode, language, file, env, storage, sha);
     if (!articles) continue;
 
     const found = articles.find((a) => String(a.content_id) === contentId) ?? null;
@@ -543,11 +550,12 @@ async function fetchContentFile(
   language: string,
   file: string,
   env: Env,
+  storage: AquiferStorage,
   sha: string,
 ): Promise<ArticleContent[] | null> {
   const url = contentUrl(env.AQUIFER_ORG, resourceCode, language, file);
-  const cacheKey = `content:${resourceCode}:${language}:${file}`;
-  return fetchJson<ArticleContent[]>(url, env, cacheKey, sha);
+  const key = contentKey(resourceCode, sha, language, file);
+  return fetchJson<ArticleContent[]>(url, storage, key);
 }
 
 async function listContentFiles(
@@ -555,9 +563,10 @@ async function listContentFiles(
   language: string,
   order: string,
   env: Env,
+  storage: AquiferStorage,
   sha: string,
 ): Promise<string[]> {
-  const metadata = await getResourceMetadata(resourceCode, language, env, sha);
+  const metadata = await getResourceMetadata(resourceCode, language, env, storage, sha);
   const ingredientKeys = Object.keys(metadata?.scripture_burrito?.ingredients ?? {});
   const files = ingredientKeys
     .filter((k) => k.startsWith("json/") && k.endsWith(".content.json"))
@@ -575,11 +584,12 @@ async function getResourceMetadata(
   resourceCode: string,
   language: string,
   env: Env,
+  storage: AquiferStorage,
   sha: string,
 ): Promise<ResourceMetadata | null> {
   const url = metadataUrl(env.AQUIFER_ORG, resourceCode, language);
-  const cacheKey = `metadata:${resourceCode}:${language}`;
-  return fetchJson<ResourceMetadata>(url, env, cacheKey, sha);
+  const key = metadataKey(resourceCode, sha, language);
+  return fetchJson<ResourceMetadata>(url, storage, key);
 }
 
 async function resolveIndexReference(
@@ -587,14 +597,15 @@ async function resolveIndexReference(
   language: string,
   contentId: string,
   env: Env,
+  storage: AquiferStorage,
   sha: string,
 ): Promise<string | null> {
-  const metadata = await getResourceMetadata(resourceCode, language, env, sha);
+  const metadata = await getResourceMetadata(resourceCode, language, env, storage, sha);
   const direct = metadata?.article_metadata?.[contentId]?.index_reference;
   if (direct && isValidIndexReference(direct)) return direct;
 
   if (language !== "eng") {
-    const englishMetadata = await getResourceMetadata(resourceCode, "eng", env, sha);
+    const englishMetadata = await getResourceMetadata(resourceCode, "eng", env, storage, sha);
     if (englishMetadata?.article_metadata) {
       for (const article of Object.values(englishMetadata.article_metadata)) {
         const localizedContentId = article.localizations?.[language]?.content_id;
@@ -632,9 +643,11 @@ async function bootstrapEntityMatches(
   normalizedEntityId: string,
   index: NavigabilityIndex,
   env: Env,
+  storage: AquiferStorage,
 ): Promise<ArticleRef[]> {
-  const cacheKey = `${index.composite_sha}:entity-search:v3:${normalizedEntityId}`;
-  const cached = await env.AQUIFER_CACHE.get(cacheKey, "json") as ArticleRef[] | null;
+  // Entity bootstrap cache stored in R2, keyed by composite SHA + entity ID
+  const key = entityKey(index.composite_sha, normalizedEntityId);
+  const { data: cached } = await storage.getJSON<ArticleRef[]>(key);
   if (cached?.length) {
     index.entity.set(normalizedEntityId, cached);
     return cached;
@@ -647,12 +660,12 @@ async function bootstrapEntityMatches(
     index.registry.map(async (entry) => {
       const repoSha = index.repo_shas.get(entry.resource_code);
       if (!repoSha) return [];
-      const files = await listContentFiles(entry.resource_code, entry.language, entry.order, env, repoSha);
+      const files = await listContentFiles(entry.resource_code, entry.language, entry.order, env, storage, repoSha);
 
       // Parallel across files within each resource
       const fileResults = await Promise.allSettled(
         files.map(async (file) => {
-          const articles = await fetchContentFile(entry.resource_code, entry.language, file, env, repoSha);
+          const articles = await fetchContentFile(entry.resource_code, entry.language, file, env, storage, repoSha);
           if (!articles?.length) return [];
           const found: ArticleRef[] = [];
           for (const article of articles) {
@@ -688,7 +701,7 @@ async function bootstrapEntityMatches(
   const deduped = deduplicateRefs(matches);
   if (deduped.length > 0) {
     index.entity.set(normalizedEntityId, deduped);
-    await env.AQUIFER_CACHE.put(cacheKey, JSON.stringify(deduped), { expirationTtl: GC_TTL });
+    await storage.putJSON(key, deduped);
   }
   return deduped;
 }
@@ -745,15 +758,17 @@ async function buildCatalog(
   language: string,
   entry: ResourceEntry,
   env: Env,
+  storage: AquiferStorage,
   sha: string,
 ): Promise<BrowseCatalogEntry[]> {
-  const cacheKey = `${sha}:browse:v2:${resourceCode}:${language}`;
-  const cached = await env.AQUIFER_CACHE.get(cacheKey, "json") as BrowseCatalogEntry[] | null;
+  // Browse catalog stored in R2 (no size limit)
+  const key = catalogKey(resourceCode, sha, language);
+  const { data: cached } = await storage.getJSON<BrowseCatalogEntry[]>(key);
   if (cached) return cached;
 
-  const files = await listContentFiles(resourceCode, language, entry.order, env, sha);
+  const files = await listContentFiles(resourceCode, language, entry.order, env, storage, sha);
   const results = await Promise.allSettled(
-    files.map((file) => fetchContentFile(resourceCode, language, file, env, sha)),
+    files.map((file) => fetchContentFile(resourceCode, language, file, env, storage, sha)),
   );
 
   const catalog: BrowseCatalogEntry[] = [];
@@ -774,11 +789,7 @@ async function buildCatalog(
   }
 
   if (catalog.length > 0) {
-    try {
-      await env.AQUIFER_CACHE.put(cacheKey, JSON.stringify(catalog), { expirationTtl: GC_TTL });
-    } catch {
-      // Catalog may exceed KV's 25 MiB limit for large resources.
-    }
+    await storage.putJSON(key, catalog);
   }
   return catalog;
 }
@@ -786,6 +797,7 @@ async function buildCatalog(
 export async function handleBrowse(
   args: Record<string, unknown>,
   env: Env,
+  storage: AquiferStorage,
   ctx?: ExecutionContext,
 ) {
   const resourceCode = String(args.resource_code ?? "").trim();
@@ -795,13 +807,13 @@ export async function handleBrowse(
   const page = Math.max(1, Number(args.page) || 1);
   const pageSize = Math.min(100, Math.max(1, Number(args.page_size) || 50));
 
-  const index = await getOrBuildIndex(env, ctx);
+  const index = await getOrBuildIndex(env, storage, ctx);
   const entry = index.registry.find((r) => r.resource_code === resourceCode);
   if (!entry) return textResult(`Resource "${resourceCode}" not found in the registry.`);
 
   const sha = index.repo_shas.get(resourceCode) ?? "";
   if (!sha) return textResult(`No SHA available for resource "${resourceCode}".`);
-  const catalog = await buildCatalog(resourceCode, language, entry, env, sha);
+  const catalog = await buildCatalog(resourceCode, language, entry, env, storage, sha);
   if (catalog.length === 0) return textResult(`No articles found in ${resourceCode}/${language}.`);
 
   const totalPages = Math.ceil(catalog.length / pageSize);
@@ -849,6 +861,7 @@ function stripHtml(html: string): string {
 export async function handleScripture(
   args: Record<string, unknown>,
   env: Env,
+  storage: AquiferStorage,
   ctx?: ExecutionContext,
 ) {
   const reference = String(args.reference ?? "").trim();
@@ -862,7 +875,7 @@ export async function handleScripture(
     return textResult(`Could not parse "${reference}" as a Bible reference. Try formats like "John 3:16", "Rom 8:28", "Gen 1:1-3".`);
   }
 
-  const index = await getOrBuildIndex(env, ctx);
+  const index = await getOrBuildIndex(env, storage, ctx);
 
   // Find Bible resources
   const bibleResources = index.registry.filter((r) => {
@@ -887,7 +900,7 @@ export async function handleScripture(
     bibleResources.map(async (entry) => {
       const sha = index.repo_shas.get(entry.resource_code) ?? "";
       if (!sha) return null;
-      const articles = await fetchContentFile(entry.resource_code, language, contentFile, env, sha);
+      const articles = await fetchContentFile(entry.resource_code, language, contentFile, env, storage, sha);
       if (!articles?.length) return null;
 
       // Find articles whose passage associations overlap with the requested reference
@@ -951,19 +964,20 @@ export async function handleScripture(
 export async function handleEntity(
   args: Record<string, unknown>,
   env: Env,
+  storage: AquiferStorage,
   ctx?: ExecutionContext,
 ) {
   const entityId = String(args.entity_id ?? "").trim();
   if (!entityId) return textResult('Please provide an entity ID (e.g. "person:David", "place:Jerusalem").');
 
   const language = String(args.language ?? "eng").trim();
-  const index = await getOrBuildIndex(env, ctx);
+  const index = await getOrBuildIndex(env, storage, ctx);
   const normalized = entityId.toLowerCase();
 
   // Find all articles referencing this entity
   let refs = index.entity.get(normalized);
   if (!refs?.length) {
-    refs = await bootstrapEntityMatches(normalized, index, env);
+    refs = await bootstrapEntityMatches(normalized, index, env, storage);
   }
 
   if (!refs?.length) {

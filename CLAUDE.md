@@ -231,7 +231,7 @@ Every article can have:
 
 ### Aquifer Repos (dynamically discovered)
 
-Resources are **not listed here** — they are discovered at runtime from the `BibleAquifer` GitHub org. Any repo with a valid `eng/metadata.json` containing `resource_metadata` is automatically included. As of v0.8.0, the server discovers ~28 resources across study notes, dictionaries, translation guides, images, videos, and Bibles.
+Resources are **not listed here** — they are discovered at runtime from the `BibleAquifer` GitHub org. Any repo with a valid `eng/metadata.json` containing `resource_metadata` is automatically included.
 
 For a point-in-time snapshot of available resources (titles, article counts, localizations), see `schemas/aquifer_full_inventory.md`. But treat the live `list` tool output as the source of truth — the inventory doc may lag behind what Rick has actually published.
 

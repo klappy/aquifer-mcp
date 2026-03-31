@@ -7,22 +7,22 @@ import type {
 } from "./types.js";
 import { metadataUrl, fetchJson, fetchRepoSha, fetchOrgRepos, GC_TTL } from "./github.js";
 import { isValidIndexReference } from "./references.js";
+import { AquiferStorage, indexKey, metadataKey } from "./storage.js";
 
-const INDEX_CACHE_KEY = "index:navigability:v7";
 const LATEST_SHA_KEY = "index:latest-composite-sha";
 const SHA_STALE_MS = 5 * 60 * 1000; // 5 minutes
 
-export async function getOrBuildIndex(env: Env, ctx?: ExecutionContext): Promise<NavigabilityIndex> {
-  // --- HOT PATH: serve from cached KV pointer ---
+export async function getOrBuildIndex(env: Env, storage: AquiferStorage, ctx?: ExecutionContext): Promise<NavigabilityIndex> {
+  // --- HOT PATH: pointer (KV) → index (R2 via Cache API) ---
   const latestSha = await env.AQUIFER_CACHE.get(LATEST_SHA_KEY, "json") as { sha: string; checked_at: number } | null;
   if (latestSha?.sha) {
-    const cacheKey = `${latestSha.sha}:${INDEX_CACHE_KEY}`;
-    const cached = await env.AQUIFER_CACHE.get(cacheKey, "json") as SerializedIndex | null;
-    if (cached?.registry) {
-      const index = deserializeIndex(cached);
+    const key = indexKey(latestSha.sha);
+    const { data } = await storage.getJSON<SerializedIndex>(key);
+    if (data?.registry) {
+      const index = deserializeIndex(data);
       // Schedule background refresh if stale
       if (ctx && Date.now() - latestSha.checked_at > SHA_STALE_MS) {
-        ctx.waitUntil(refreshShasIfStale(env));
+        ctx.waitUntil(refreshShasIfStale(env, storage));
       }
       return index;
     }
@@ -32,28 +32,25 @@ export async function getOrBuildIndex(env: Env, ctx?: ExecutionContext): Promise
   const repoCodes = await fetchOrgRepos(env.AQUIFER_ORG, env);
   const repoShas = await fetchAllRepoShas(repoCodes, env);
   const compositeHash = await computeCompositeHash(repoShas);
-  const cacheKey = `${compositeHash}:${INDEX_CACHE_KEY}`;
+  const key = indexKey(compositeHash);
 
-  const cached = await env.AQUIFER_CACHE.get(cacheKey, "json") as SerializedIndex | null;
-  if (cached?.registry) {
-    // Index exists but pointer was missing — restore pointer
+  // Check R2 for this composite (pointer was missing but index may exist)
+  const { data: existing } = await storage.getJSON<SerializedIndex>(key);
+  if (existing?.registry) {
     await updatePointer(env, compositeHash);
-    return deserializeIndex(cached);
+    return deserializeIndex(existing);
   }
 
-  const index = await buildIndex(repoCodes, env, repoShas);
+  const index = await buildIndex(repoCodes, env, storage, repoShas);
   index.composite_sha = compositeHash;
   index.repo_shas = repoShas;
 
-  try {
-    await env.AQUIFER_CACHE.put(cacheKey, serializeIndex(index), {
-      expirationTtl: GC_TTL,
-    });
+  // Store in R2 (no size limit!)
+  const written = await storage.putJSON(key, serializeForStorage(index));
+  if (written) {
     await updatePointer(env, compositeHash);
-  } catch {
-    // Cache write failed (e.g. oversized index) — don't update pointer so
-    // any previously-cached index remains reachable on subsequent requests.
   }
+  // Pointer only advances if write succeeded (bugbot fix preserved)
 
   return index;
 }
@@ -64,7 +61,7 @@ async function updatePointer(env: Env, sha: string): Promise<void> {
   });
 }
 
-async function refreshShasIfStale(env: Env): Promise<void> {
+async function refreshShasIfStale(env: Env, storage: AquiferStorage): Promise<void> {
   try {
     const repoCodes = await fetchOrgRepos(env.AQUIFER_ORG, env);
     const repoShas = await fetchAllRepoShas(repoCodes, env);
@@ -77,26 +74,22 @@ async function refreshShasIfStale(env: Env): Promise<void> {
       return;
     }
 
-    // SHA changed — rebuild index in background
-    const cacheKey = `${compositeHash}:${INDEX_CACHE_KEY}`;
-    const existing = await env.AQUIFER_CACHE.get(cacheKey, "json") as SerializedIndex | null;
+    // SHA changed — check if index already exists in R2
+    const key = indexKey(compositeHash);
+    const { data: existing } = await storage.getJSON<SerializedIndex>(key);
     if (existing?.registry) {
       await updatePointer(env, compositeHash);
       return;
     }
 
-    const index = await buildIndex(repoCodes, env, repoShas);
+    // Build fresh index in background
+    const index = await buildIndex(repoCodes, env, storage, repoShas);
     index.composite_sha = compositeHash;
     index.repo_shas = repoShas;
 
-    try {
-      await env.AQUIFER_CACHE.put(cacheKey, serializeIndex(index), {
-        expirationTtl: GC_TTL,
-      });
+    const written = await storage.putJSON(key, serializeForStorage(index));
+    if (written) {
       await updatePointer(env, compositeHash);
-    } catch {
-      // Cache write failed (e.g. oversized index) — preserve existing pointer
-      // so the hot path continues serving the previously-cached index.
     }
   } catch {
     // Background refresh failed — stale pointer remains valid (truthful degradation)
@@ -126,7 +119,12 @@ async function computeCompositeHash(repoShas: Map<string, string>): Promise<stri
   return [...new Uint8Array(buffer)].map((b) => b.toString(16).padStart(2, "0")).join("").slice(0, 16);
 }
 
-async function buildIndex(repoCodes: string[], env: Env, repoShas: Map<string, string>): Promise<NavigabilityIndex> {
+async function buildIndex(
+  repoCodes: string[],
+  env: Env,
+  storage: AquiferStorage,
+  repoShas: Map<string, string>,
+): Promise<NavigabilityIndex> {
   const registry: ResourceEntry[] = [];
   const passage = new Map<string, ArticleRef[]>();
   const entity = new Map<string, ArticleRef[]>();
@@ -137,8 +135,8 @@ async function buildIndex(repoCodes: string[], env: Env, repoShas: Map<string, s
       const repoSha = repoShas.get(code);
       if (!repoSha) return null;
       const url = metadataUrl(env.AQUIFER_ORG, code, "eng");
-      const cacheKey = `metadata:${code}:eng`;
-      const metadata = await fetchJson<ResourceMetadata>(url, env, cacheKey, repoSha);
+      const key = metadataKey(code, repoSha, "eng");
+      const metadata = await fetchJson<ResourceMetadata>(url, storage, key);
       if (!metadata?.resource_metadata) return null;
       return { code, metadata };
     }),
@@ -214,8 +212,8 @@ interface SerializedIndex {
   repo_shas: Array<[string, string]>;
 }
 
-function serializeIndex(index: NavigabilityIndex): string {
-  const serialized: SerializedIndex = {
+function serializeForStorage(index: NavigabilityIndex): SerializedIndex {
+  return {
     registry: index.registry,
     passage: Array.from(index.passage.entries()),
     entity: Array.from(index.entity.entries()),
@@ -224,7 +222,6 @@ function serializeIndex(index: NavigabilityIndex): string {
     composite_sha: index.composite_sha,
     repo_shas: Array.from(index.repo_shas.entries()),
   };
-  return JSON.stringify(serialized);
 }
 
 function deserializeIndex(data: SerializedIndex): NavigabilityIndex {
