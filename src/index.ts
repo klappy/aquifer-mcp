@@ -230,7 +230,7 @@ export default {
 
     const tracer = new RequestTracer();
     const server = createServer(env, ctx, tracer);
-    const response = await createMcpHandler(server, { route: "/mcp" })(effectiveRequest, env, ctx);
+    const response = await createMcpHandler(server, { route: "/mcp", enableJsonResponse: true })(effectiveRequest, env, ctx);
 
     // Ensure CORS headers on actual responses include x-aquifer-* headers.
     // The agents handler sets Access-Control-Allow-Origin: * but its
