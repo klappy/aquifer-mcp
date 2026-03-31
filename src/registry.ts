@@ -126,9 +126,6 @@ async function buildIndex(
   repoShas: Map<string, string>,
 ): Promise<NavigabilityIndex> {
   const registry: ResourceEntry[] = [];
-  // Per-resource passage and title data, collected during build for writing to R2
-  const perResourcePassage = new Map<string, Map<string, ArticleRef[]>>();
-  const perResourceTitle = new Map<string, ArticleRef[]>();
 
   const results = await Promise.allSettled(
     repoCodes.map(async (code) => {
@@ -202,8 +199,6 @@ async function buildIndex(
     }
 
     const repoSha = repoShas.get(code)!;
-    perResourcePassage.set(code, resourcePassage);
-    perResourceTitle.set(code, resourceTitles);
 
     // Write per-resource indexes to R2 in parallel (fire-and-forget during build)
     await Promise.allSettled([
