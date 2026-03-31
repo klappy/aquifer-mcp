@@ -1095,3 +1095,69 @@ Load the article lookup index (~100KB from cache) to find the file. Never load a
 
 **H6: v1.3.0 deploy → verify with x-ray tracing**
 Deploy and verify that `get` tool calls show article lookup index load (~5ms from cache) + single content file fetch, not sequential file scanning. `browse` for non-media resources should show zero content file fetches. Scripture tool unchanged (already fetches correct book file by construction).
+
+---
+
+## v1.4.0 — Remove SSE Transport, Auto-Version Indexes
+
+### Observations
+
+**O70: SSE transport from `createMcpHandler`/`agents/mcp` adds ~1,000ms per request.**
+X-ray tracing shows internal tool execution at 110-250ms. Curl shows 1,200-2,800ms. Translation-helps-mcp returns plain JSON and achieves 119-125ms end-to-end from the same test machine. The gap is entirely in the SSE framing, not network or server-side computation.
+*Source: Side-by-side x-ray traces vs curl timings, head-to-head with translation-helps-mcp from same machine*
+
+**O71: `APP_VERSION` in `storage.ts` is hardcoded and manually bumped — already stale.**
+`APP_VERSION = "1.1.0"` while the server is at v1.3.0. Cache API keys use this version prefix, so index schema changes between releases don't invalidate stale cached indexes.
+*Source: Direct inspection of `src/storage.ts` line 9*
+
+**O72: translation-helps-mcp auto-generates `version.ts` from a sync script, uses it everywhere.**
+`scripts/sync-version.js` generates `src/version.ts` with `VERSION = "7.20.12"`. Cache API keys, health endpoint, MCP server info all import from this single source. New deploy = version bump = cache miss = fresh indexes.
+*Source: Direct inspection of translation-helps-mcp `src/version.ts`*
+
+### Learnings
+
+**L39: An MCP server that returns tool results as request/response has no need for SSE streaming.**
+SSE exists for long-running operations where partial results stream back. Aquifer MCP tools are pure request/response — the entire result is computed before anything is sent. SSE adds overhead (framing, header commitment before execution, transport negotiation) with zero benefit.
+*Rests on: O70, translation-helps-mcp proven pattern*
+
+**L40: Version must be auto-generated from a single source — manual bumping creates drift.**
+Every manually-bumped version string is a future drift obligation that will be forgotten. `package.json` is the single source. Everything else derives from it at build time.
+*Rests on: O71, O72*
+
+### Decisions
+
+**D45: Replace `createMcpHandler` SSE with a plain JSON-RPC handler.**
+*Because* SSE adds ~1,000ms overhead per request with zero benefit for request/response tool calls. Translation-helps-mcp proves plain JSON works for Claude, ChatGPT, and Cursor MCP clients.
+*Implementation:* Direct JSON-RPC `handleMcpRequest` function handles `initialize`, `notifications/initialized`, `tools/list`, `tools/call`, and `ping` methods. Tool definitions are a static `TOOL_DEFINITIONS` array (single source of truth). `dispatchTool` routes by name to existing handler functions. X-ray trace goes in `X-Aquifer-Trace` response header (no longer appended to tool content). Removed `agents`, `@modelcontextprotocol/sdk`, and `zod` dependencies.
+*Rests on: O70, L39*
+*Reversible: Yes — SSE fallback can be added back via Accept header check*
+
+**D46: Auto-generate `src/version.ts` from `package.json` at build time.**
+*Because* hardcoded APP_VERSION is already stale and will drift again on every release.
+*Implementation:* `prebuild` script in package.json generates `src/version.ts`. All build/deploy/dev scripts run `prebuild` first. `storage.ts` and `index.ts` both import `VERSION` from `version.ts`. No hardcoded version strings remain.
+*Rests on: O71, O72, L40*
+*Reversible: Yes*
+
+### Constraint Updates
+
+**C23 (new): No hardcoded version strings anywhere. All version references import from the generated `src/version.ts`.**
+`package.json` is the single source. `prebuild` script generates `version.ts`. Health endpoint, MCP server info, Cache API keys all import from it.
+*Status: Active*
+
+### Files Changed
+
+- `src/index.ts` — Replaced `createMcpHandler` SSE with plain JSON-RPC handler. Removed `agents/mcp`, `@modelcontextprotocol/sdk`, and `zod` imports. Added `TOOL_DEFINITIONS` array, `dispatchTool` function, `handleMcpRequest` handler. X-ray trace now in response headers only.
+- `src/version.ts` — **New.** Auto-generated from `package.json`. Single source of truth for VERSION.
+- `src/storage.ts` — Replaced hardcoded `APP_VERSION` with import from `version.ts`.
+- `package.json` — Bumped to 1.4.0. Added `prebuild` script. Removed `agents`, `@modelcontextprotocol/sdk`, `zod` dependencies.
+
+### Evidence
+
+- 142 tests passed (80 references, 45 tools, 17 telemetry), 0 failures
+- TypeScript compilation clean (no new source file errors)
+- Wrangler dry-run build succeeds (122 KiB total, 29 KiB gzip)
+
+### Handoff
+
+**H7: v1.4.0 deploy → performance verification**
+Deploy and verify: (1) `Content-Type: application/json` on `/mcp` responses (not `text/event-stream`), (2) `X-Aquifer-Trace` header present on `tools/call` responses, (3) health endpoint returns `version: "1.4.0"`, (4) end-to-end curl times under 300ms for `list`, `search`, `scripture` (eliminating the ~1,000ms SSE gap).

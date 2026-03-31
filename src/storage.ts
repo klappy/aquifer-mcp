@@ -1,12 +1,7 @@
 import type { Env } from "./types.js";
 import type { RequestTracer } from "./tracing.js";
 import { shortKey } from "./tracing.js";
-
-/**
- * App version embedded in Cache API keys.
- * New deploy = cache miss = fresh R2 read = no stale data.
- */
-const APP_VERSION = "1.3.0";
+import { VERSION } from "./version.js";
 
 /** Cap memory cache to avoid OOM during large traversals (e.g. entity bootstrap). */
 const MAX_MEMORY_ENTRIES = 50;
@@ -40,7 +35,7 @@ export class AquiferStorage {
 
   /** Versioned cache key — new deploy = cache miss = fresh R2 read */
   private cacheRequest(key: string): Request {
-    return new Request(`https://aquifer-r2.local/v${APP_VERSION}/${key}`);
+    return new Request(`https://aquifer-r2.local/v${VERSION}/${key}`);
   }
 
   /**
