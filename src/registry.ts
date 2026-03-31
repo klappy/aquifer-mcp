@@ -19,9 +19,47 @@ import type { RequestTracer } from "./tracing.js";
 
 const LATEST_SHA_KEY = "index:latest-composite-sha";
 const SHA_STALE_MS = 5 * 60 * 1000; // 5 minutes
+const CURRENT_INDEX_KEY = "index/current/navigability.json";
+
+// --- Module-level memory cache (like oddkit) ---
+// Survives across requests within the same isolate. First request per
+// isolate reads from Cache API / R2. Subsequent requests are free (0ms).
+let cachedIndex: NavigabilityIndex | null = null;
+let indexFetchedAt = 0;
+let backgroundRefreshFired = false;
 
 export async function getOrBuildIndex(env: Env, storage: AquiferStorage, ctx?: ExecutionContext, tracer?: RequestTracer): Promise<NavigabilityIndex> {
-  // --- HOT PATH: pointer (KV) → registry (R2 via Cache API) ---
+  // --- Tier 0: Module-level memory cache ---
+  if (cachedIndex && Date.now() - indexFetchedAt < SHA_STALE_MS) {
+    tracer?.addSpan("index", 0, "memory");
+    // Fire background refresh once per isolate lifetime
+    if (ctx && !backgroundRefreshFired) {
+      backgroundRefreshFired = true;
+      ctx.waitUntil(refreshShasIfStale(env, storage));
+    }
+    return cachedIndex;
+  }
+
+  // --- HOT PATH: well-known R2 key via Cache API (one subrequest, no KV) ---
+  const { data } = await storage.getJSON<SerializedIndex>(CURRENT_INDEX_KEY, tracer);
+  if (data?.registry) {
+    const index = deserializeIndex(data);
+    cachedIndex = index;
+    indexFetchedAt = Date.now();
+
+    // Fire background refresh once per isolate lifetime
+    if (ctx && !backgroundRefreshFired) {
+      backgroundRefreshFired = true;
+      ctx.waitUntil(refreshShasIfStale(env, storage));
+    }
+
+    return index;
+  }
+
+  // --- WARM PATH: try KV pointer → SHA-keyed R2 (migration bridge) ---
+  // This handles the transition: existing deploys have SHA-keyed indexes
+  // but not the well-known key yet. Once refreshShasIfStale runs, it
+  // writes the well-known key and future requests skip this path.
   const pointerStart = performance.now();
   const latestSha = await env.AQUIFER_CACHE.get(LATEST_SHA_KEY, "json") as { sha: string; checked_at: number } | null;
   tracer?.addSpan("kv-pointer", Math.round(performance.now() - pointerStart), "kv",
@@ -29,23 +67,26 @@ export async function getOrBuildIndex(env: Env, storage: AquiferStorage, ctx?: E
 
   if (latestSha?.sha) {
     const key = indexKey(latestSha.sha);
-    const { data } = await storage.getJSON<SerializedIndex>(key, tracer);
+    const { data: shaData } = await storage.getJSON<SerializedIndex>(key, tracer);
+    if (shaData?.registry) {
+      const index = deserializeIndex(shaData);
+      cachedIndex = index;
+      indexFetchedAt = Date.now();
 
-    if (data?.registry) {
-      const index = deserializeIndex(data);
+      // Promote to well-known key so future requests skip KV
+      ctx?.waitUntil(storage.putJSON(CURRENT_INDEX_KEY, shaData));
 
-      // Schedule background refresh if stale
-      // DISABLED: testing if 49-fetch background storm causes ~1,100ms gap
-      // if (ctx && Date.now() - latestSha.checked_at > SHA_STALE_MS) {
-      //   ctx.waitUntil(refreshShasIfStale(env, storage));
-      // }
+      if (!backgroundRefreshFired) {
+        backgroundRefreshFired = true;
+        if (ctx) ctx.waitUntil(refreshShasIfStale(env, storage));
+      }
 
       return index;
     }
   }
 
   // --- COLD PATH: no cached index, build from scratch ---
-  tracer?.addSpan("cold-path", 0, undefined, "no cached pointer, rebuilding");
+  tracer?.addSpan("cold-path", 0, undefined, "no cached index, rebuilding");
 
   const orgStart = performance.now();
   const repoCodes = await fetchOrgRepos(env.AQUIFER_ORG, env);
@@ -56,13 +97,16 @@ export async function getOrBuildIndex(env: Env, storage: AquiferStorage, ctx?: E
   tracer?.addSpan("repo-shas", Math.round(performance.now() - shaStart), "github", `${repoShas.size} resolved`);
 
   const compositeHash = await computeCompositeHash(repoShas);
-  const key = indexKey(compositeHash);
+  const shaKey = indexKey(compositeHash);
 
   // Check R2 for this composite (pointer was missing but index may exist)
-  const { data: existing } = await storage.getJSON<SerializedIndex>(key, tracer);
+  const { data: existing } = await storage.getJSON<SerializedIndex>(shaKey, tracer);
   if (existing?.registry) {
-    await updatePointer(env, compositeHash);
-    return deserializeIndex(existing);
+    await updatePointer(env, storage, compositeHash, existing);
+    const index = deserializeIndex(existing);
+    cachedIndex = index;
+    indexFetchedAt = Date.now();
+    return index;
   }
 
   const buildStart = performance.now();
@@ -72,21 +116,29 @@ export async function getOrBuildIndex(env: Env, storage: AquiferStorage, ctx?: E
   index.repo_shas = repoShas;
 
   // Store lightweight registry in R2 (no passage/title/entity — those are per-resource)
+  const serialized = serializeForStorage(index);
   const writeStart = performance.now();
-  const written = await storage.putJSON(key, serializeForStorage(index));
+  const written = await storage.putJSON(shaKey, serialized);
   tracer?.addSpan("r2-write", Math.round(performance.now() - writeStart), "r2");
   if (written) {
-    await updatePointer(env, compositeHash);
+    await updatePointer(env, storage, compositeHash, serialized);
   }
-  // Pointer only advances if write succeeded (bugbot fix preserved)
 
+  cachedIndex = index;
+  indexFetchedAt = Date.now();
   return index;
 }
 
-async function updatePointer(env: Env, sha: string): Promise<void> {
-  await env.AQUIFER_CACHE.put(LATEST_SHA_KEY, JSON.stringify({ sha, checked_at: Date.now() }), {
-    expirationTtl: GC_TTL,
-  });
+/** Update both the KV pointer (legacy) and the well-known R2 key (new hot path). */
+async function updatePointer(env: Env, storage: AquiferStorage, sha: string, serialized: SerializedIndex): Promise<void> {
+  await Promise.all([
+    // Well-known R2 key — the new hot path
+    storage.putJSON(CURRENT_INDEX_KEY, serialized),
+    // KV pointer — legacy, kept for migration bridge
+    env.AQUIFER_CACHE.put(LATEST_SHA_KEY, JSON.stringify({ sha, checked_at: Date.now() }), {
+      expirationTtl: GC_TTL,
+    }),
+  ]);
 }
 
 async function refreshShasIfStale(env: Env, storage: AquiferStorage): Promise<void> {
@@ -95,10 +147,13 @@ async function refreshShasIfStale(env: Env, storage: AquiferStorage): Promise<vo
     const repoShas = await fetchAllRepoShas(repoCodes, env);
     const compositeHash = await computeCompositeHash(repoShas);
 
-    const currentPointer = await env.AQUIFER_CACHE.get(LATEST_SHA_KEY, "json") as { sha: string } | null;
-    if (currentPointer?.sha === compositeHash) {
-      // No change — just update checked_at timestamp
-      await updatePointer(env, compositeHash);
+    // Check if anything changed by comparing with current well-known index
+    const { data: current } = await storage.getJSON<SerializedIndex>(CURRENT_INDEX_KEY);
+    if (current?.composite_sha === compositeHash) {
+      // No change — update KV checked_at timestamp only
+      await env.AQUIFER_CACHE.put(LATEST_SHA_KEY, JSON.stringify({ sha: compositeHash, checked_at: Date.now() }), {
+        expirationTtl: GC_TTL,
+      });
       return;
     }
 
@@ -106,7 +161,9 @@ async function refreshShasIfStale(env: Env, storage: AquiferStorage): Promise<vo
     const key = indexKey(compositeHash);
     const { data: existing } = await storage.getJSON<SerializedIndex>(key);
     if (existing?.registry) {
-      await updatePointer(env, compositeHash);
+      await updatePointer(env, storage, compositeHash, existing);
+      // Bust module-level cache so next request picks up the new index
+      cachedIndex = null;
       return;
     }
 
@@ -115,10 +172,13 @@ async function refreshShasIfStale(env: Env, storage: AquiferStorage): Promise<vo
     index.composite_sha = compositeHash;
     index.repo_shas = repoShas;
 
-    const written = await storage.putJSON(key, serializeForStorage(index));
+    const serialized = serializeForStorage(index);
+    const written = await storage.putJSON(key, serialized);
     if (written) {
-      await updatePointer(env, compositeHash);
+      await updatePointer(env, storage, compositeHash, serialized);
     }
+    // Bust module-level cache
+    cachedIndex = null;
   } catch {
     // Background refresh failed — stale pointer remains valid (truthful degradation)
   }
