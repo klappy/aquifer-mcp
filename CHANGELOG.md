@@ -2,6 +2,30 @@
 
 All notable changes to aquifer-mcp will be documented in this file.
 
+## [1.1.0] - 2026-03-31
+
+### Added
+
+- **R2 storage layer** (`src/storage.ts`): New `AquiferStorage` class implementing three-tier caching (Memory → Cache API → R2). Keys encode full provenance (`content/{resource}/{sha}/{lang}/{file}`). Content-addressed by SHA — no TTL, no stale reads.
+- **R2 bucket binding**: `AQUIFER_CONTENT` R2 bucket bound in `wrangler.toml` for both production and staging environments.
+- **Key builder functions**: `indexKey`, `contentKey`, `metadataKey`, `catalogKey`, `entityKey` — provenance-encoding key patterns for all stored artifacts.
+
+### Changed
+
+- **Index storage moved from KV to R2**: The navigability index (which exceeds KV's 25 MB limit for 48+ repos) now writes to R2 with no size constraint. KV retains only the SHA pointer (`index:latest-composite-sha`). This is the primary fix for 7-13s warm calls.
+- **Content/metadata caching moved from KV to R2**: `fetchJson` now caches through `AquiferStorage` (R2 + Cache API) instead of KV. Eliminates silent write failures for large resources (e.g. UWTranslationNotes at 35 MB).
+- **All tool handlers receive `AquiferStorage`**: `handleList`, `handleSearch`, `handleGet`, `handleRelated`, `handleBrowse`, `handleScripture`, `handleEntity` — all threaded with the storage instance for R2-backed caching.
+- **Browse catalog and entity bootstrap caches moved to R2**: Both previously hit KV's 25 MB limit silently. Now cached in R2 via `catalogKey` and `entityKey`.
+- **CI workflow simplified**: Removed `push` trigger from `.github/workflows/ci.yml` to fix branch protection check name mismatch (`CI / build-test` vs `CI / build-test (pull_request)`).
+- Bumped runtime version and User-Agent strings to `1.1.0`.
+
+### Fixed
+
+- **Unbounded memory cache**: Memory tier capped at 50 entries (`MAX_MEMORY_ENTRIES`) to prevent OOM during large traversals like entity bootstrap (bugbot fix).
+- **Cache API writes not wrapped in try-catch**: `getJSON` and `putJSON` Cache API puts are now best-effort with try-catch, matching the defensive pattern used elsewhere (bugbot fix).
+- **Unused `delete` method removed**: `AquiferStorage.delete` was dead code — cleanup is handled by content-addressed key rotation, not explicit deletion (bugbot fix).
+- **Missing staging R2 binding**: `[[env.staging.r2_buckets]]` added to `wrangler.toml` so `wrangler dev --env staging` has the R2 binding (bugbot fix).
+
 ## [1.0.0] - 2026-03-30
 
 ### Added
