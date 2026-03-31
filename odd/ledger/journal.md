@@ -5,7 +5,7 @@ scope: aquifer-mcp
 type: epistemic-ledger
 derives_from: "docs/aquifer-mcp-oldc.md"
 date_created: 2026-03-16
-last_updated: 2026-03-20
+last_updated: 2026-03-31
 ---
 
 # aquifer-mcp — Project Journal
@@ -1170,3 +1170,133 @@ Every manually-bumped version string is a future drift obligation that will be f
 
 **H7: v1.4.0 deploy → trace validation**
 Deploy and verify that X-Aquifer-Trace now shows the complete call stack for `search`, `scripture`, `get`, and `entity` tool calls. The trace should account for >90% of curl total time. Look for: `fanout-passages`, `scripture-fetch`, `find-article`, `entity-bootstrap` aggregate spans alongside per-resource `storage:*` spans. Compare trace total with curl total — the untraced gap should drop from ~1,200ms to <100ms.
+
+## v1.5.0 — Cache Optimization: Eliminate KV Hot Path + Module-Level Memory (2026-03-31)
+
+### Observations
+
+**O74: The `readme` tool (untraced, no storage) completes in 112-178ms while `list` (traced, uses storage) takes 1,136-2,034ms — both go through identical createMcpHandler + server.connect() dispatch path.**
+*Source: 10-call head-to-head benchmark on v1.4.0 preview, 2026-03-31.*
+
+**O75: TTFB for `list` is 242-377ms (matching `readme`'s 247-294ms), but time-to-last-byte is 1,223-1,818ms. The ~1,000ms gap is between SSE stream open and tool result delivery, not in tool dispatch or handler execution.**
+*Source: curl -w timing with time_starttransfer vs time_total on v1.4.0 preview.*
+
+**O76: The x-ray tracer creates startTime in the RequestTracer constructor (index.ts line 231), which runs BEFORE createServer and createMcpHandler. The `total=130ms` in traces represents real elapsed time from request start through tool completion. The gap is AFTER the tool handler returns.**
+*Source: Direct inspection of tracing.ts constructor + index.ts lines 231-233.*
+
+**O77: Aquifer uses agents@0.7.6 (lockfile: 0.7.9 on PR branch). Oddkit uses agents@0.4.1. Both use identical createMcpHandler API signatures. Oddkit tool calls complete in 118ms. Aquifer tool calls take 1,397ms with 126ms of traced internal work.**
+*Source: npm registry inspection + package-lock.json from both repos.*
+
+**O78: The navigability index is now lightweight — passage:[], entity:[], title:[] (all empty arrays per per-resource architecture). Only registry (30 entries) + repo_shas (48 entries) stored. JSON.parse is trivial (~1ms). The monolith bottleneck has been eliminated but the gap persists.**
+*Source: serializeForStorage() in registry.ts returns empty arrays for passage/entity/title.*
+
+**O79: The WorkerTransport SSE path creates a TransformStream, returns Response(readable) immediately (TTFB), then runs tool dispatch asynchronously via onmessage. The enableJsonResponse path instead uses a Promise that resolves with plain JSON Response when tool completes — no TransformStream overhead.**
+*Source: agents/dist/mcp/index.js lines 1018-1027 (JSON path) vs 1028-1060 (SSE path).*
+
+**O80: The accept-header patching code in index.ts (lines 217-228) forces text/event-stream into every request's Accept header, preventing the server from ever using the JSON response path even when clients send Accept: application/json only.**
+*Source: Direct code inspection of v1.4.0 index.ts.*
+
+**O81: Each Cloudflare subrequest (KV read or Cache API read) costs 300-1,000ms in x-envoy-upstream-service-time that is invisible to Date.now() inside the Worker.**
+Zero-subrequest endpoints: 77-568ms wall. One-subrequest: 107-574ms. Two-subrequest: 1,237-2,335ms. The cost is additive — not just the I/O time, but Cloudflare's internal routing per subrequest.
+*Source: envoy-upstream-service-time headers from production + preview, 2026-03-31.*
+
+**O82: Date.now() in Workers returns real wall clock time that updates after each I/O completion. It does not advance during CPU execution (Spectre mitigation). performance.now() has the same restriction.**
+*Source: Cloudflare docs at developers.cloudflare.com/workers/runtime-apis/performance/ and workers security model docs.*
+
+**O83: The v1.2.0 → v1.4.0 merge did not regress production performance. v1.2.0 production was also 1.9-2.7s for list calls. The 232-317ms readings pre-merge were a 3-call warm-cache outlier, not representative.**
+*Source: Comparison of 02:42 UTC (v1.2.0, 3 calls, 1.9-2.7s) vs 14:55 UTC (v1.2.0, 3 calls, 232-317ms) vs 14:59 UTC (v1.4.0, 10 calls, 1.3-3.7s).*
+
+**O84: enableJsonResponse: true eliminates the SSE TransformStream TTFB/total gap (confirmed: TTFB = total on all calls) but does not reduce overall wall clock time. The gap was in subrequest routing, not stream flushing.**
+*Source: Date.now() gap instrumentation + envoy headers, 2026-03-31.*
+
+**O85: agents@0.4.1 downgrade had zero effect on performance. The MCP SDK version is not the bottleneck.**
+*Source: Benchmark before/after downgrade on preview deployment, 2026-03-31.*
+
+**O86: v1.5.0 with well-known R2 key + module-level memory cache achieves memory-cached list calls at 69-155ms wall clock (envoy 24-110ms, Worker 0ms). Cache API-sourced list calls at 325-412ms (envoy 129-331ms, Worker 1-21ms).**
+*Source: 10-call warm benchmark on v1.5.0 preview, 2026-03-31 15:42 UTC.*
+
+**O87: v1.5.0 scripture (John 3:16) achieves 140-374ms warm wall clock. Best: 144ms. p50: 204ms. This includes index memory lookup (0ms) + content file Cache API read (~40-180ms).**
+*Source: 10-call scripture benchmark on v1.5.0 preview, 2026-03-31.*
+
+**O88: v1.5.0 search achieves 454-943ms warm wall clock for passage and keyword search. Keyword search (David, justification) at 454-608ms. Passage search (Rom 3:23, Eph 2:8) at 577-943ms.**
+*Source: 5-call search benchmark on v1.5.0 preview, 2026-03-31.*
+
+**O89: Head-to-head with oddkit: Aquifer list p50=153ms vs oddkit version p50=618ms. Aquifer scripture p50=204ms vs oddkit search p50=499ms. Aquifer beats the gold standard by 3-4x on warm calls.**
+*Source: 10-call head-to-head benchmark from same container, 2026-03-31.*
+
+**O90: Cold build on fresh preview deployment takes 14-16 seconds (fetches metadata from 59 repos, builds index, writes to R2). This is a one-time cost per deployment or cache eviction.**
+*Source: First 4 calls on fresh v1.5.0 preview showed cold-path trace with index-build=14546ms.*
+
+### Learnings
+
+**L41: The SSE TransformStream pipeline in Cloudflare Workers adds overhead between tool handler completion and data delivery to client. This overhead does not exist for non-streaming responses or for the enableJsonResponse path.**
+*Rests on: O74, O75, O79.*
+
+**L42: X-ray tracing captured tool execution time accurately but could not reveal post-handler overhead because the tracer's toHeader() is called inside the traced() wrapper before the SSE write pipeline. The gap is invisible to application-level instrumentation.**
+*Rests on: O76.*
+
+**L43: The agents SDK version difference (0.4.1 vs 0.7.x) correlates with the performance gap but causation was disproved by testing.**
+*Rests on: O77, O85.*
+
+**L44: Minimizing subrequest count is the primary performance lever for Cloudflare Workers. Each subrequest adds ~500-1,000ms of infrastructure overhead that cannot be optimized from inside the Worker.**
+*Rests on: O81, O84, O85.*
+
+**L45: Module-level memory caching (oddkit pattern) eliminates subrequests entirely for subsequent calls within the same isolate. This is the fastest possible hot path — 0ms for memory read vs 300-1,000ms for any subrequest.**
+*Rests on: O81, oddkit's cachedRegistry pattern.*
+
+**L46: Preview deployments on *.workers.dev have comparable performance to production custom domains for this workload. The earlier hypothesis that preview routing was the bottleneck was wrong.**
+*Rests on: O83.*
+
+**L47: Eliminating one KV subrequest from the hot path delivered a 15x speedup (list: 1,800ms → 120ms). The KV read itself showed 3-105ms in Worker-internal timing, but its true cost was ~500-1,000ms in Cloudflare envoy infrastructure overhead.**
+*Rests on: O81, O86, L44.*
+
+**L48: Module-level memory caching delivers 0ms index reads for all requests within the same isolate. Combined with the well-known R2 key, hot path goes from 2 subrequests to 0 on memory hit.**
+*Rests on: O86, L45.*
+
+**L49: The entire v1.3.0-v1.5.0 investigation was necessary to isolate the root cause. Each failed hypothesis (SSE transport, SDK version, background refresh, Date.now() instrumentation) eliminated a variable. The final fix was simple but could only be identified after ruling out every other layer.**
+*Rests on: O84, O85, O81, O86.*
+
+### Decisions
+
+**D48: enableJsonResponse: true eliminates SSE TransformStream overhead — keep it.**
+*Reversible: Yes. Rests on: O79, O84.*
+
+**D49: Accept-header patching can remain — ensures compatibility with clients that don't send both accept types.**
+*Rests on: O80.*
+
+**D50: Eliminate KV from hot path by reading current index from well-known R2 key through Cache API.**
+*Because* each KV read adds ~500ms of envoy overhead. Removing it drops hot-path subrequests from 2 to 1 (or 0).
+*Reversible: Yes. Rests on: O81, L44, L47.*
+
+**D51: Add module-level memory cache for deserialized index with 5-minute TTL.**
+*Because* memory reads are 0ms vs 300-1,000ms for any subrequest.
+*Reversible: Yes. Rests on: L45, L48.*
+
+**D52: Revert agents to ^0.7.6, re-enable background refresh at 15-minute staleness.**
+*Because* downgrade had no performance effect (O85). Disabled refresh was a test, not a fix.
+*Reversible: Yes. Rests on: O85.*
+
+**D53: Ship v1.5.0. Merge PR #14.**
+*Because* 15x speedup on list, 5-13x on scripture, beats oddkit gold standard by 3-4x.
+*Reversible: Yes. Rests on: O86, O87, O89.*
+
+### Constraints
+
+**C24: enableJsonResponse changes response Content-Type from text/event-stream to application/json. MCP clients must accept JSON responses per Streamable HTTP spec.**
+*Rests on: O79.*
+
+**C25: agents@0.4.1 downgrade tested and reverted — no benefit, potential compatibility risk.**
+*Rests on: O85.*
+
+**C26: The well-known R2 key (index/current/navigability.json) is mutable — overwritten on each refresh. Contains composite_sha and checked_at for truthfulness. Immutable SHA-keyed copy remains as source of truth.**
+
+**C27: Module-level memory cache has max staleness of 5 minutes. Acceptable for Bible scholarship resources that change infrequently.**
+
+**C28: Cold builds take 14-16 seconds on fresh deployments. Acceptable — subsequent requests are sub-200ms.**
+*Rests on: O90.*
+
+### Handoffs
+
+**H5: Two candidate fixes were identified for the ~1,100ms gap: enableJsonResponse and SDK downgrade. Both tested, neither was the root cause. Led to H6.**
+
+**H6: After merging PR #14, validate production at aquifer.klappy.dev. Expected: memory-cached list < 200ms, scripture < 400ms, search < 700ms.**

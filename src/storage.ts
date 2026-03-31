@@ -3,8 +3,22 @@ import type { RequestTracer } from "./tracing.js";
 import { shortKey } from "./tracing.js";
 import { VERSION } from "./version.js";
 
-/** Cap memory cache to avoid OOM during large traversals (e.g. entity bootstrap). */
-const MAX_MEMORY_ENTRIES = 50;
+/** Cap module-level memory cache to avoid OOM during large traversals. */
+const MAX_MEMORY_ENTRIES = 200;
+
+/** Memory cache TTL — entries older than this are evicted on next access. */
+const MEMORY_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
+/**
+ * Module-level memory cache — survives across requests within the same isolate.
+ * This is the key optimization: per-resource indexes loaded during fan-out
+ * (30+ subrequests) are cached here and reused on subsequent requests,
+ * eliminating subrequests entirely on warm calls.
+ *
+ * Content-addressed keys (containing SHA) mean stale entries are never read —
+ * a new SHA produces a new key. TTL is a memory hygiene measure, not correctness.
+ */
+const moduleMemoryCache = new Map<string, { value: string; cachedAt: number }>();
 
 /**
  * Three-tier storage: Memory → Cache API → R2.
@@ -14,7 +28,6 @@ const MAX_MEMORY_ENTRIES = 50;
  * No TTL anywhere — content-addressed by SHA. Cleanup is hygiene, never correctness.
  */
 export class AquiferStorage {
-  private memoryCache: Map<string, string> = new Map();
 
   constructor(
     private env: Env,
@@ -46,11 +59,14 @@ export class AquiferStorage {
     const start = performance.now();
     const sk = shortKey(key);
 
-    // Tier 1: Memory
-    const mem = this.memoryCache.get(key);
-    if (mem) {
+    // Tier 1: Module-level memory cache
+    const mem = moduleMemoryCache.get(key);
+    if (mem && Date.now() - mem.cachedAt < MEMORY_TTL_MS) {
       tracer?.addSpan(`storage:${sk}`, Math.round(performance.now() - start), "memory");
-      return { data: JSON.parse(mem) as T, source: "memory" };
+      return { data: JSON.parse(mem.value) as T, source: "memory" };
+    }
+    if (mem) {
+      moduleMemoryCache.delete(key); // TTL expired — evict
     }
 
     // Tier 2: Cache API
@@ -59,8 +75,8 @@ export class AquiferStorage {
       const hit = await c.match(this.cacheRequest(key));
       if (hit) {
         const text = await hit.text();
-        if (this.memoryCache.size < MAX_MEMORY_ENTRIES) {
-          this.memoryCache.set(key, text);
+        if (moduleMemoryCache.size < MAX_MEMORY_ENTRIES) {
+          moduleMemoryCache.set(key, { value: text, cachedAt: Date.now() });
         }
         tracer?.addSpan(`storage:${sk}`, Math.round(performance.now() - start), "cache");
         return { data: JSON.parse(text) as T, source: "cache" };
@@ -79,8 +95,8 @@ export class AquiferStorage {
     }
 
     const text = await obj.text();
-    if (this.memoryCache.size < MAX_MEMORY_ENTRIES) {
-      this.memoryCache.set(key, text);
+    if (moduleMemoryCache.size < MAX_MEMORY_ENTRIES) {
+      moduleMemoryCache.set(key, { value: text, cachedAt: Date.now() });
     }
 
     // Populate Cache API for next request
