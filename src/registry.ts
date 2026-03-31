@@ -30,12 +30,14 @@ export async function getOrBuildIndex(env: Env, storage: AquiferStorage, ctx?: E
   if (latestSha?.sha) {
     const key = indexKey(latestSha.sha);
     const { data } = await storage.getJSON<SerializedIndex>(key, tracer);
+
     if (data?.registry) {
       const index = deserializeIndex(data);
-      // Schedule background refresh if stale
+
       if (ctx && Date.now() - latestSha.checked_at > SHA_STALE_MS) {
         ctx.waitUntil(refreshShasIfStale(env, storage));
       }
+
       return index;
     }
   }

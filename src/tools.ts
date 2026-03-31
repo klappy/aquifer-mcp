@@ -5,6 +5,7 @@ import { getOrBuildIndex, fanOutPassageSearch, fanOutTitleSearch, loadArticleLoo
 import { getPublicTelemetrySnapshot } from "./telemetry.js";
 import { AquiferStorage, contentKey, metadataKey, catalogKey, entityKey } from "./storage.js";
 import type { RequestTracer } from "./tracing.js";
+import { VERSION } from "./version.js";
 
 const README_RAW_URL = "https://raw.githubusercontent.com/klappy/aquifer-mcp/main/README.md";
 
@@ -95,7 +96,7 @@ export async function handleReadme(
 
   try {
     const resp = await fetch(README_RAW_URL, {
-      headers: { "User-Agent": "aquifer-mcp/1.2.0" },
+      headers: { "User-Agent": `aquifer-mcp/${VERSION}` },
     });
     if (!resp.ok) {
       const cached = await env.AQUIFER_CACHE.get(cacheKey);
@@ -264,6 +265,7 @@ export async function handleList(
   tracer?: RequestTracer,
 ) {
   const index = await getOrBuildIndex(env, storage, ctx, tracer);
+
   let resources = index.registry;
 
   if (args.type) {
@@ -512,13 +514,15 @@ async function findArticle(
   index: NavigabilityIndex,
   tracer?: RequestTracer,
 ): Promise<ArticleContent | null> {
+  const findStart = performance.now();
   // --- Fast path: article lookup index (one R2 read, cached) ---
   const lookup = await loadArticleLookup(resourceCode, sha, storage, tracer);
   const location = lookup?.[contentId];
   if (location?.file) {
-    const articles = await fetchContentFile(resourceCode, language, location.file, env, storage, sha);
+    const articles = await fetchContentFile(resourceCode, language, location.file, env, storage, sha, tracer);
     const found = articles?.find((a) => String(a.content_id) === contentId) ?? null;
     if (found) {
+      tracer?.addSpan("find-article", Math.round(performance.now() - findStart), undefined, "lookup-hit");
       ingestArticleEntities(index, entry, found);
       return found;
     }
@@ -527,7 +531,7 @@ async function findArticle(
   // --- Fallback: KV hint + index_reference derivation + metadata file list ---
   const articleFileKey = `${sha}:article-file:v2:${resourceCode}:${language}:${contentId}`;
   const cachedFile = await env.AQUIFER_CACHE.get(articleFileKey);
-  const indexReference = await resolveIndexReference(resourceCode, language, contentId, env, storage, sha);
+  const indexReference = await resolveIndexReference(resourceCode, language, contentId, env, storage, sha, tracer);
 
   const candidateFiles: string[] = [];
   if (cachedFile) candidateFiles.push(cachedFile);
@@ -535,7 +539,7 @@ async function findArticle(
     candidateFiles.push(`${indexReference.slice(0, 2)}.content.json`);
   }
   // For non-canonical with unknown file, scan metadata file list
-  const metadataFiles = await listContentFiles(resourceCode, language, entry.order, env, storage, sha);
+  const metadataFiles = await listContentFiles(resourceCode, language, entry.order, env, storage, sha, tracer);
   candidateFiles.push(...metadataFiles);
 
   const uniqueFiles = Array.from(new Set(candidateFiles));
@@ -543,17 +547,19 @@ async function findArticle(
     if (!file) continue;
     // Skip files already tried via lookup
     if (location?.file === file) continue;
-    const articles = await fetchContentFile(resourceCode, language, file, env, storage, sha);
+    const articles = await fetchContentFile(resourceCode, language, file, env, storage, sha, tracer);
     if (!articles) continue;
 
     const found = articles.find((a) => String(a.content_id) === contentId) ?? null;
     if (found) {
       await env.AQUIFER_CACHE.put(articleFileKey, file, { expirationTtl: GC_TTL });
+      tracer?.addSpan("find-article", Math.round(performance.now() - findStart), undefined, `fallback:${file}`);
       ingestArticleEntities(index, entry, found);
       return found;
     }
   }
 
+  tracer?.addSpan("find-article", Math.round(performance.now() - findStart), undefined, "miss");
   return null;
 }
 
@@ -564,10 +570,11 @@ async function fetchContentFile(
   env: Env,
   storage: AquiferStorage,
   sha: string,
+  tracer?: RequestTracer,
 ): Promise<ArticleContent[] | null> {
   const url = contentUrl(env.AQUIFER_ORG, resourceCode, language, file);
   const key = contentKey(resourceCode, sha, language, file);
-  return fetchJson<ArticleContent[]>(url, storage, key);
+  return fetchJson<ArticleContent[]>(url, storage, key, tracer);
 }
 
 async function listContentFiles(
@@ -577,8 +584,9 @@ async function listContentFiles(
   env: Env,
   storage: AquiferStorage,
   sha: string,
+  tracer?: RequestTracer,
 ): Promise<string[]> {
-  const metadata = await getResourceMetadata(resourceCode, language, env, storage, sha);
+  const metadata = await getResourceMetadata(resourceCode, language, env, storage, sha, tracer);
   const ingredientKeys = Object.keys(metadata?.scripture_burrito?.ingredients ?? {});
   const files = ingredientKeys
     .filter((k) => k.startsWith("json/") && k.endsWith(".content.json"))
@@ -598,10 +606,11 @@ async function getResourceMetadata(
   env: Env,
   storage: AquiferStorage,
   sha: string,
+  tracer?: RequestTracer,
 ): Promise<ResourceMetadata | null> {
   const url = metadataUrl(env.AQUIFER_ORG, resourceCode, language);
   const key = metadataKey(resourceCode, sha, language);
-  return fetchJson<ResourceMetadata>(url, storage, key);
+  return fetchJson<ResourceMetadata>(url, storage, key, tracer);
 }
 
 async function resolveIndexReference(
@@ -611,13 +620,14 @@ async function resolveIndexReference(
   env: Env,
   storage: AquiferStorage,
   sha: string,
+  tracer?: RequestTracer,
 ): Promise<string | null> {
-  const metadata = await getResourceMetadata(resourceCode, language, env, storage, sha);
+  const metadata = await getResourceMetadata(resourceCode, language, env, storage, sha, tracer);
   const direct = metadata?.article_metadata?.[contentId]?.index_reference;
   if (direct && isValidIndexReference(direct)) return direct;
 
   if (language !== "eng") {
-    const englishMetadata = await getResourceMetadata(resourceCode, "eng", env, storage, sha);
+    const englishMetadata = await getResourceMetadata(resourceCode, "eng", env, storage, sha, tracer);
     if (englishMetadata?.article_metadata) {
       for (const article of Object.values(englishMetadata.article_metadata)) {
         const localizedContentId = article.localizations?.[language]?.content_id;
@@ -667,18 +677,19 @@ async function bootstrapEntityMatches(
   }
 
   const matches: ArticleRef[] = [];
+  const bootstrapStart = performance.now();
 
   // Parallel across resources
   const resourceResults = await Promise.allSettled(
     index.registry.map(async (entry) => {
       const repoSha = index.repo_shas.get(entry.resource_code);
       if (!repoSha) return [];
-      const files = await listContentFiles(entry.resource_code, entry.language, entry.order, env, storage, repoSha);
+      const files = await listContentFiles(entry.resource_code, entry.language, entry.order, env, storage, repoSha, tracer);
 
       // Parallel across files within each resource
       const fileResults = await Promise.allSettled(
         files.map(async (file) => {
-          const articles = await fetchContentFile(entry.resource_code, entry.language, file, env, storage, repoSha);
+          const articles = await fetchContentFile(entry.resource_code, entry.language, file, env, storage, repoSha, tracer);
           if (!articles?.length) return [];
           const found: ArticleRef[] = [];
           for (const article of articles) {
@@ -712,6 +723,7 @@ async function bootstrapEntityMatches(
   }
 
   const deduped = deduplicateRefs(matches);
+  tracer?.addSpan("entity-bootstrap", Math.round(performance.now() - bootstrapStart), undefined, `${index.registry.length} resources, ${deduped.length} matches`);
   if (deduped.length > 0) {
     index.entity.set(normalizedEntityId, deduped);
     await storage.putJSON(key, deduped);
@@ -807,7 +819,7 @@ async function buildCatalogFast(
   }
 
   // Media resources or no lookup index — fall back to full content file scanning
-  return buildCatalog(resourceCode, language, entry, env, storage, sha, true);
+  return buildCatalog(resourceCode, language, entry, env, storage, sha, true, tracer);
 }
 
 async function buildCatalog(
@@ -818,16 +830,17 @@ async function buildCatalog(
   storage: AquiferStorage,
   sha: string,
   skipCacheCheck = false,
+  tracer?: RequestTracer,
 ): Promise<BrowseCatalogEntry[]> {
   const key = catalogKey(resourceCode, sha, language);
   if (!skipCacheCheck) {
-    const { data: cached } = await storage.getJSON<BrowseCatalogEntry[]>(key);
+    const { data: cached } = await storage.getJSON<BrowseCatalogEntry[]>(key, tracer);
     if (cached) return cached;
   }
 
-  const files = await listContentFiles(resourceCode, language, entry.order, env, storage, sha);
+  const files = await listContentFiles(resourceCode, language, entry.order, env, storage, sha, tracer);
   const results = await Promise.allSettled(
-    files.map((file) => fetchContentFile(resourceCode, language, file, env, storage, sha)),
+    files.map((file) => fetchContentFile(resourceCode, language, file, env, storage, sha, tracer)),
   );
 
   const catalog: BrowseCatalogEntry[] = [];
@@ -967,11 +980,12 @@ export async function handleScripture(
   const contentFile = `${bookNum}.content.json`;
 
   // Fetch from all matching Bible resources in parallel
+  const scriptureFetchStart = performance.now();
   const results = await Promise.allSettled(
     bibleResources.map(async (entry) => {
       const sha = index.repo_shas.get(entry.resource_code) ?? "";
       if (!sha) return null;
-      const articles = await fetchContentFile(entry.resource_code, language, contentFile, env, storage, sha);
+      const articles = await fetchContentFile(entry.resource_code, language, contentFile, env, storage, sha, tracer);
       if (!articles?.length) return null;
 
       // Find articles whose passage associations overlap with the requested reference
@@ -1008,6 +1022,8 @@ export async function handleScripture(
       return { resource: entry, matching };
     }),
   );
+  const hitsCount = results.filter((r) => r.status === "fulfilled" && r.value).length;
+  tracer?.addSpan("scripture-fetch", Math.round(performance.now() - scriptureFetchStart), undefined, `${bibleResources.length} bibles, ${hitsCount} hits`);
 
   const sections: string[] = [];
   const readableRef = rangeToReadable(parsed);

@@ -1,5 +1,7 @@
 import type { Env } from "./types.js";
 import type { AquiferStorage } from "./storage.js";
+import type { RequestTracer } from "./tracing.js";
+import { VERSION } from "./version.js";
 
 const GITHUB_RAW = "https://raw.githubusercontent.com";
 const GITHUB_API = "https://api.github.com";
@@ -35,7 +37,7 @@ export async function fetchOrgRepos(org: string, env: Env): Promise<string[]> {
   ]);
 
   const headers: Record<string, string> = {
-    "User-Agent": "aquifer-mcp/1.2.0",
+    "User-Agent": `aquifer-mcp/${VERSION}`,
     "Accept": "application/vnd.github.v3+json",
   };
   if (etag && cached) headers["If-None-Match"] = etag;
@@ -81,7 +83,7 @@ export async function fetchRepoSha(org: string, repo: string, env: Env): Promise
   ]);
 
   const headers: Record<string, string> = {
-    "User-Agent": "aquifer-mcp/1.2.0",
+    "User-Agent": `aquifer-mcp/${VERSION}`,
     "Accept": "application/vnd.github.v3.sha",
   };
   if (etag && cachedSha) headers["If-None-Match"] = etag;
@@ -124,14 +126,14 @@ export async function fetchRepoSha(org: string, repo: string, env: Env): Promise
  * The storageKey must be content-addressed (SHA in the key path).
  * Without storage or storageKey, no caching occurs (enforces anti-cache-lying constraint).
  */
-export async function fetchJson<T>(url: string, storage?: AquiferStorage | null, storageKey?: string): Promise<T | null> {
+export async function fetchJson<T>(url: string, storage?: AquiferStorage | null, storageKey?: string, tracer?: RequestTracer): Promise<T | null> {
   if (storage && storageKey) {
-    const { data } = await storage.getJSON<T>(storageKey);
+    const { data } = await storage.getJSON<T>(storageKey, tracer);
     if (data) return data;
   }
 
   const resp = await fetch(url, {
-    headers: { "User-Agent": "aquifer-mcp/1.2.0" },
+    headers: { "User-Agent": `aquifer-mcp/${VERSION}` },
   });
 
   if (!resp.ok) return null;

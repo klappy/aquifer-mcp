@@ -1095,3 +1095,78 @@ Load the article lookup index (~100KB from cache) to find the file. Never load a
 
 **H6: v1.3.0 deploy → verify with x-ray tracing**
 Deploy and verify that `get` tool calls show article lookup index load (~5ms from cache) + single content file fetch, not sequential file scanning. `browse` for non-media resources should show zero content file fetches. Scripture tool unchanged (already fetches correct book file by construction).
+
+---
+
+## v1.4.0 — Version Indexes Per Release + Complete X-Ray Coverage
+
+### Observations
+
+**O70: SSE transport overhead from `createMcpHandler` is ~35ms, not ~1,000ms.**
+Testing `tools/list` (no index, no tool execution) across 20 calls: aquifer-mcp p50=173ms, translation-helps-mcp p50=138ms. oddkit uses the same `createMcpHandler` successfully. Initial hypothesis that SSE caused ~1,000ms overhead was wrong.
+*Source: 20-call p50 comparison from same test machine, both on Cloudflare Workers*
+
+**O71: `APP_VERSION` in `storage.ts` is hardcoded as `"1.3.0"` while User-Agent strings are still at `1.2.0` — already stale.**
+Cache API keys use this version prefix, so index schema changes between releases don't invalidate stale cached indexes.
+*Source: Direct inspection of `src/storage.ts` line 9, `src/github.ts` lines 38/84/134, `src/tools.ts` line 98*
+
+**O72: translation-helps-mcp auto-generates `version.ts` from a sync script, uses it everywhere.**
+Cache API keys, health endpoint, MCP server info all import from this single source. New deploy = version bump = cache miss = fresh indexes.
+*Source: Direct inspection of translation-helps-mcp `src/version.ts` and `src/functions/r2-storage.ts`*
+
+**O73: X-ray trace covers only `getOrBuildIndex` — ~1,200ms of tool execution is completely untraced.**
+Search shows 112-168ms trace but 1,386ms p50. The gap is fan-out queries, content file fetches, and tool handler logic. Functions missing tracer: `fetchContentFile`, `getResourceMetadata`, `resolveIndexReference`, `listContentFiles`, `buildCatalog`, `bootstrapEntityMatches`. The `fetchJson` function in `github.ts` called `storage.getJSON` without passing tracer.
+*Source: v1.3.0 x-ray traces vs 20-call p50 curl timings, code inspection of tracer threading*
+
+### Learnings
+
+**L39: Measure the transport before blaming it — SSE overhead was 35ms, not 1,000ms.**
+The initial SSE hypothesis was plausible but wrong. The lesson: measure each layer independently before proposing architectural changes.
+*Rests on: O70*
+
+**L40: Version must be auto-generated from a single source — manual bumping creates drift.**
+Every manually-bumped version string is a future drift obligation that will be forgotten. `package.json` is the single source. Everything else derives from it at build time.
+*Rests on: O71, O72*
+
+### Decisions
+
+**D45: Keep `createMcpHandler` — do not replace SSE transport.**
+*Because* the SSE overhead is ~35ms, not ~1,000ms. oddkit uses the same handler. Ditching it would break compatibility for zero gain.
+*Rests on: O70, L39*
+
+**D46: Auto-generate `src/version.ts` from `package.json` at build time.**
+*Because* hardcoded APP_VERSION is already stale and will drift again on every release. Translation-helps-mcp's pattern is proven.
+*Rests on: O71, O72, L40*
+*Reversible: Yes*
+
+**D47: Thread tracer through every I/O function in the tool handler chain.**
+*Because* ~1,200ms of tool execution is completely untraced. Every `await` that does I/O must be traced so the X-Aquifer-Trace header shows the complete call stack, not just the index load.
+*Rests on: O73*
+*Reversible: Yes — tracer is optional param everywhere*
+
+### Constraints
+
+**C23 (new): No hardcoded version strings anywhere. All version references import from the generated `src/version.ts`.**
+`package.json` is the single source. `prebuild` script generates `version.ts`. Health endpoint, MCP server info, Cache API keys, User-Agent headers all import from it.
+*Status: Active after v1.4.0*
+
+### Files Changed
+
+- `src/version.ts` — **New.** Auto-generated single source of truth for VERSION constant.
+- `src/index.ts` — Imports `VERSION` from `version.ts`. Hardcoded version strings replaced in McpServer constructor and health endpoint.
+- `src/storage.ts` — Imports `VERSION` from `version.ts`. Removed hardcoded `APP_VERSION = "1.3.0"`.
+- `src/github.ts` — Imports `VERSION` and `RequestTracer`. User-Agent now `aquifer-mcp/${VERSION}`. `fetchJson` accepts optional `tracer` param, passes to `storage.getJSON`.
+- `src/tools.ts` — Imports `VERSION`. User-Agent now `aquifer-mcp/${VERSION}`. Tracer threaded through: `fetchContentFile`, `getResourceMetadata`, `resolveIndexReference`, `listContentFiles`, `findArticle`, `buildCatalog`, `buildCatalogFast`, `bootstrapEntityMatches`, and all call sites in `handleScripture`, `handleBrowse`, `handleEntity`. Aggregate spans added: `scripture-fetch`, `find-article`, `entity-bootstrap`.
+- `package.json` — Bumped to 1.4.0. Added `prebuild` script. Build/deploy scripts chain `prebuild`.
+- `CHANGELOG.md` — v1.4.0 entry.
+
+### Evidence
+
+- 142 tests passed (80 references, 45 tools, 17 telemetry), 0 failures
+- Zero source file type errors (12 pre-existing test file type errors unchanged)
+- Wrangler dry-run build succeeds (2691.90 KiB / gzip: 449.91 KiB)
+
+### Handoff
+
+**H7: v1.4.0 deploy → trace validation**
+Deploy and verify that X-Aquifer-Trace now shows the complete call stack for `search`, `scripture`, `get`, and `entity` tool calls. The trace should account for >90% of curl total time. Look for: `fanout-passages`, `scripture-fetch`, `find-article`, `entity-bootstrap` aggregate spans alongside per-resource `storage:*` spans. Compare trace total with curl total — the untraced gap should drop from ~1,200ms to <100ms.
