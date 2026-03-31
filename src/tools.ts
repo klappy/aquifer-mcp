@@ -898,7 +898,7 @@ export async function handleScripture(
       const nonBible = index.registry.find((r) => r.resource_code === requestedResource);
       if (nonBible) {
         const allBibles = index.registry
-          .filter((r) => r.aquifer_type.toLowerCase() === "bible" || r.resource_type.toLowerCase().includes("bible"))
+          .filter((r) => r.aquifer_type.toLowerCase() === "bible")
           .map((r) => r.resource_code);
         return textResult(
           `"${requestedResource}" is a ${nonBible.resource_type}, not a Bible text resource. Available Bibles: ${allBibles.join(", ")}. Omit resource_code to search all Bibles.`,
