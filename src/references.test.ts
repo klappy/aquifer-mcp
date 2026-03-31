@@ -307,3 +307,45 @@ describe("rangesOverlap with sentinel ranges", () => {
     expect(rangesOverlap("41004001-41006999", "41007001-41007001")).toBe(false);
   });
 });
+
+describe("parseReference with accented multi-language aliases", () => {
+  it("parses Spanish 'Génesis 1:1'", () => {
+    expect(parseReference("Génesis 1:1")).toBe("01001001");
+  });
+
+  it("parses Portuguese 'João 3:16'", () => {
+    expect(parseReference("João 3:16")).toBe("43003016");
+  });
+
+  it("parses French 'Lévitique 19:18'", () => {
+    expect(parseReference("Lévitique 19:18")).toBe("03019018");
+  });
+
+  it("parses Spanish 'Éxodo 20:1-17'", () => {
+    expect(parseReference("Éxodo 20:1-17")).toBe("02020001-02020017");
+  });
+
+  it("parses Spanish 'Números 6'", () => {
+    expect(parseReference("Números 6")).toBe("04006001-04006999");
+  });
+
+  it("parses French 'Deutéronome 6:4'", () => {
+    expect(parseReference("Deutéronome 6:4")).toBe("05006004");
+  });
+
+  it("parses Spanish 'Josué' as whole book", () => {
+    expect(parseReference("Josué")).toBe("06001001-06999999");
+  });
+
+  it("parses French 'Éphésiens 2:8'", () => {
+    expect(parseReference("Éphésiens 2:8")).toBe("49002008");
+  });
+
+  it("parses Spanish 'Gálatas 5:22'", () => {
+    expect(parseReference("Gálatas 5:22")).toBe("48005022");
+  });
+
+  it("parses French 'Hébreux 11:1'", () => {
+    expect(parseReference("Hébreux 11:1")).toBe("58011001");
+  });
+});

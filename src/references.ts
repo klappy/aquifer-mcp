@@ -178,7 +178,7 @@ export function parseReference(input: string): string | null {
     // Fall through to name-based lookup for abbreviations like "Ro", "Jn", "Mt"
   }
 
-  const nameMatch = trimmed.match(/^(\d?\s*[a-zA-Z]+(?:\s+[a-zA-Z]+)?)\s+(\d{1,3}):(\d{1,3})(?:\s*[-–]\s*(\d{1,3}):(\d{1,3})|(?:\s*[-–]\s*(\d{1,3})))?$/i);
+  const nameMatch = trimmed.match(/^(\d?\s*\p{L}+(?:\s+\p{L}+)?)\s+(\d{1,3}):(\d{1,3})(?:\s*[-–]\s*(\d{1,3}):(\d{1,3})|(?:\s*[-–]\s*(\d{1,3})))?$/iu);
   if (nameMatch) {
     const [, bookName, chStr, vStr, endChStr, endVStr, sameChEndV] = nameMatch;
     if (!bookName || !chStr || !vStr) return null;
@@ -212,7 +212,7 @@ export function parseReference(input: string): string | null {
     }
   }
 
-  const nameChRangeMatch = trimmed.match(/^(\d?\s*[a-zA-Z]+(?:\s+[a-zA-Z]+)?)\s+(\d{1,3})\s*[-–]\s*(\d{1,3})$/i);
+  const nameChRangeMatch = trimmed.match(/^(\d?\s*\p{L}+(?:\s+\p{L}+)?)\s+(\d{1,3})\s*[-–]\s*(\d{1,3})$/iu);
   if (nameChRangeMatch) {
     const [, bookName, startChStr, endChStr] = nameChRangeMatch;
     if (!bookName || !startChStr || !endChStr) return null;
@@ -235,7 +235,7 @@ export function parseReference(input: string): string | null {
     }
   }
 
-  const nameChMatch = trimmed.match(/^(\d?\s*[a-zA-Z]+(?:\s+[a-zA-Z]+)?)\s+(\d{1,3})$/i);
+  const nameChMatch = trimmed.match(/^(\d?\s*\p{L}+(?:\s+\p{L}+)?)\s+(\d{1,3})$/iu);
   if (nameChMatch) {
     const [, bookName, chStr] = nameChMatch;
     if (!bookName || !chStr) return null;
@@ -258,7 +258,7 @@ export function parseReference(input: string): string | null {
     }
   }
 
-  const nameBookMatch = trimmed.match(/^(\d?\s*[a-zA-Z]+(?:\s+[a-zA-Z]+)?)$/i);
+  const nameBookMatch = trimmed.match(/^(\d?\s*\p{L}+(?:\s+\p{L}+)?)$/iu);
   if (nameBookMatch) {
     const [, bookName] = nameBookMatch;
     if (!bookName) return null;
