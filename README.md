@@ -10,15 +10,15 @@ Most users should use the deployed endpoint directly. Running locally is primari
 
 ## A First-Person Build Account
 
-I'm the Cursor coding agent (GPT-5.3 Codex) that built this MCP server with Klappy.
+This MCP server was built by AI coding agents with Klappy.
 
-Klappy gave me one clear direction: do not build a heavy platform, build a thin navigable layer.
+Klappy gave one clear direction: do not build a heavy platform, build a thin navigable layer.
 
-He pointed me to Oddkit for epistemic posture, pointed me to prior MCP work for implementation shape, and pointed me to Rick Brannan's Aquifer docs and repos for source truth. From there I built this as a Cloudflare Worker that indexes metadata, retrieves content on demand, and exposes predictable MCP tools for agents and apps.
+Oddkit provides epistemic posture, prior MCP work provides implementation shape, and Rick Brannan's Aquifer docs and repos provide source truth. The server is a Cloudflare Worker that indexes metadata, retrieves content on demand, and exposes predictable MCP tools for agents and apps.
 
-In this latest codebase, that includes the explicit `browse` tool so catalog exploration is first-class, v0.4 content-addressed SHA-keyed caching so freshness comes from observed repo state instead of TTL assumptions, v0.5 in-band README access through the `readme` tool, and v0.8 dynamic resource discovery — the server queries the BibleAquifer GitHub org directly so new resources appear automatically with zero code changes.
+Capabilities include: explicit catalog browsing via `browse`, content-addressed SHA-keyed caching where freshness comes from observed repo state instead of TTL assumptions, in-band README access through the `readme` tool, dynamic resource discovery from the BibleAquifer GitHub org so new resources appear automatically with zero code changes, deterministic Bible verse retrieval via the `scripture` tool, and named entity profiling via the `entity` tool.
 
-And the Aquifer Window story stays the same: it uses this server as its content backend. The Window and agent clients are two interfaces over the same corpus and the same MCP endpoint.
+The Aquifer Window uses this server as its content backend. The Window and agent clients are two interfaces over the same corpus and the same MCP endpoint.
 
 Production URLs:
 
@@ -36,7 +36,7 @@ Two slices of one pie:
 
 ## What It Exposes
 
-Aquifer MCP provides eight tools:
+Aquifer MCP provides ten tools:
 
 - `readme` - fetch this README as markdown through MCP
 - `telemetry_policy` - fetch telemetry-sharing policy and client integration guidance
@@ -46,6 +46,8 @@ Aquifer MCP provides eight tools:
 - `get` - fetch full article content by compound key
 - `related` - follow passage/resource/entity associations
 - `browse` - paginate through full article catalogs for a resource
+- `scripture` - fetch Bible verse text by reference (e.g. "Rom 3:23-25") across all translations
+- `entity` - profile a named entity by ACAI ID (e.g. "person:David") showing all associated articles
 
 Health endpoint:
 
@@ -70,6 +72,8 @@ Window behavior maps directly to these tool calls:
 - article reading -> `get`
 - related-content exploration -> `related`
 - paginated catalog browsing (especially media/image repos) -> `browse`
+- Bible verse reading -> `scripture`
+- entity profiling -> `entity`
 
 Both the agent experience and the Aquifer Window experience resolve through the same endpoint and the same retrieval path.
 
@@ -141,7 +145,7 @@ npm run deploy
 
 - **CLI fallback (emergency):** `npm run deploy` — logged-in Wrangler (`deploy:staging` is for **local Wrangler** `[env.staging]`, not the Git preview hostname)
 
-GitHub Actions: **build + test only** (`.github/workflows/ci.yml` on PRs and pushes).
+GitHub Actions: **build + test only** (`.github/workflows/ci.yml` on PRs).
 
 ---
 
@@ -357,6 +361,66 @@ curl -X POST https://aquifer.klappy.dev/mcp \
 - `page_size`: `50`
 - `page_size` max: `100`
 
+### `scripture`
+
+```bash
+curl -X POST https://aquifer.klappy.dev/mcp \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc":"2.0",
+    "id":12,
+    "method":"tools/call",
+    "params":{
+      "name":"scripture",
+      "arguments":{"reference":"Rom 3:23-25"}
+    }
+  }'
+```
+
+```bash
+curl -X POST https://aquifer.klappy.dev/mcp \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc":"2.0",
+    "id":13,
+    "method":"tools/call",
+    "params":{
+      "name":"scripture",
+      "arguments":{"reference":"John 3:16","resource_code":"BereanStandardBible"}
+    }
+  }'
+```
+
+### `entity`
+
+```bash
+curl -X POST https://aquifer.klappy.dev/mcp \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc":"2.0",
+    "id":14,
+    "method":"tools/call",
+    "params":{
+      "name":"entity",
+      "arguments":{"id":"person:David"}
+    }
+  }'
+```
+
+```bash
+curl -X POST https://aquifer.klappy.dev/mcp \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc":"2.0",
+    "id":15,
+    "method":"tools/call",
+    "params":{
+      "name":"entity",
+      "arguments":{"id":"keyterm:Justification"}
+    }
+  }'
+```
+
 ---
 
 ## Architecture Summary
@@ -374,8 +438,8 @@ Resources are discovered dynamically from the BibleAquifer GitHub organization �
 ### Retrieval model
 
 1. Discover repos from GitHub org, build/load navigability index from metadata
-2. Resolve references from index for `list` and `search`
-3. Fetch content files on demand for `get`, `related`, and `browse`
+2. Resolve references from index for `list`, `search`, and `entity`
+3. Fetch content files on demand for `get`, `related`, `browse`, and `scripture`
 4. Return text content payloads in MCP responses
 
 ### Caching

@@ -740,3 +740,238 @@ Previously, BBCCCVVV was used only for verse-level and verse-range references. N
 
 - Book names that are common English words ("Job", "Numbers", "Ruth", "Mark") will resolve to book references instead of keyword searches. Acceptable in the Bible-focused context; revisit if false-positive reports emerge.
 - Sentinel verse value 999 exceeds real verse counts (max is 176 in Psalm 119). This is a search range, not a data integrity assertion — no correctness impact.
+
+---
+
+## v1.0.0 through v1.2.0 Appendix
+
+> Covers the planning session through v1.0.0 ship, v1.1.0 R2 migration, and v1.2.0 patch + per-resource index rearchitecture.
+
+### Observations
+
+**O41: Every tool call fires 49 GitHub API requests before checking cache.**
+`getOrBuildIndex()` calls `fetchOrgRepos()` (1 request) then `fetchAllRepoShas()` (48 parallel requests) to compute the composite SHA before checking KV. Even with ETags and 304s, this is 49 round-trips minimum on every single tool invocation.
+*Source: Direct code inspection of `registry.ts:13-17`, `github.ts:27-66, 73-119`*
+
+**O42: Entity search (`bootstrapEntityMatches`) scans ALL resources × ALL files × ALL articles sequentially.**
+When not cached, the function at `tools.ts:634-656` iterates every resource, every content file within each resource, and every article within each file in nested `for` loops. No `Promise.allSettled`. For 48 repos this is catastrophically slow.
+*Source: Direct code inspection of `tools.ts:634-656`*
+
+**O43: No tool returns Bible verse text.**
+v0.9.0 has 8 tools. None provide deterministic Book/Chapter/Verse → text. `get` requires knowing the `content_id` in advance. `search` returns references, not content.
+*Source: Tool inventory in `index.ts`, verified against live `tools/list` response*
+
+**O44: Reference parser lacks common abbreviations.**
+`BOOK_NAME_TO_USFM` in `references.ts:22-41` has only full names ("romans", "genesis") and no aliases ("rom", "gen", "jn", "ps").
+*Source: Direct inspection of `references.ts`*
+
+**O45: Bible resources show "Articles: 0" in `list` output.**
+`registry.ts:94` counts articles as `Object.keys(metadata.article_metadata ?? {}).length`. For Bible resources where `article_metadata` is absent, this returns 0.
+*Source: Code inspection and `list({ type: "Bible" })` against v0.9.0*
+
+**O46: ChatGPT recommended 10 improvements; 4 already exist in the architecture.**
+ChatGPT recommending existing features indicates the tool descriptions aren't self-documenting.
+*Source: ChatGPT MCP feedback triage against actual codebase*
+
+**O47: translation-helps-mcp achieves sub-250ms warm calls using R2 + Cache API.**
+R2 for ZIP files and extracted content. Cache API as hot-read layer (~1ms). Version-keyed cache invalidation on deploy.
+*Source: Direct inspection of `src/functions/r2-storage.ts`, `src/services/ZipResourceFetcher2.ts`*
+
+**O48: oddkit uses KV for small values + R2 for files. Content-addressed by SHA + INDEX_VERSION.**
+`workers/src/zip-baseline-fetcher.ts` (801 lines). KV for SHA pointers and serialized index. R2 for ZIP files and extracted individual files.
+*Source: Direct inspection of oddkit `workers/src/zip-baseline-fetcher.ts`*
+
+**O49: Both reference implementations use source-URI-based R2 key naming.**
+oddkit: `file/{repo_key}/{commit_sha}/{path}`. translation-helps-mcp: `by-url/{host}/{path_to_archive.zip}/files/{inner_path}`. The key IS the provenance.
+*Source: Direct inspection of both codebases*
+
+**O50: KV's 25MB limit silently fails index writes, defeating all caching strategies built on top.**
+The navigability index for 48 repos exceeds KV's 25MB value limit. The `catch {}` swallows the write failure. Every subsequent request falls through to a full rebuild. This is why v1.0.0 warm calls are 7-13 seconds.
+*Source: Verified by curl timing tests against v1.0.0 deploy preview*
+
+**O51: Cursor bugbot found the pointer-advance-on-failed-write bug.**
+In `refreshShasIfStale`, when KV `put` fails (oversized index), `updatePointer` runs unconditionally, replacing a working pointer with a broken one.
+*Source: Cursor bugbot PR review on PR #9, commit 3d09a1c*
+
+**O52: Cursor bugbot found entity handler language filter and type sorting bugs.**
+`handleEntity` accepted a `language` parameter but never filtered results by it. `typeOrder` used "StudyNotes" (no space) but actual values have a space ("Study Notes").
+*Source: Cursor bugbot PR review on PR #9*
+
+**O53: CI workflow has a branch protection check name mismatch.**
+`ci.yml` triggers on `push` (to main) and `pull_request` (all branches). GitHub reports different check names for each. Branch protection waits for the `push` variant that never fires on PR branches.
+*Source: GitHub PR #9 status checks*
+
+**O54: Scripture tool adds a `### Title` header above every verse.**
+Aquifer Bibles store each verse as a separate article with its own `title` field. `handleScripture` at line 936 pushes `### ${m.title}` for every matching article. For "Rom 3:23-25" this produces 3 headers above 3 verses. Unreadable as scripture.
+*Source: Direct inspection of `tools.ts:936`, verified against live response*
+
+**O55: Aquifer Bible content already has inline verse numbers.**
+Raw HTML: `<p><sup>23</sup>&nbsp;for all have sinned...`. After `stripHtml`, this becomes `23 for all have sinned...`.
+*Source: Fetched `BereanStandardBible/eng/json/45.content.json` from GitHub*
+
+**O56: translation-helps-mcp joins verses into flowing text with `verses.join(" ")`.**
+`extractVerseRangeWithNumbers` in `usfm-extractor.ts:166-174` collects verse texts as `${v} ${verseText}` and joins with spaces. No headers.
+*Source: Direct inspection of `src/functions/usfm-extractor.ts`*
+
+**O57: README says "eight tools" and "version 0.9.0" — ChatGPT reads this and misses `scripture` and `entity`.**
+The `readme` tool serves the README which has stale version references and tool counts. ChatGPT literally doesn't know the new tools exist.
+*Source: `readme({ refresh: true })` output inspection*
+
+**O58: `list({ type: "Bible" })` returns 8 results including Bible Dictionary, Bible Stories, Bible Translation Manual.**
+The type filter is substring-based (`resource_type.toLowerCase().includes(t)`), so "Bible" matches anything with "Bible" in the name.
+*Source: `list({ type: "Bible" })` against live production*
+
+**O59: `search("David")` returns 49 title matches; `entity("person:David")` returns 2,448 articles.**
+Very different result sets for the same concept. Users don't know to try `entity` after getting title-only results from `search`.
+*Source: Side-by-side testing against live production*
+
+**O60: Aquifer Window has a gamified telemetry leaderboard at `/pulse`.**
+The Window is the #1 consumer at 590 calls. Real usage data flowing through the telemetry system.
+*Source: `telemetry_public` response*
+
+**O61: The navigability index is 10-50MB serialized because it aggregates ALL 48 repos into one monolithic blob.**
+R2 stores and serves it successfully. Cache API delivers it fast. But `JSON.parse` in the Workers runtime takes 1-2 seconds. Translation-helps-mcp never builds a global index — each resource is independently discovered, fetched, and cached.
+*Source: 20-call timing test against v1.1.0 deploy preview (consistent 1.3-3.2s)*
+
+**O62: Parallel fan-out across 48 small R2/Cache API reads is ~40x faster than one 10-50MB JSON.parse.**
+Workers can do parallel subrequests. 48 reads complete in time of the slowest (~10-50ms via Cache API), not the sum. Parsing 48 × 50KB (~50ms parallel) vs 1 × 10MB (~2s serial).
+*Source: Cloudflare Workers subrequest behavior, translation-helps-mcp proven architecture*
+
+### Learnings
+
+**L24: Content-addressed caching is correct but computing the cache key must not be on the hot path.**
+v0.4.0's SHA-keyed caching is the right correctness model. But computing the composite SHA requires fetching 49 API responses — which defeats caching if done on every request.
+*Rests on: O41, O50*
+
+**L25: KV is for pointers and counters. R2 is for content. Using KV for content is the wrong tool.**
+KV has a 25MB value limit. R2 has no size limit. Cache API provides ~1ms edge reads on top of R2.
+*Rests on: O47, O48, O50*
+
+**L26: The storage key IS the provenance.**
+If you can't read a storage key and know where the content came from, what version it is, and what it contains, you've lost debuggability. Both reference implementations encode source URI, commit SHA, and file path in the key.
+*Rests on: O49*
+
+**L27: ChatGPT recommending features that already exist is a discoverability problem, not a capability gap.**
+Progressive disclosure, cross-resource linking, result grouping, and pagination all exist. The tool descriptions and README need to make this obvious.
+*Rests on: O46*
+
+**L28: Bible abbreviation support is table stakes for any scripture tool.**
+Agents and users both use abbreviations constantly. "Rom", "Jn", "Gen", "Ps" must work.
+*Rests on: O44*
+
+**L29: No version numbers in running prose. Version history belongs in CHANGELOG.md.**
+Every inline version reference creates a future drift obligation that will be forgotten. The README should describe current capabilities. The CHANGELOG records history.
+*Rests on: O57*
+
+**L30: Scripture output should read like scripture, not like an index.**
+Per-verse headers are the wrong formatting for Bible text. The data already has inline verse numbers. Joining verses with spaces produces readable flowing text.
+*Rests on: O54, O55, O56*
+
+**L31: Automated bug bots find real bugs that humans miss.**
+Cursor bugbot caught the pointer-advance-on-failed-write bug (O51) and the entity handler language filter/sort bugs (O52). Both would have affected production behavior.
+*Rests on: O51, O52*
+
+**L32: Ship what works, fix what's slow.**
+v1.0.0's functional features are correct and valuable even at 7-13s response times. Blocking the feature ship on a storage migration would have delayed scripture/entity/abbreviation value.
+*Rests on: Decision to ship v1.0.0 then follow with v1.1.0 R2 migration*
+
+**L33: The monolithic index is the fundamental architectural mistake — not KV vs R2.**
+v1.0.0's problem was storage (KV 25MB limit). v1.1.0 fixed storage with R2 (6x speedup). v1.1.0's remaining problem is that a single 10-50MB JSON blob gets parsed on every request. The fix is eliminating the monolith. Per-resource indexes (each 10-500KB) loaded on demand at query time is how translation-helps-mcp achieves sub-250ms.
+*Rests on: O61, v1.1.0 timing results*
+
+**L34: Discrete per-resource indexes enable BM25 full-text search as a natural extension.**
+With a monolith you'd need to BM25-index 45,000+ articles in one blob. With per-resource indexes, each resource gets its own BM25 index. Keyword search fans out, collects scored results, merges and ranks.
+*Rests on: O62*
+
+### Decisions
+
+**D34: Promote to v1.0.0 with 7 functional changes.**
+*Because* the scripture tool + entity tool + abbreviation expansion make the server production-viable for its primary use case.
+*Changes:* Two-tier index loading, scripture tool, entity tool, abbreviation expansion (~80 entries), parallel entity bootstrap, Articles:0 fix + capabilities hint, ctx threading.
+*Rests on: O41-O45*
+*Reversible: Yes*
+
+**D35: Ship v1.0.0 at 7-13s warm calls, follow immediately with v1.1.0 R2 migration.**
+*Because* the functional features are correct and valuable even at current performance.
+*Rests on: O50, O47, O48*
+*Reversible: Yes*
+
+**D36: Migrate to three-tier storage (Memory → Cache API → R2) in v1.1.0.**
+*Because* KV's 25MB limit silently fails index writes.
+*Implementation:* New `AquiferStorage` class, R2 bucket `aquifer-content`, KV retained for pointers/ETags/telemetry only.
+*Rests on: O47, O48, O49, O50*
+*Reversible: Yes*
+
+**D37: R2 key naming follows source-URI-as-provenance pattern from both reference implementations.**
+*Because* the key must encode full provenance for debuggability and prefix-based cleanup.
+*Rests on: O49*
+*Reversible: Yes*
+
+**D38: Deploys via Cloudflare Workers Builds (dashboard Git hooks) only.**
+*Because* this is the existing deployment model.
+*Rests on: Klappy confirmation, existing `DEPLOY-SETUP.md`*
+
+**D39: No version numbers in running prose — README, CLAUDE.md, tool descriptions.**
+*Because* every inline version reference creates drift that confuses MCP clients.
+*Rests on: O57*
+*Reversible: Yes*
+
+**D40: Fix scripture output to flow as joined verse text, not per-verse headers.**
+*Because* line 936 adds `### {title}` for every verse-article, making multi-verse responses unreadable. The data already has inline verse numbers.
+*Rests on: O54, O55, O56*
+*Reversible: Yes*
+
+**D41: R2 bucket `aquifer-content` pre-created on Cloudflare account.**
+*Because* the bucket must exist before deploy. Created 2026-03-31.
+*Rests on: D36*
+*Irreversible: Bucket exists, can be deleted if not needed*
+
+**D42: Ship v1.1.0 as a 6x improvement. Rearchitect to per-resource indexes in v1.2.0.**
+*Because* v1.1.0 fixes the storage primitive (6x speedup). Per-resource indexes eliminate the monolith that causes ~2s JSON.parse on every request.
+*Rests on: O61, L33*
+*Reversible: Yes*
+
+**D43: Per-resource indexes with parallel fan-out replace the monolithic navigability index in v1.2.0.**
+*Because* parallel reads of 48 small indexes (~50ms via Cache API) is ~40x faster than one 10-50MB JSON.parse (~2s). Global registry (~5KB) in KV/R2. Per-resource passage and title indexes in R2. Fan-out via `Promise.allSettled`. BM25 becomes a natural extension.
+*Rests on: O61, O62, L33, L34*
+*Reversible: Yes — monolith can coexist during migration*
+
+### Constraints
+
+**C16: No version numbers in running prose. Version history in CHANGELOG.md only.**
+Exception: `package.json` and `/health` endpoint contain the structural version. Tool descriptions describe capabilities, not version history.
+*Status: Active*
+
+**C17: R2 for file-shaped content. KV for pointer-shaped values only.**
+KV values must be under 1KB (SHA pointers, ETags, timestamps, telemetry counters). All file-shaped storage goes to R2.
+*Status: Active*
+
+**C18: Storage keys must encode full provenance.**
+Every R2 key must contain enough information to identify the source, version, and content. Pattern: `{type}/{resource_code}/{sha}/{language}/{file}`.
+*Status: Active*
+
+**C19: Cache API keys versioned by APP_VERSION.**
+New deploys get fresh caches automatically. No manual flush for correctness.
+*Status: Active*
+
+**C20: Scripture output must read as flowing text, not per-verse headers.**
+Verse numbers inline, verses joined with spaces. Resource/translation headers only at the `##` level.
+*Status: Active*
+
+**C21: Search fan-out must use Promise.allSettled across per-resource indexes — never serial.**
+Parallel is the entire point. Serial fan-out across 48 resources would be worse than the monolith.
+*Status: Active*
+
+### Handoffs
+
+**H1: v1.0.0 → v1.1.0 (R2 migration)**
+PRD: `aquifer-mcp-v1.1.0-prd.md`. Completed. R2 bucket `aquifer-content` created. `AquiferStorage` class in `src/storage.ts`. 6x speedup confirmed (11.5s → 2.0s warm calls).
+
+**H2: v1.1.0 → v1.2.0 (Patch fixes + per-resource indexes)**
+PRD: `aquifer-mcp-v1.2.0-patch-prd.md`. 8 priorities: (P1) scripture flowing text, (P2) README/CLAUDE.md doc drift, (P3) non-Bible resource_code error, (P4) book-only payload truncation, (P5) exact type filter, (P6) search-to-entity hint, (P7) CI push trigger, (P8) per-resource indexes.
+
+**H3: Aquifer Window update for v1.0.0 tools**
+PRD: `aquifer-window-lovable-prd-v1.0.0.md`. The Window needs to know about `scripture` and `entity` tools.
+
+**H4: Telemetry transparency headers**
+The Claude connector shows as "Claude-User" / "Silent Reporter" at 0% transparency. The `x-aquifer-client` and related headers should be sent by MCP clients for leaderboard visibility.
