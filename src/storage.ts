@@ -6,7 +6,7 @@ import { shortKey } from "./tracing.js";
  * App version embedded in Cache API keys.
  * New deploy = cache miss = fresh R2 read = no stale data.
  */
-const APP_VERSION = "1.2.0";
+const APP_VERSION = "1.3.0";
 
 /** Cap memory cache to avoid OOM during large traversals (e.g. entity bootstrap). */
 const MAX_MEMORY_ENTRIES = 50;
