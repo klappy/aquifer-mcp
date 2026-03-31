@@ -974,7 +974,7 @@ export async function handleScripture(
       ? (truncated = true, sorted.slice(0, VERSE_LIMIT))
       : sorted;
 
-    totalVerses += matching.length;
+    totalVerses = Math.max(totalVerses, matching.length);
 
     sections.push(`## ${resource.title} (${resource.resource_code})`);
 
