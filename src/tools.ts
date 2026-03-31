@@ -1,7 +1,7 @@
 import type { Env, ArticleRef, ArticleContent, NavigabilityIndex, ResourceEntry, ResourceMetadata } from "./types.js";
 import { parseReference, rangesOverlap, rangeToReadable, isValidIndexReference } from "./references.js";
 import { contentUrl, metadataUrl, fetchJson, GC_TTL } from "./github.js";
-import { getOrBuildIndex } from "./registry.js";
+import { getOrBuildIndex, fanOutPassageSearch, fanOutTitleSearch } from "./registry.js";
 import { getPublicTelemetrySnapshot } from "./telemetry.js";
 import { AquiferStorage, contentKey, metadataKey, catalogKey, entityKey } from "./storage.js";
 
@@ -94,7 +94,7 @@ export async function handleReadme(
 
   try {
     const resp = await fetch(README_RAW_URL, {
-      headers: { "User-Agent": "aquifer-mcp/1.0.0" },
+      headers: { "User-Agent": "aquifer-mcp/1.2.0" },
     });
     if (!resp.ok) {
       const cached = await env.AQUIFER_CACHE.get(cacheKey);
@@ -310,24 +310,18 @@ export async function handleSearch(
 
   const bbcccvvv = parseReference(query);
   if (bbcccvvv) {
-    return searchByPassage(bbcccvvv, index);
+    return searchByPassage(bbcccvvv, index, storage);
   }
 
   if (query.includes(":") && /^[a-z]+:/i.test(query)) {
     return searchByEntity(query, index, env, storage);
   }
 
-  return searchByTitle(query, index);
+  return searchByTitle(query, index, storage);
 }
 
-function searchByPassage(ref: string, index: NavigabilityIndex) {
-  const matches: ArticleRef[] = [];
-
-  for (const [range, refs] of index.passage) {
-    if (rangesOverlap(ref, range)) {
-      matches.push(...refs);
-    }
-  }
+async function searchByPassage(ref: string, index: NavigabilityIndex, storage: AquiferStorage) {
+  const matches = await fanOutPassageSearch(ref, index, storage);
 
   if (matches.length === 0) {
     return textResult(`No articles found for passage ${rangeToReadable(ref)}.`);
@@ -368,16 +362,9 @@ async function searchByEntity(entityQuery: string, index: NavigabilityIndex, env
   );
 }
 
-function searchByTitle(query: string, index: NavigabilityIndex) {
+async function searchByTitle(query: string, index: NavigabilityIndex, storage: AquiferStorage) {
   const terms = query.toLowerCase().split(/\s+/);
-  const matches: ArticleRef[] = [];
-
-  for (const ref of index.title) {
-    const title = ref.title.toLowerCase();
-    if (terms.every((t) => title.includes(t))) {
-      matches.push(ref);
-    }
-  }
+  const matches = await fanOutTitleSearch(terms, index, storage);
 
   if (matches.length === 0) {
     const hint = terms.length === 1
@@ -459,13 +446,10 @@ export async function handleRelated(
     const passageRefs: ArticleRef[] = [];
     for (const assoc of article.associations.passage) {
       const range = `${assoc.start_ref}-${assoc.end_ref}`;
-      for (const [indexRange, refs] of index.passage) {
-        if (rangesOverlap(range, indexRange)) {
-          passageRefs.push(...refs.filter(
-            (r) => !(r.resource_code === resourceCode && r.content_id === contentId),
-          ));
-        }
-      }
+      const overlapping = await fanOutPassageSearch(range, index, storage);
+      passageRefs.push(...overlapping.filter(
+        (r) => !(r.resource_code === resourceCode && r.content_id === contentId),
+      ));
     }
     if (passageRefs.length) {
       related.push({ type: "Passage overlap", refs: deduplicateRefs(passageRefs) });

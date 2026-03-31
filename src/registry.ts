@@ -6,14 +6,14 @@ import type {
   NavigabilityIndex,
 } from "./types.js";
 import { metadataUrl, fetchJson, fetchRepoSha, fetchOrgRepos, GC_TTL } from "./github.js";
-import { isValidIndexReference } from "./references.js";
-import { AquiferStorage, indexKey, metadataKey } from "./storage.js";
+import { isValidIndexReference, rangesOverlap } from "./references.js";
+import { AquiferStorage, indexKey, metadataKey, passageIndexKey, titleIndexKey } from "./storage.js";
 
 const LATEST_SHA_KEY = "index:latest-composite-sha";
 const SHA_STALE_MS = 5 * 60 * 1000; // 5 minutes
 
 export async function getOrBuildIndex(env: Env, storage: AquiferStorage, ctx?: ExecutionContext): Promise<NavigabilityIndex> {
-  // --- HOT PATH: pointer (KV) → index (R2 via Cache API) ---
+  // --- HOT PATH: pointer (KV) → registry (R2 via Cache API) ---
   const latestSha = await env.AQUIFER_CACHE.get(LATEST_SHA_KEY, "json") as { sha: string; checked_at: number } | null;
   if (latestSha?.sha) {
     const key = indexKey(latestSha.sha);
@@ -45,7 +45,7 @@ export async function getOrBuildIndex(env: Env, storage: AquiferStorage, ctx?: E
   index.composite_sha = compositeHash;
   index.repo_shas = repoShas;
 
-  // Store in R2 (no size limit!)
+  // Store lightweight registry in R2 (no passage/title/entity — those are per-resource)
   const written = await storage.putJSON(key, serializeForStorage(index));
   if (written) {
     await updatePointer(env, compositeHash);
@@ -126,9 +126,9 @@ async function buildIndex(
   repoShas: Map<string, string>,
 ): Promise<NavigabilityIndex> {
   const registry: ResourceEntry[] = [];
-  const passage = new Map<string, ArticleRef[]>();
-  const entity = new Map<string, ArticleRef[]>();
-  const title: ArticleRef[] = [];
+  // Per-resource passage and title data, collected during build for writing to R2
+  const perResourcePassage = new Map<string, Map<string, ArticleRef[]>>();
+  const perResourceTitle = new Map<string, ArticleRef[]>();
 
   const results = await Promise.allSettled(
     repoCodes.map(async (code) => {
@@ -172,6 +172,9 @@ async function buildIndex(
 
     if (!metadata.article_metadata) continue;
 
+    const resourcePassage = new Map<string, ArticleRef[]>();
+    const resourceTitles: ArticleRef[] = [];
+
     for (const [contentId, article] of Object.entries(metadata.article_metadata)) {
       const fallbackTitle = article.index_reference && !isValidIndexReference(article.index_reference)
         ? article.index_reference
@@ -186,21 +189,131 @@ async function buildIndex(
         index_reference: article.index_reference,
       };
 
-      title.push(baseRef);
+      resourceTitles.push(baseRef);
 
       if (article.index_reference && isValidIndexReference(article.index_reference)) {
-        const existing = passage.get(article.index_reference);
+        const existing = resourcePassage.get(article.index_reference);
         if (existing) {
           existing.push(baseRef);
         } else {
-          passage.set(article.index_reference, [baseRef]);
+          resourcePassage.set(article.index_reference, [baseRef]);
         }
       }
     }
+
+    const repoSha = repoShas.get(code)!;
+    perResourcePassage.set(code, resourcePassage);
+    perResourceTitle.set(code, resourceTitles);
+
+    // Write per-resource indexes to R2 in parallel (fire-and-forget during build)
+    await Promise.allSettled([
+      resourcePassage.size > 0
+        ? storage.putJSON(passageIndexKey(code, repoSha), Array.from(resourcePassage.entries()))
+        : Promise.resolve(),
+      resourceTitles.length > 0
+        ? storage.putJSON(titleIndexKey(code, repoSha), resourceTitles)
+        : Promise.resolve(),
+    ]);
   }
 
-  return { registry, passage, entity, title, built_at: Date.now(), composite_sha: "", repo_shas: repoShas };
+  // Return lightweight index — passage/title/entity are empty.
+  // Queries use fan-out functions to load per-resource indexes on demand.
+  return {
+    registry,
+    passage: new Map(),
+    entity: new Map(),
+    title: [],
+    built_at: Date.now(),
+    composite_sha: "",
+    repo_shas: repoShas,
+  };
 }
+
+// --- Fan-out query functions ---
+
+/**
+ * Search passages across all resources by loading per-resource passage indexes in parallel.
+ * Falls back to in-memory index.passage if populated (e.g. in tests).
+ */
+export async function fanOutPassageSearch(
+  ref: string,
+  index: NavigabilityIndex,
+  storage: AquiferStorage,
+): Promise<ArticleRef[]> {
+  // If passage data is already in memory (tests provide this), use it directly
+  if (index.passage.size > 0) {
+    const matches: ArticleRef[] = [];
+    for (const [range, refs] of index.passage) {
+      if (rangesOverlap(ref, range)) matches.push(...refs);
+    }
+    return matches;
+  }
+
+  // Fan out: load per-resource passage indexes in parallel
+  const results = await Promise.allSettled(
+    index.registry.map(async (entry) => {
+      const sha = index.repo_shas.get(entry.resource_code);
+      if (!sha) return [];
+      const key = passageIndexKey(entry.resource_code, sha);
+      const { data } = await storage.getJSON<Array<[string, ArticleRef[]]>>(key);
+      if (!data) return [];
+      const matches: ArticleRef[] = [];
+      for (const [range, refs] of data) {
+        if (rangesOverlap(ref, range)) matches.push(...refs);
+      }
+      return matches;
+    }),
+  );
+
+  const matches: ArticleRef[] = [];
+  for (const r of results) {
+    if (r.status === "fulfilled") matches.push(...r.value);
+  }
+  return matches;
+}
+
+/**
+ * Search titles across all resources by loading per-resource title indexes in parallel.
+ * Falls back to in-memory index.title if populated (e.g. in tests).
+ */
+export async function fanOutTitleSearch(
+  terms: string[],
+  index: NavigabilityIndex,
+  storage: AquiferStorage,
+): Promise<ArticleRef[]> {
+  // If title data is already in memory (tests provide this), use it directly
+  if (index.title.length > 0) {
+    const matches: ArticleRef[] = [];
+    for (const ref of index.title) {
+      const title = ref.title.toLowerCase();
+      if (terms.every((t) => title.includes(t))) matches.push(ref);
+    }
+    return matches;
+  }
+
+  // Fan out: load per-resource title indexes in parallel
+  const results = await Promise.allSettled(
+    index.registry.map(async (entry) => {
+      const sha = index.repo_shas.get(entry.resource_code);
+      if (!sha) return [];
+      const key = titleIndexKey(entry.resource_code, sha);
+      const { data } = await storage.getJSON<ArticleRef[]>(key);
+      if (!data) return [];
+      return data.filter((ref) => {
+        const title = ref.title.toLowerCase();
+        return terms.every((t) => title.includes(t));
+      });
+    }),
+  );
+
+  const matches: ArticleRef[] = [];
+  for (const r of results) {
+    if (r.status === "fulfilled") matches.push(...r.value);
+  }
+  return matches;
+}
+
+// --- Serialization ---
 
 interface SerializedIndex {
   registry: ResourceEntry[];
@@ -215,9 +328,9 @@ interface SerializedIndex {
 function serializeForStorage(index: NavigabilityIndex): SerializedIndex {
   return {
     registry: index.registry,
-    passage: Array.from(index.passage.entries()),
-    entity: Array.from(index.entity.entries()),
-    title: index.title,
+    passage: [], // Per-resource indexes stored separately in R2
+    entity: [], // Entity data bootstrapped on demand
+    title: [], // Per-resource indexes stored separately in R2
     built_at: index.built_at,
     composite_sha: index.composite_sha,
     repo_shas: Array.from(index.repo_shas.entries()),

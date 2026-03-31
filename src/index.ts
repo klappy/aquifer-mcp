@@ -46,7 +46,7 @@ function createServer(env: Env, ctx: ExecutionContext) {
 
   const server = new McpServer({
     name: "aquifer-mcp",
-    version: "1.1.0",
+    version: "1.2.0",
   });
 
   server.tool(
@@ -175,7 +175,7 @@ export default {
     // Health check — keep outside MCP handler
     if (url.pathname === "/health" || (url.pathname === "/" && request.method === "GET")) {
       return new Response(
-        JSON.stringify({ status: "ok", server: { name: "aquifer-mcp", version: "1.1.0" } }),
+        JSON.stringify({ status: "ok", server: { name: "aquifer-mcp", version: "1.2.0" } }),
         { headers: { "Content-Type": "application/json" } },
       );
     }

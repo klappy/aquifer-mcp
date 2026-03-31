@@ -216,9 +216,13 @@ function buildMockIndex(entries: ResourceEntry[], passageEntries?: [string, Arti
 // --- Mock modules ---
 
 // We mock the registry and github modules to control what data the tools see.
-vi.mock("./registry.js", () => ({
-  getOrBuildIndex: vi.fn(),
-}));
+vi.mock("./registry.js", async (importOriginal) => {
+  const actual = await importOriginal() as Record<string, unknown>;
+  return {
+    ...actual,
+    getOrBuildIndex: vi.fn(),
+  };
+});
 
 vi.mock("./github.js", () => ({
   metadataUrl: vi.fn((org: string, code: string, lang: string) => `https://raw.githubusercontent.com/${org}/${code}/main/${lang}/metadata.json`),

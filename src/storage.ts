@@ -4,7 +4,7 @@ import type { Env } from "./types.js";
  * App version embedded in Cache API keys.
  * New deploy = cache miss = fresh R2 read = no stale data.
  */
-const APP_VERSION = "1.1.0";
+const APP_VERSION = "1.2.0";
 
 /** Cap memory cache to avoid OOM during large traversals (e.g. entity bootstrap). */
 const MAX_MEMORY_ENTRIES = 50;
@@ -151,4 +151,12 @@ export function catalogKey(resourceCode: string, sha: string, language: string):
 
 export function entityKey(compositeSha: string, entityId: string): string {
   return `entity/${compositeSha}/${entityId}.json`;
+}
+
+export function passageIndexKey(resourceCode: string, sha: string): string {
+  return `index/${resourceCode}/${sha}/passages.json`;
+}
+
+export function titleIndexKey(resourceCode: string, sha: string): string {
+  return `index/${resourceCode}/${sha}/titles.json`;
 }

@@ -63,7 +63,7 @@ A thin, stateless RAG gateway on Cloudflare Workers for unfoldingWord translatio
 - `src/functions/kv-cache.js` — two-tier caching (memory + KV)
 - `src/services/ZipResourceFetcher2.js` — content fetching (replace this with GitHub raw URL fetching for Aquifer)
 
-The Aquifer server follows the same proxy pattern but is simpler: no ZIP extraction, no Door43 catalog, no SvelteKit UI. Pure Cloudflare Worker, GitHub raw URLs, Workers KV.
+The Aquifer server follows the same proxy pattern but is simpler: no ZIP extraction, no Door43 catalog, no SvelteKit UI. Pure Cloudflare Worker, GitHub raw URLs, R2 + Cache API for storage.
 
 ### Governance Pattern: `klappy/oddkit`
 
@@ -114,8 +114,8 @@ reference/
 
 Following oddkit's governance pattern: Rick's `BibleAquifer/docs` repo is the canon baseline. Fetch on startup, cache by commit SHA (content-addressed, like oddkit's `ensureBaselineRepo`), rebuild when the baseline changes:
 
-- `schemas/aquifer_resource.schema.json` (v1.1.2)
-- `schemas/aquifer_article.schema.json` (v1.0.3)
+- `schemas/aquifer_resource.schema.json`
+- `schemas/aquifer_article.schema.json`
 - `aquifer_resource_metadata.md` — resource-level field documentation
 - `aquifer_article_metadata.md` — article-level field documentation, association types
 - `aquifer_full_inventory.md` — what exists and completion percentages
@@ -138,7 +138,7 @@ Built from `metadata.json` files across all discovered Aquifer repos. Three comp
 
 **Entity index**: ACAI entity IDs → articles that reference them. When two articles from different resources share `keyterm:Justification`, they're findable together.
 
-This index is keys and references only — not content. Cache in Workers KV keyed by composite SHA (content-addressed, not TTL-based). KV writes that exceed the 25 MiB value limit are handled gracefully — the in-memory index still serves the request.
+This index is keys and references only — not content. Stored as per-resource indexes in R2 (each ~10-500KB), keyed by resource SHA (content-addressed, not TTL-based). A lightweight global registry (~5KB) is stored separately. Query fan-out loads only the per-resource indexes needed for a given query in parallel via `Promise.allSettled`.
 
 ### 4. On-Demand Content Fetch
 
@@ -173,6 +173,10 @@ https://raw.githubusercontent.com/BibleAquifer/{resource_code}/main/{language}/m
 - ACAI entity overlap: articles sharing the same entity IDs
 
 Returns references (not full content) — the consumer decides what to fetch.
+
+**`scripture`** — Fetch Bible verse text by reference (e.g. "Rom 3:23-25", "John 3:16"). Returns flowing text from all available Bible translations with verse numbers inline. Accepts full names, USFM codes, and common abbreviations.
+
+**`entity`** — Profile a named entity by ACAI ID (e.g. "person:David", "keyterm:Justification"). Returns all referencing articles grouped by resource type with progressive disclosure.
 
 ## Key Technical Details
 
@@ -246,7 +250,7 @@ Study these to understand the actual data shape before writing code.
 
 ## Deployment
 
-Cloudflare Workers. Use Workers KV for the navigability index cache. Use the Cache API or Workers KV for content fetch caching. No other storage. KV has a 25 MiB value limit — large metadata files and indexes that exceed this are served from memory but not cached (handled gracefully via try-catch on KV puts).
+Cloudflare Workers. Three-tier storage: Memory → Cache API → R2 (`AQUIFER_CONTENT` bucket). KV (`AQUIFER_CACHE`) for pointers and small values only (SHA pointers, ETags, telemetry counters). All file-shaped content (indexes, metadata, content, catalogs, entity caches) stored in R2 with no size limit. Cache API provides edge reads on top of R2. Content-addressed by SHA — no TTL, no stale reads.
 
 ## What This Is NOT
 

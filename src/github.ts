@@ -35,7 +35,7 @@ export async function fetchOrgRepos(org: string, env: Env): Promise<string[]> {
   ]);
 
   const headers: Record<string, string> = {
-    "User-Agent": "aquifer-mcp/1.1.0",
+    "User-Agent": "aquifer-mcp/1.2.0",
     "Accept": "application/vnd.github.v3+json",
   };
   if (etag && cached) headers["If-None-Match"] = etag;
@@ -81,7 +81,7 @@ export async function fetchRepoSha(org: string, repo: string, env: Env): Promise
   ]);
 
   const headers: Record<string, string> = {
-    "User-Agent": "aquifer-mcp/1.1.0",
+    "User-Agent": "aquifer-mcp/1.2.0",
     "Accept": "application/vnd.github.v3.sha",
   };
   if (etag && cachedSha) headers["If-None-Match"] = etag;
@@ -131,7 +131,7 @@ export async function fetchJson<T>(url: string, storage?: AquiferStorage | null,
   }
 
   const resp = await fetch(url, {
-    headers: { "User-Agent": "aquifer-mcp/1.1.0" },
+    headers: { "User-Agent": "aquifer-mcp/1.2.0" },
   });
 
   if (!resp.ok) return null;

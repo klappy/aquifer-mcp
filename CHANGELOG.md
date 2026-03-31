@@ -6,9 +6,13 @@ All notable changes to aquifer-mcp will be documented in this file.
 
 ### Changed
 
+- **Per-resource indexes eliminate monolithic index**: The navigability index is no longer a single 10-50MB monolith. Passage and title data are now written as per-resource indexes in R2 (`index/{resource_code}/{sha}/passages.json`, `index/{resource_code}/{sha}/titles.json`). Queries fan out across per-resource indexes in parallel via `Promise.allSettled`. The global registry (~5KB) stores only resource metadata and repo SHAs. Parse time drops from ~2s (one giant JSON.parse) to ~10-50ms (parallel small reads).
+- **Fan-out query functions**: New `fanOutPassageSearch` and `fanOutTitleSearch` in `registry.ts` load per-resource indexes on demand. Falls back to in-memory data when populated (backward compatible with tests). `searchByPassage`, `searchByTitle`, and `handleRelated` all use fan-out instead of iterating monolith maps.
 - **Scripture output flows as joined verse text**: Removed per-verse `### Title` headers. Verse numbers are already inline from stripped HTML `<sup>` tags. Multi-verse requests now read as natural flowing scripture, matching translation-helps-mcp's output pattern.
 - **README updated to reflect 10 tools**: Removed stale "eight tools" count and inline version references (v0.4, v0.5, v0.8). Added `scripture` and `entity` to tool list, Aquifer Window mapping, and JSON-RPC examples. First-person build account rewritten to describe capabilities, not version history.
+- **CLAUDE.md updated**: Removed schema version numbers from prose, updated storage description to reflect R2 three-tier architecture, updated navigability index section to describe per-resource architecture, added `scripture` and `entity` to MCP tool surface.
 - **List type filter uses exact match first**: `list({ type: "Bible" })` now exact-matches `aquifer_type` before falling back to substring match on `resource_type`. Returns only actual Bibles, not "Bible Dictionary" or "Bible Translation Manual".
+- Bumped runtime version, APP_VERSION, and User-Agent strings to `1.2.0`.
 
 ### Fixed
 
@@ -17,6 +21,7 @@ All notable changes to aquifer-mcp will be documented in this file.
 
 ### Added
 
+- **Per-resource R2 key patterns**: `passageIndexKey` and `titleIndexKey` in `storage.ts` for per-resource passage and title index storage.
 - **Search-to-entity hint**: Single-word keyword searches now append a tip suggesting the `entity` tool for comprehensive ACAI coverage (e.g. `entity("person:David")` vs `search("David")`).
 
 ## [1.1.0] - 2026-03-31
