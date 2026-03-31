@@ -380,7 +380,10 @@ function searchByTitle(query: string, index: NavigabilityIndex) {
   }
 
   if (matches.length === 0) {
-    return textResult(`No articles found matching "${query}".`);
+    const hint = terms.length === 1
+      ? ` Tip: For comprehensive coverage, try the entity tool with ACAI IDs like "person:${query}" or "keyterm:${query}".`
+      : "";
+    return textResult(`No articles found matching "${query}".${hint}`);
   }
 
   const deduped = deduplicateRefs(matches);
@@ -895,7 +898,7 @@ export async function handleScripture(
       const nonBible = index.registry.find((r) => r.resource_code === requestedResource);
       if (nonBible) {
         const allBibles = index.registry
-          .filter((r) => r.aquifer_type.toLowerCase() === "bible")
+          .filter((r) => r.aquifer_type.toLowerCase() === "bible" || r.resource_type.toLowerCase().includes("bible"))
           .map((r) => r.resource_code);
         return textResult(
           `"${requestedResource}" is a ${nonBible.resource_type}, not a Bible text resource. Available Bibles: ${allBibles.join(", ")}. Omit resource_code to search all Bibles.`,
