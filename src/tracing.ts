@@ -23,18 +23,6 @@ export class RequestTracer {
     this.startTime = performance.now();
   }
 
-  /** Time an async operation and record the span. */
-  async trace<T>(label: string, fn: () => Promise<T>, source?: TraceSpan["source"]): Promise<T> {
-    const start = performance.now();
-    const result = await fn();
-    this.spans.push({
-      label,
-      duration_ms: Math.round(performance.now() - start),
-      ...(source ? { source } : {}),
-    });
-    return result;
-  }
-
   /** Record a span with explicit timing, source, and detail. */
   addSpan(label: string, duration_ms: number, source?: TraceSpan["source"], detail?: string): void {
     this.spans.push({

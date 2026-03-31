@@ -1013,7 +1013,7 @@ export async function handleEntity(
   // Find all articles referencing this entity
   let refs = index.entity.get(normalized);
   if (!refs?.length) {
-    refs = await bootstrapEntityMatches(normalized, index, env, storage);
+    refs = await bootstrapEntityMatches(normalized, index, env, storage, tracer);
   }
 
   if (!refs?.length) {
