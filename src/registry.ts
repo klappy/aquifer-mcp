@@ -35,9 +35,10 @@ export async function getOrBuildIndex(env: Env, storage: AquiferStorage, ctx?: E
       const index = deserializeIndex(data);
 
       // Schedule background refresh if stale
-      if (ctx && Date.now() - latestSha.checked_at > SHA_STALE_MS) {
-        ctx.waitUntil(refreshShasIfStale(env, storage));
-      }
+      // DISABLED: testing if 49-fetch background storm causes ~1,100ms gap
+      // if (ctx && Date.now() - latestSha.checked_at > SHA_STALE_MS) {
+      //   ctx.waitUntil(refreshShasIfStale(env, storage));
+      // }
 
       return index;
     }
