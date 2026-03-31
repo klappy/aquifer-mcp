@@ -558,7 +558,7 @@ async function findArticle(
     }
   }
 
-  tracer?.addSpan("find-article", Math.round(performance.now() - findStart), "miss");
+  tracer?.addSpan("find-article", Math.round(performance.now() - findStart), undefined, "miss");
   return null;
 }
 
