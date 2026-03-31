@@ -266,9 +266,11 @@ export async function handleList(
 
   if (args.type) {
     const t = String(args.type).toLowerCase();
-    resources = resources.filter(
-      (r) => r.aquifer_type.toLowerCase() === t || r.resource_type.toLowerCase().includes(t),
-    );
+    // Exact match on aquifer_type first; fall back to substring on resource_type
+    const exact = resources.filter((r) => r.aquifer_type.toLowerCase() === t);
+    resources = exact.length > 0
+      ? exact
+      : resources.filter((r) => r.resource_type.toLowerCase().includes(t));
   }
   if (args.language) {
     const lang = String(args.language).toLowerCase();
@@ -384,8 +386,12 @@ function searchByTitle(query: string, index: NavigabilityIndex) {
   const deduped = deduplicateRefs(matches);
   const lines = deduped.map(formatArticleRef);
 
+  const hint = terms.length === 1
+    ? `\n\nTip: For comprehensive coverage, try the entity tool with ACAI IDs like "person:${query}" or "keyterm:${query}".`
+    : "";
+
   return textResult(
-    `Found ${deduped.length} article(s) matching "${query}":\n\n${lines.join("\n\n")}`,
+    `Found ${deduped.length} article(s) matching "${query}":\n\n${lines.join("\n\n")}${hint}`,
   );
 }
 
@@ -884,10 +890,20 @@ export async function handleScripture(
   });
 
   if (bibleResources.length === 0) {
-    const msg = requestedResource
-      ? `Bible resource "${requestedResource}" not found.`
-      : "No Bible resources found in the Aquifer.";
-    return textResult(msg);
+    if (requestedResource) {
+      // Check if the resource exists but isn't a Bible
+      const nonBible = index.registry.find((r) => r.resource_code === requestedResource);
+      if (nonBible) {
+        const allBibles = index.registry
+          .filter((r) => r.aquifer_type.toLowerCase() === "bible")
+          .map((r) => r.resource_code);
+        return textResult(
+          `"${requestedResource}" is a ${nonBible.resource_type}, not a Bible text resource. Available Bibles: ${allBibles.join(", ")}. Omit resource_code to search all Bibles.`,
+        );
+      }
+      return textResult(`Bible resource "${requestedResource}" not found.`);
+    }
+    return textResult("No Bible resources found in the Aquifer.");
   }
 
   // Determine which content file to fetch based on the reference
@@ -904,7 +920,7 @@ export async function handleScripture(
       if (!articles?.length) return null;
 
       // Find articles whose passage associations overlap with the requested reference
-      const matching: Array<{ title: string; text: string }> = [];
+      const matching: Array<{ sortKey: string; text: string }> = [];
       for (const article of articles) {
         const passages = article.associations?.passage ?? [];
         const articleRange = article.index_reference && isValidIndexReference(article.index_reference)
@@ -927,7 +943,7 @@ export async function handleScripture(
 
         if (overlaps) {
           matching.push({
-            title: article.title,
+            sortKey: article.index_reference ?? article.content_id ?? "",
             text: stripHtml(article.content || ""),
           });
         }
@@ -940,23 +956,47 @@ export async function handleScripture(
 
   const sections: string[] = [];
   const readableRef = rangeToReadable(parsed);
+  const VERSE_LIMIT = 30;
+
+  let totalVerses = 0;
+  let translationCount = 0;
+  let truncated = false;
 
   for (const result of results) {
     if (result.status !== "fulfilled" || !result.value) continue;
     const { resource, matching } = result.value;
+    translationCount++;
+
+    const sorted = matching
+      .sort((a, b) => a.sortKey.localeCompare(b.sortKey));
+
+    const limited = sorted.length > VERSE_LIMIT
+      ? (truncated = true, sorted.slice(0, VERSE_LIMIT))
+      : sorted;
+
+    totalVerses += matching.length;
+
     sections.push(`## ${resource.title} (${resource.resource_code})`);
-    for (const m of matching) {
-      if (m.title) sections.push(`### ${m.title}`);
-      sections.push(m.text);
-      sections.push("");
-    }
+
+    // Join verse texts into flowing scripture — no per-verse headers.
+    // Verse numbers are already inline from the stripped HTML content.
+    const verseTexts = limited
+      .map((m) => m.text.trim())
+      .filter(Boolean);
+
+    sections.push(verseTexts.join(" "));
+    sections.push("");
   }
 
   if (sections.length === 0) {
     return textResult(`No Bible text found for ${readableRef}. The passage may not be available in current Aquifer Bible resources.`);
   }
 
-  return textResult(`# Scripture: ${readableRef}\n\n${sections.join("\n")}`);
+  const truncNote = truncated
+    ? `> Note: This reference spans ${totalVerses} verses across ${translationCount} translation(s). Showing first ${VERSE_LIMIT} verses per translation. Narrow to a chapter or verse range for complete text.\n\n`
+    : "";
+
+  return textResult(`# Scripture: ${readableRef}\n\n${truncNote}${sections.join("\n")}`);
 }
 
 // --- Entity profile tool ---
