@@ -319,7 +319,15 @@ async function handleMcpRequest(
     case "tools/call": {
       const toolName = (body.params?.name as string) ?? "";
       const args = (body.params?.arguments as Record<string, unknown>) ?? {};
-      result = await dispatchTool(toolName, args, env, storage, ctx, tracer);
+      try {
+        result = await dispatchTool(toolName, args, env, storage, ctx, tracer);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        return json(
+          { jsonrpc: "2.0", error: { code: -32603, message: `Tool error: ${message}` }, id: body.id },
+          { "X-Aquifer-Trace": tracer.toHeader() },
+        );
+      }
       break;
     }
 
