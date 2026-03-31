@@ -41,7 +41,7 @@ export async function getOrBuildIndex(env: Env, storage: AquiferStorage, ctx?: E
     indexFetchedAt = Date.now();
 
     // Background refresh if SHAs are stale
-    if (ctx && data.checked_at && Date.now() - data.checked_at > SHA_STALE_MS) {
+    if (ctx && (!data.checked_at || Date.now() - data.checked_at > SHA_STALE_MS)) {
       ctx.waitUntil(refreshAndUpdateCurrentIndex(env, storage));
     }
 
