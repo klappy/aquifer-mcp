@@ -1,5 +1,5 @@
 import type { Env, ArticleRef, ArticleContent, NavigabilityIndex, ResourceEntry, ResourceMetadata } from "./types.js";
-import { parseReference, rangesOverlap, rangeToReadable, isValidIndexReference } from "./references.js";
+import { parseReference, rangesOverlap, rangeToReadable, isValidIndexReference, bbcccvvvToReadable } from "./references.js";
 import { contentUrl, metadataUrl, fetchJson, GC_TTL } from "./github.js";
 import { getOrBuildIndex, fanOutPassageSearch, fanOutTitleSearch, loadArticleLookup, type ArticleLookupEntry } from "./registry.js";
 import { getPublicTelemetrySnapshot } from "./telemetry.js";
@@ -796,7 +796,7 @@ async function buildCatalogFast(
       media_type: "",
       image_url: null,
       passages: loc.ref && isValidIndexReference(loc.ref)
-        ? [{ start_usfm: loc.ref.includes("-") ? loc.ref.split("-")[0]! : loc.ref, end_usfm: loc.ref.includes("-") ? loc.ref.split("-")[1]! : loc.ref }]
+        ? [{ start_usfm: bbcccvvvToReadable(loc.ref.includes("-") ? loc.ref.split("-")[0]! : loc.ref), end_usfm: bbcccvvvToReadable(loc.ref.includes("-") ? loc.ref.split("-")[1]! : loc.ref) }]
         : [],
     }));
 
@@ -807,7 +807,7 @@ async function buildCatalogFast(
   }
 
   // Media resources or no lookup index — fall back to full content file scanning
-  return buildCatalog(resourceCode, language, entry, env, storage, sha);
+  return buildCatalog(resourceCode, language, entry, env, storage, sha, true);
 }
 
 async function buildCatalog(
@@ -817,11 +817,13 @@ async function buildCatalog(
   env: Env,
   storage: AquiferStorage,
   sha: string,
+  skipCacheCheck = false,
 ): Promise<BrowseCatalogEntry[]> {
-  // Browse catalog stored in R2 (no size limit)
   const key = catalogKey(resourceCode, sha, language);
-  const { data: cached } = await storage.getJSON<BrowseCatalogEntry[]>(key);
-  if (cached) return cached;
+  if (!skipCacheCheck) {
+    const { data: cached } = await storage.getJSON<BrowseCatalogEntry[]>(key);
+    if (cached) return cached;
+  }
 
   const files = await listContentFiles(resourceCode, language, entry.order, env, storage, sha);
   const results = await Promise.allSettled(
