@@ -176,3 +176,7 @@ export function passageIndexKey(resourceCode: string, sha: string): string {
 export function titleIndexKey(resourceCode: string, sha: string): string {
   return `index/${resourceCode}/${sha}/titles.json`;
 }
+
+export function articleIndexKey(resourceCode: string, sha: string): string {
+  return `index/${resourceCode}/${sha}/articles.json`;
+}

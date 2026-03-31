@@ -1,7 +1,7 @@
 import type { Env, ArticleRef, ArticleContent, NavigabilityIndex, ResourceEntry, ResourceMetadata } from "./types.js";
 import { parseReference, rangesOverlap, rangeToReadable, isValidIndexReference } from "./references.js";
 import { contentUrl, metadataUrl, fetchJson, GC_TTL } from "./github.js";
-import { getOrBuildIndex, fanOutPassageSearch, fanOutTitleSearch } from "./registry.js";
+import { getOrBuildIndex, fanOutPassageSearch, fanOutTitleSearch, loadArticleLookup, type ArticleLookupEntry } from "./registry.js";
 import { getPublicTelemetrySnapshot } from "./telemetry.js";
 import { AquiferStorage, contentKey, metadataKey, catalogKey, entityKey } from "./storage.js";
 import type { RequestTracer } from "./tracing.js";
@@ -411,7 +411,7 @@ export async function handleGet(
 
   const sha = index.repo_shas.get(resourceCode) ?? "";
   if (!sha) return textResult(`No SHA available for resource "${resourceCode}".`);
-  const article = await findArticle(resourceCode, language, contentId, entry, env, storage, sha, index);
+  const article = await findArticle(resourceCode, language, contentId, entry, env, storage, sha, index, tracer);
   if (!article) {
     return textResult(
       `Article ${contentId} not found in ${resourceCode}/${language}. Verify the content_id is correct.`,
@@ -442,7 +442,7 @@ export async function handleRelated(
 
   const sha = index.repo_shas.get(resourceCode) ?? "";
   if (!sha) return textResult(`No SHA available for resource "${resourceCode}".`);
-  const article = await findArticle(resourceCode, language, contentId, entry, env, storage, sha, index);
+  const article = await findArticle(resourceCode, language, contentId, entry, env, storage, sha, index, tracer);
   if (!article) return textResult(`Article ${contentId} not found.`);
 
   const related: Array<{ type: string; refs: ArticleRef[] }> = [];
@@ -510,31 +510,45 @@ async function findArticle(
   storage: AquiferStorage,
   sha: string,
   index: NavigabilityIndex,
+  tracer?: RequestTracer,
 ): Promise<ArticleContent | null> {
-  const indexReference = await resolveIndexReference(resourceCode, language, contentId, env, storage, sha);
-  const metadataFiles = await listContentFiles(resourceCode, language, entry.order, env, storage, sha);
-  // Article-file location hint stays in KV (tiny, pointer-shaped)
+  // --- Fast path: article lookup index (one R2 read, cached) ---
+  const lookup = await loadArticleLookup(resourceCode, sha, storage, tracer);
+  const location = lookup?.[contentId];
+  if (location?.file) {
+    const articles = await fetchContentFile(resourceCode, language, location.file, env, storage, sha);
+    const found = articles?.find((a) => String(a.content_id) === contentId) ?? null;
+    if (found) {
+      ingestArticleEntities(index, entry, found);
+      return found;
+    }
+  }
+
+  // --- Fallback: KV hint + index_reference derivation + metadata file list ---
   const articleFileKey = `${sha}:article-file:v2:${resourceCode}:${language}:${contentId}`;
   const cachedFile = await env.AQUIFER_CACHE.get(articleFileKey);
+  const indexReference = await resolveIndexReference(resourceCode, language, contentId, env, storage, sha);
 
   const candidateFiles: string[] = [];
   if (cachedFile) candidateFiles.push(cachedFile);
   if (entry.order === "canonical" && indexReference && isValidIndexReference(indexReference)) {
     candidateFiles.push(`${indexReference.slice(0, 2)}.content.json`);
   }
+  // For non-canonical with unknown file, scan metadata file list
+  const metadataFiles = await listContentFiles(resourceCode, language, entry.order, env, storage, sha);
   candidateFiles.push(...metadataFiles);
 
   const uniqueFiles = Array.from(new Set(candidateFiles));
   for (const file of uniqueFiles) {
     if (!file) continue;
+    // Skip files already tried via lookup
+    if (location?.file === file) continue;
     const articles = await fetchContentFile(resourceCode, language, file, env, storage, sha);
     if (!articles) continue;
 
     const found = articles.find((a) => String(a.content_id) === contentId) ?? null;
     if (found) {
-      await env.AQUIFER_CACHE.put(articleFileKey, file, {
-        expirationTtl: GC_TTL,
-      });
+      await env.AQUIFER_CACHE.put(articleFileKey, file, { expirationTtl: GC_TTL });
       ingestArticleEntities(index, entry, found);
       return found;
     }
@@ -752,6 +766,50 @@ function extractImageUrl(html: string): string | null {
   return match?.[1] ?? null;
 }
 
+/**
+ * Fast catalog build: tries R2-cached catalog first, then article lookup index,
+ * then falls back to full content file scanning for media resources needing image URLs.
+ */
+async function buildCatalogFast(
+  resourceCode: string,
+  language: string,
+  entry: ResourceEntry,
+  env: Env,
+  storage: AquiferStorage,
+  sha: string,
+  tracer?: RequestTracer,
+): Promise<BrowseCatalogEntry[]> {
+  // Check R2 for cached catalog first
+  const key = catalogKey(resourceCode, sha, language);
+  const { data: cached } = await storage.getJSON<BrowseCatalogEntry[]>(key, tracer);
+  if (cached) return cached;
+
+  // Try article lookup index — no content file fetches needed
+  const lookup = await loadArticleLookup(resourceCode, sha, storage, tracer);
+  const isMedia = entry.aquifer_type.toLowerCase() === "images" || entry.aquifer_type.toLowerCase() === "videos";
+
+  if (lookup && !isMedia) {
+    // For non-media resources, the article index has everything browse needs
+    const catalog: BrowseCatalogEntry[] = Object.entries(lookup).map(([contentId, loc]) => ({
+      content_id: contentId,
+      title: loc.title,
+      media_type: "",
+      image_url: null,
+      passages: loc.ref && isValidIndexReference(loc.ref)
+        ? [{ start_usfm: loc.ref.includes("-") ? loc.ref.split("-")[0]! : loc.ref, end_usfm: loc.ref.includes("-") ? loc.ref.split("-")[1]! : loc.ref }]
+        : [],
+    }));
+
+    if (catalog.length > 0) {
+      await storage.putJSON(key, catalog);
+    }
+    return catalog;
+  }
+
+  // Media resources or no lookup index — fall back to full content file scanning
+  return buildCatalog(resourceCode, language, entry, env, storage, sha);
+}
+
 async function buildCatalog(
   resourceCode: string,
   language: string,
@@ -813,7 +871,7 @@ export async function handleBrowse(
 
   const sha = index.repo_shas.get(resourceCode) ?? "";
   if (!sha) return textResult(`No SHA available for resource "${resourceCode}".`);
-  const catalog = await buildCatalog(resourceCode, language, entry, env, storage, sha);
+  const catalog = await buildCatalogFast(resourceCode, language, entry, env, storage, sha, tracer);
   if (catalog.length === 0) return textResult(`No articles found in ${resourceCode}/${language}.`);
 
   const totalPages = Math.ceil(catalog.length / pageSize);

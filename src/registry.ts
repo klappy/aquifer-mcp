@@ -7,7 +7,14 @@ import type {
 } from "./types.js";
 import { metadataUrl, fetchJson, fetchRepoSha, fetchOrgRepos, GC_TTL } from "./github.js";
 import { isValidIndexReference, rangesOverlap } from "./references.js";
-import { AquiferStorage, indexKey, metadataKey, passageIndexKey, titleIndexKey } from "./storage.js";
+import { AquiferStorage, indexKey, metadataKey, passageIndexKey, titleIndexKey, articleIndexKey } from "./storage.js";
+
+/** Per-resource article lookup: content_id → file location + minimal metadata. */
+export interface ArticleLookupEntry {
+  file: string;
+  ref: string;
+  title: string;
+}
 import type { RequestTracer } from "./tracing.js";
 
 const LATEST_SHA_KEY = "index:latest-composite-sha";
@@ -190,12 +197,14 @@ async function buildIndex(
 
     const resourcePassage = new Map<string, ArticleRef[]>();
     const resourceTitles: ArticleRef[] = [];
+    const articleLookup: Record<string, ArticleLookupEntry> = {};
 
     for (const [contentId, article] of Object.entries(metadata.article_metadata)) {
       const fallbackTitle = article.index_reference && !isValidIndexReference(article.index_reference)
         ? article.index_reference
         : `Article ${contentId}`;
       const englishTitle = article.localizations?.eng?.title ?? article.title ?? fallbackTitle;
+      const ref = article.index_reference ?? "";
       const baseRef: ArticleRef = {
         resource_code: code,
         language: rm.language,
@@ -215,9 +224,37 @@ async function buildIndex(
           resourcePassage.set(article.index_reference, [baseRef]);
         }
       }
+
+      // Article lookup: derive file from index_reference for canonical, empty for non-canonical
+      let file = "";
+      if (rm.order === "canonical" && ref.length >= 2 && /^\d{2}/.test(ref)) {
+        file = `${ref.slice(0, 2)}.content.json`;
+      }
+      articleLookup[contentId] = { file, ref, title: englishTitle };
     }
 
     const repoSha = repoShas.get(code)!;
+
+    // For non-canonical resources, assign files using scripture_burrito ingredients
+    if (rm.order !== "canonical") {
+      const ingredientKeys = Object.keys(metadata.scripture_burrito?.ingredients ?? {});
+      const contentFiles = ingredientKeys
+        .filter(k => k.startsWith("json/") && k.endsWith(".content.json"))
+        .map(k => k.replace(/^json\//, ""))
+        .sort();
+
+      if (contentFiles.length > 0) {
+        // Distribute articles across files in order (articles are grouped by file)
+        // For each article, assign the file based on article ordering or fallback to first file
+        const unassigned = Object.entries(articleLookup).filter(([, v]) => !v.file);
+        if (unassigned.length > 0 && contentFiles.length === 1) {
+          // Single file — all articles go there
+          for (const [, entry] of unassigned) entry.file = contentFiles[0]!;
+        }
+        // For multi-file non-canonical: leave file empty (resolved at query time via KV hint or scan)
+        // The article index still provides ref + title for browse/search without file scanning
+      }
+    }
 
     // Collect per-resource index writes to parallelize across all resources
     if (resourcePassage.size > 0) {
@@ -225,6 +262,9 @@ async function buildIndex(
     }
     if (resourceTitles.length > 0) {
       writePromises.push(storage.putJSON(titleIndexKey(code, repoSha), resourceTitles));
+    }
+    if (Object.keys(articleLookup).length > 0) {
+      writePromises.push(storage.putJSON(articleIndexKey(code, repoSha), articleLookup));
     }
   }
 
@@ -344,6 +384,21 @@ export async function fanOutTitleSearch(
     if (r.status === "fulfilled") matches.push(...r.value);
   }
   return matches;
+}
+
+/**
+ * Load the article lookup index for a single resource.
+ * Returns a map of content_id → { file, ref, title }.
+ */
+export async function loadArticleLookup(
+  resourceCode: string,
+  sha: string,
+  storage: AquiferStorage,
+  tracer?: RequestTracer,
+): Promise<Record<string, ArticleLookupEntry> | null> {
+  const key = articleIndexKey(resourceCode, sha);
+  const { data } = await storage.getJSON<Record<string, ArticleLookupEntry>>(key, tracer);
+  return data;
 }
 
 // --- Serialization ---

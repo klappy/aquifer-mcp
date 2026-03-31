@@ -1024,3 +1024,74 @@ translation-helps-mcp has this (EdgeXRayTracer). oddkit doesn't need it (single 
 
 **H5: v1.3.0 → performance diagnosis**
 Deploy and run curl timing tests against production. Read `X-Aquifer-Trace` header to identify which storage tier and operation consumes the most time. Then optimize the specific bottleneck — not guessing.
+
+---
+
+## v1.3.0 — Per-Resource Article Lookup Indexes (2026-03-31)
+
+*Execution mode. Eliminates full-file scanning from content access tools.*
+
+### Observations
+
+**O66: Every content access downloads entire book files (350KB-1.7MB) and scans every article.**
+`handleScripture` fetches `43.content.json` (878 articles, 352KB for John) for each of 5 Bible resources and calls `rangesOverlap` on every article. `findArticle` lists ALL content files and scans them sequentially. `bootstrapEntityMatches` scans ALL resources × ALL files × ALL articles. This is the systemic cause of 1.5-3s response times.
+*Source: Direct code inspection of `tools.ts:findArticle`, `handleScripture`, and `bootstrapEntityMatches`, verified by head-to-head comparison with translation-helps-mcp (119ms vs 1.8-3.2s)*
+
+**O67: Bible content_id = "1" + BBCCCVVV index_reference. Verified 878/878 for John.**
+Content_id `143003016` for John 3:16. `index_reference` = `43003016`. Pattern holds for every article in the book.
+*Source: Verified by checking all 878 articles in `BereanStandardBible/eng/json/43.content.json`*
+
+**O68: For canonical resources, 100% of articles have file-derivable index_references.**
+`index_reference[:2]` = book number → `{book_number}.content.json`. Verified 16,923/16,923 articles in AquiferOpenStudyNotes.
+*Source: Programmatic verification against AquiferOpenStudyNotes metadata.json*
+
+**O69: metadata.json `article_metadata` contains content_id + index_reference for every article in every resource.**
+This is everything needed to build a content_id → file lookup at index build time without fetching content files.
+*Source: Direct inspection of metadata.json for multiple resource types*
+
+### Learnings
+
+**L37: The content access pattern is the systemic problem — not the index, not the storage, not the caching.**
+v1.1.0 fixed storage (KV → R2). v1.2.0 fixed the index (monolith → per-resource). Both were real improvements. But the 15-25x gap with translation-helps-mcp exists because every tool downloads entire book files and scans them.
+*Rests on: O66, x-ray tracing*
+
+**L38: Build lookup indexes from metadata at index build time — scanning is a cold-path cost, not a hot-path cost.**
+Metadata.json already has content_id + index_reference for every article. For canonical resources, file derivation is deterministic. For non-canonical resources, a one-time scan during index build maps content_ids to files.
+*Rests on: O67, O68, O69*
+
+### Decisions
+
+**D44: Eliminate full-file scanning from `get` and `browse` via per-resource article lookup indexes.**
+*Because* `findArticle` scanned all content files sequentially, and `buildCatalog` fetched all content files to build a paginated catalog. A per-resource article lookup index (`content_id → { file, ref, title }`) stored in R2 fixes both at once. Built from metadata during index build — zero hot-path scanning for canonical resources.
+*Implementation:*
+- New R2 key: `index/{resource_code}/{sha}/articles.json`
+- Built during `buildIndex` from `article_metadata` (no content file fetches needed for canonical resources)
+- `findArticle`: loads article lookup (~100KB, cached), reads the exact content file
+- `handleBrowse`: uses article lookup for non-media resources (title, ref, content_id from metadata), falls back to content file scanning for media resources that need image URLs
+- Fallback chain preserved: KV hint → index_reference derivation → metadata file list
+*Rests on: O66-O69, L37, L38*
+*Reversible: Yes — article lookup indexes are additive, existing fallback patterns preserved*
+
+### Constraint Updates
+
+**C22 (new): No tool handler may scan an entire content file at query time when a lookup index is available.**
+Load the article lookup index (~100KB from cache) to find the file. Never load a 350KB-1.7MB content file and `.find()` through it.
+*Exception: media resources (Images, Videos) still need content file scanning for image_url extraction during catalog build, cached after first build.*
+*Status: Active*
+
+### Files Changed
+
+- `src/storage.ts` — Added `articleIndexKey(resourceCode, sha)` key builder.
+- `src/registry.ts` — Builds article lookup index during `buildIndex`, exports `loadArticleLookup` and `ArticleLookupEntry` type.
+- `src/tools.ts` — `findArticle` uses article lookup index as fast path with fallback. `handleBrowse` uses `buildCatalogFast` which builds catalog from article index for non-media resources.
+
+### Evidence
+
+- 142 tests passed (80 references, 45 tools, 17 telemetry), 0 failures
+- TypeScript compilation clean (no new errors)
+- Wrangler dry-run build succeeds
+
+### Handoff
+
+**H6: v1.3.0 deploy → verify with x-ray tracing**
+Deploy and verify that `get` tool calls show article lookup index load (~5ms from cache) + single content file fetch, not sequential file scanning. `browse` for non-media resources should show zero content file fetches. Scripture tool unchanged (already fetches correct book file by construction).
