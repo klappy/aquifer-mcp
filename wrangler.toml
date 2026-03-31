@@ -35,3 +35,7 @@ TELEMETRY_VERIFIED_CLIENTS = ""
 [[env.staging.kv_namespaces]]
 binding = "AQUIFER_CACHE"
 id = "f73869e2e7ac4e04a9ee2fa3887ceefe"
+
+[[env.staging.r2_buckets]]
+binding = "AQUIFER_CONTENT"
+bucket_name = "aquifer-content"
