@@ -7,17 +7,29 @@ import type {
 } from "./types.js";
 import { metadataUrl, fetchJson, fetchRepoSha, fetchOrgRepos, GC_TTL } from "./github.js";
 import { isValidIndexReference, rangesOverlap } from "./references.js";
-import { AquiferStorage, indexKey, metadataKey, passageIndexKey, titleIndexKey } from "./storage.js";
+import { AquiferStorage, indexKey, metadataKey, passageIndexKey, titleIndexKey, articleIndexKey } from "./storage.js";
+
+/** Per-resource article lookup: content_id → file location + minimal metadata. */
+export interface ArticleLookupEntry {
+  file: string;
+  ref: string;
+  title: string;
+}
+import type { RequestTracer } from "./tracing.js";
 
 const LATEST_SHA_KEY = "index:latest-composite-sha";
 const SHA_STALE_MS = 5 * 60 * 1000; // 5 minutes
 
-export async function getOrBuildIndex(env: Env, storage: AquiferStorage, ctx?: ExecutionContext): Promise<NavigabilityIndex> {
+export async function getOrBuildIndex(env: Env, storage: AquiferStorage, ctx?: ExecutionContext, tracer?: RequestTracer): Promise<NavigabilityIndex> {
   // --- HOT PATH: pointer (KV) → registry (R2 via Cache API) ---
+  const pointerStart = performance.now();
   const latestSha = await env.AQUIFER_CACHE.get(LATEST_SHA_KEY, "json") as { sha: string; checked_at: number } | null;
+  tracer?.addSpan("kv-pointer", Math.round(performance.now() - pointerStart), "kv",
+    latestSha ? `sha=${latestSha.sha.slice(0, 8)}` : "miss");
+
   if (latestSha?.sha) {
     const key = indexKey(latestSha.sha);
-    const { data } = await storage.getJSON<SerializedIndex>(key);
+    const { data } = await storage.getJSON<SerializedIndex>(key, tracer);
     if (data?.registry) {
       const index = deserializeIndex(data);
       // Schedule background refresh if stale
@@ -29,24 +41,36 @@ export async function getOrBuildIndex(env: Env, storage: AquiferStorage, ctx?: E
   }
 
   // --- COLD PATH: no cached index, build from scratch ---
+  tracer?.addSpan("cold-path", 0, undefined, "no cached pointer, rebuilding");
+
+  const orgStart = performance.now();
   const repoCodes = await fetchOrgRepos(env.AQUIFER_ORG, env);
+  tracer?.addSpan("org-repos", Math.round(performance.now() - orgStart), "kv", `${repoCodes.length} repos`);
+
+  const shaStart = performance.now();
   const repoShas = await fetchAllRepoShas(repoCodes, env);
+  tracer?.addSpan("repo-shas", Math.round(performance.now() - shaStart), "github", `${repoShas.size} resolved`);
+
   const compositeHash = await computeCompositeHash(repoShas);
   const key = indexKey(compositeHash);
 
   // Check R2 for this composite (pointer was missing but index may exist)
-  const { data: existing } = await storage.getJSON<SerializedIndex>(key);
+  const { data: existing } = await storage.getJSON<SerializedIndex>(key, tracer);
   if (existing?.registry) {
     await updatePointer(env, compositeHash);
     return deserializeIndex(existing);
   }
 
+  const buildStart = performance.now();
   const index = await buildIndex(repoCodes, env, storage, repoShas);
+  tracer?.addSpan("index-build", Math.round(performance.now() - buildStart), undefined, `${index.registry.length} resources`);
   index.composite_sha = compositeHash;
   index.repo_shas = repoShas;
 
   // Store lightweight registry in R2 (no passage/title/entity — those are per-resource)
+  const writeStart = performance.now();
   const written = await storage.putJSON(key, serializeForStorage(index));
+  tracer?.addSpan("r2-write", Math.round(performance.now() - writeStart), "r2");
   if (written) {
     await updatePointer(env, compositeHash);
   }
@@ -173,12 +197,14 @@ async function buildIndex(
 
     const resourcePassage = new Map<string, ArticleRef[]>();
     const resourceTitles: ArticleRef[] = [];
+    const articleLookup: Record<string, ArticleLookupEntry> = {};
 
     for (const [contentId, article] of Object.entries(metadata.article_metadata)) {
       const fallbackTitle = article.index_reference && !isValidIndexReference(article.index_reference)
         ? article.index_reference
         : `Article ${contentId}`;
       const englishTitle = article.localizations?.eng?.title ?? article.title ?? fallbackTitle;
+      const ref = article.index_reference ?? "";
       const baseRef: ArticleRef = {
         resource_code: code,
         language: rm.language,
@@ -198,9 +224,37 @@ async function buildIndex(
           resourcePassage.set(article.index_reference, [baseRef]);
         }
       }
+
+      // Article lookup: derive file from index_reference for canonical, empty for non-canonical
+      let file = "";
+      if (rm.order === "canonical" && ref.length >= 2 && /^\d{2}/.test(ref)) {
+        file = `${ref.slice(0, 2)}.content.json`;
+      }
+      articleLookup[contentId] = { file, ref, title: englishTitle };
     }
 
     const repoSha = repoShas.get(code)!;
+
+    // For non-canonical resources, assign files using scripture_burrito ingredients
+    if (rm.order !== "canonical") {
+      const ingredientKeys = Object.keys(metadata.scripture_burrito?.ingredients ?? {});
+      const contentFiles = ingredientKeys
+        .filter(k => k.startsWith("json/") && k.endsWith(".content.json"))
+        .map(k => k.replace(/^json\//, ""))
+        .sort();
+
+      if (contentFiles.length > 0) {
+        // Distribute articles across files in order (articles are grouped by file)
+        // For each article, assign the file based on article ordering or fallback to first file
+        const unassigned = Object.entries(articleLookup).filter(([, v]) => !v.file);
+        if (unassigned.length > 0 && contentFiles.length === 1) {
+          // Single file — all articles go there
+          for (const [, entry] of unassigned) entry.file = contentFiles[0]!;
+        }
+        // For multi-file non-canonical: leave file empty (resolved at query time via KV hint or scan)
+        // The article index still provides ref + title for browse/search without file scanning
+      }
+    }
 
     // Collect per-resource index writes to parallelize across all resources
     if (resourcePassage.size > 0) {
@@ -208,6 +262,9 @@ async function buildIndex(
     }
     if (resourceTitles.length > 0) {
       writePromises.push(storage.putJSON(titleIndexKey(code, repoSha), resourceTitles));
+    }
+    if (Object.keys(articleLookup).length > 0) {
+      writePromises.push(storage.putJSON(articleIndexKey(code, repoSha), articleLookup));
     }
   }
 
@@ -237,6 +294,7 @@ export async function fanOutPassageSearch(
   ref: string,
   index: NavigabilityIndex,
   storage: AquiferStorage,
+  tracer?: RequestTracer,
 ): Promise<ArticleRef[]> {
   // If passage data is already in memory (tests provide this), use it directly
   if (index.passage.size > 0) {
@@ -248,13 +306,18 @@ export async function fanOutPassageSearch(
   }
 
   // Fan out: load per-resource passage indexes in parallel
+  const fanStart = performance.now();
+  let hits = 0;
+  let misses = 0;
+
   const results = await Promise.allSettled(
     index.registry.map(async (entry) => {
       const sha = index.repo_shas.get(entry.resource_code);
-      if (!sha) return [];
+      if (!sha) { misses++; return []; }
       const key = passageIndexKey(entry.resource_code, sha);
-      const { data } = await storage.getJSON<Array<[string, ArticleRef[]]>>(key);
-      if (!data) return [];
+      const { data } = await storage.getJSON<Array<[string, ArticleRef[]]>>(key, tracer);
+      if (!data) { misses++; return []; }
+      hits++;
       const matches: ArticleRef[] = [];
       for (const [range, refs] of data) {
         if (rangesOverlap(ref, range)) matches.push(...refs);
@@ -262,6 +325,9 @@ export async function fanOutPassageSearch(
       return matches;
     }),
   );
+
+  tracer?.addSpan("fanout-passages", Math.round(performance.now() - fanStart), undefined,
+    `${index.registry.length} resources, ${hits} hits, ${misses} misses`);
 
   const matches: ArticleRef[] = [];
   for (const r of results) {
@@ -278,6 +344,7 @@ export async function fanOutTitleSearch(
   terms: string[],
   index: NavigabilityIndex,
   storage: AquiferStorage,
+  tracer?: RequestTracer,
 ): Promise<ArticleRef[]> {
   // If title data is already in memory (tests provide this), use it directly
   if (index.title.length > 0) {
@@ -290,13 +357,18 @@ export async function fanOutTitleSearch(
   }
 
   // Fan out: load per-resource title indexes in parallel
+  const fanStart = performance.now();
+  let hits = 0;
+  let misses = 0;
+
   const results = await Promise.allSettled(
     index.registry.map(async (entry) => {
       const sha = index.repo_shas.get(entry.resource_code);
-      if (!sha) return [];
+      if (!sha) { misses++; return []; }
       const key = titleIndexKey(entry.resource_code, sha);
-      const { data } = await storage.getJSON<ArticleRef[]>(key);
-      if (!data) return [];
+      const { data } = await storage.getJSON<ArticleRef[]>(key, tracer);
+      if (!data) { misses++; return []; }
+      hits++;
       return data.filter((ref) => {
         const title = ref.title.toLowerCase();
         return terms.every((t) => title.includes(t));
@@ -304,11 +376,29 @@ export async function fanOutTitleSearch(
     }),
   );
 
+  tracer?.addSpan("fanout-titles", Math.round(performance.now() - fanStart), undefined,
+    `${index.registry.length} resources, ${hits} hits, ${misses} misses`);
+
   const matches: ArticleRef[] = [];
   for (const r of results) {
     if (r.status === "fulfilled") matches.push(...r.value);
   }
   return matches;
+}
+
+/**
+ * Load the article lookup index for a single resource.
+ * Returns a map of content_id → { file, ref, title }.
+ */
+export async function loadArticleLookup(
+  resourceCode: string,
+  sha: string,
+  storage: AquiferStorage,
+  tracer?: RequestTracer,
+): Promise<Record<string, ArticleLookupEntry> | null> {
+  const key = articleIndexKey(resourceCode, sha);
+  const { data } = await storage.getJSON<Record<string, ArticleLookupEntry>>(key, tracer);
+  return data;
 }
 
 // --- Serialization ---
