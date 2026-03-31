@@ -975,3 +975,52 @@ PRD: `aquifer-window-lovable-prd-v1.0.0.md`. The Window needs to know about `scr
 
 **H4: Telemetry transparency headers**
 The Claude connector shows as "Claude-User" / "Silent Reporter" at 0% transparency. The `x-aquifer-client` and related headers should be sent by MCP clients for leaderboard visibility.
+
+---
+
+## v1.3.0 — X-Ray Performance Tracing (2026-03-31)
+
+*Execution mode. Adds lightweight per-request tracing to diagnose the v1.2.0 hot-path bottleneck.*
+
+### Observations
+
+**O65: We cannot diagnose the v1.2.0 performance bottleneck without internal timing instrumentation.**
+Curl timing shows 1.3-2s total but not whether the time is in KV, R2, Cache API, JSON.parse, fan-out, or background refresh. The per-resource index architecture is correct but something in the hot path is still expensive.
+*Source: v1.2.0 deploy preview testing — consistent 1.3-2s despite lightweight index + per-resource fan-out*
+
+**O66: translation-helps-mcp solved this with `EdgeXRayTracer` — a lightweight edge-compatible tracer that records every API call, storage read, and cache hit/miss with timing.**
+The tracer wraps fetch and storage operations, accumulates spans during the request, and serializes to a response header. Zero external dependencies, zero storage overhead.
+*Source: Direct inspection of `reference/translation-helps-mcp/src/functions/edge-xray.ts`*
+
+### Learnings
+
+**L36: Measure before optimizing — x-ray tracing is a prerequisite for further performance work.**
+translation-helps-mcp has this (EdgeXRayTracer). oddkit doesn't need it (single repo, fast by default). Aquifer MCP has 48 repos, three storage tiers, and fan-out queries — it needs observability into which tier and which operation is consuming time.
+*Rests on: O65, O66, translation-helps-mcp reference implementation*
+
+### Decisions
+
+**D43: Add x-ray request tracing via response headers before any further performance optimization.**
+*Because* we've made two architectural changes (R2 migration, per-resource indexes) without being able to measure their actual impact on the hot path. Further optimization without instrumentation is guessing.
+*Implementation:* `RequestTracer` class in `src/tracing.ts`. Optional `tracer` parameter threaded through `AquiferStorage.getJSON`, `getOrBuildIndex`, `fanOutPassageSearch`, `fanOutTitleSearch`, and all tool handlers. `X-Aquifer-Trace` response header on every `/mcp` POST.
+*Rests on: O65, O66, L36*
+*Reversible: Yes — tracer is optional throughout, header can be removed*
+
+### Files Changed
+
+- `src/tracing.ts` — **New.** `RequestTracer` class with `trace()`, `addSpan()`, `toHeader()`, `toJSON()`, and `shortKey()` utility.
+- `src/storage.ts` — Added optional `tracer` param to `getJSON()`. Each tier (memory/cache/r2/miss) records a span with source and timing.
+- `src/registry.ts` — Added optional `tracer` param to `getOrBuildIndex()`, `fanOutPassageSearch()`, `fanOutTitleSearch()`. KV pointer, index load, fan-out queries all traced with hit/miss counts.
+- `src/tools.ts` — Added optional `tracer` param to all tool handlers. Threaded through to registry and storage calls.
+- `src/index.ts` — Creates `RequestTracer` per request, passes to `createServer()`, adds `X-Aquifer-Trace` header to response.
+
+### Evidence
+
+- 142 tests passed (80 references, 45 tools, 17 telemetry), 0 failures
+- TypeScript compilation clean (no new errors from tracing changes)
+- Wrangler dry-run build succeeds
+
+### Handoff
+
+**H5: v1.3.0 → performance diagnosis**
+Deploy and run curl timing tests against production. Read `X-Aquifer-Trace` header to identify which storage tier and operation consumes the most time. Then optimize the specific bottleneck — not guessing.

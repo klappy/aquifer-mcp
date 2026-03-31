@@ -1,4 +1,6 @@
 import type { Env } from "./types.js";
+import type { RequestTracer } from "./tracing.js";
+import { shortKey } from "./tracing.js";
 
 /**
  * App version embedded in Cache API keys.
@@ -45,10 +47,16 @@ export class AquiferStorage {
    * Get JSON from three-tier cache.
    * Memory → Cache API → R2 → null.
    */
-  async getJSON<T>(key: string): Promise<{ data: T | null; source: "memory" | "cache" | "r2" | "miss" }> {
+  async getJSON<T>(key: string, tracer?: RequestTracer): Promise<{ data: T | null; source: "memory" | "cache" | "r2" | "miss" }> {
+    const start = performance.now();
+    const sk = shortKey(key);
+
     // Tier 1: Memory
     const mem = this.memoryCache.get(key);
-    if (mem) return { data: JSON.parse(mem) as T, source: "memory" };
+    if (mem) {
+      tracer?.addSpan(`storage:${sk}`, Math.round(performance.now() - start), "memory");
+      return { data: JSON.parse(mem) as T, source: "memory" };
+    }
 
     // Tier 2: Cache API
     const c = this.cache;
@@ -59,14 +67,21 @@ export class AquiferStorage {
         if (this.memoryCache.size < MAX_MEMORY_ENTRIES) {
           this.memoryCache.set(key, text);
         }
+        tracer?.addSpan(`storage:${sk}`, Math.round(performance.now() - start), "cache");
         return { data: JSON.parse(text) as T, source: "cache" };
       }
     }
 
     // Tier 3: R2
-    if (!this.env.AQUIFER_CONTENT) return { data: null, source: "miss" };
+    if (!this.env.AQUIFER_CONTENT) {
+      tracer?.addSpan(`storage:${sk}`, Math.round(performance.now() - start), "miss");
+      return { data: null, source: "miss" };
+    }
     const obj = await this.env.AQUIFER_CONTENT.get(key);
-    if (!obj) return { data: null, source: "miss" };
+    if (!obj) {
+      tracer?.addSpan(`storage:${sk}`, Math.round(performance.now() - start), "miss");
+      return { data: null, source: "miss" };
+    }
 
     const text = await obj.text();
     if (this.memoryCache.size < MAX_MEMORY_ENTRIES) {
@@ -88,6 +103,7 @@ export class AquiferStorage {
       } catch { /* cache promotion is best-effort */ }
     }
 
+    tracer?.addSpan(`storage:${sk}`, Math.round(performance.now() - start), "r2");
     return { data: JSON.parse(text) as T, source: "r2" };
   }
 

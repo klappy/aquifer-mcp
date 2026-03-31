@@ -4,6 +4,7 @@ import { contentUrl, metadataUrl, fetchJson, GC_TTL } from "./github.js";
 import { getOrBuildIndex, fanOutPassageSearch, fanOutTitleSearch } from "./registry.js";
 import { getPublicTelemetrySnapshot } from "./telemetry.js";
 import { AquiferStorage, contentKey, metadataKey, catalogKey, entityKey } from "./storage.js";
+import type { RequestTracer } from "./tracing.js";
 
 const README_RAW_URL = "https://raw.githubusercontent.com/klappy/aquifer-mcp/main/README.md";
 
@@ -260,8 +261,9 @@ export async function handleList(
   env: Env,
   storage: AquiferStorage,
   ctx?: ExecutionContext,
+  tracer?: RequestTracer,
 ) {
-  const index = await getOrBuildIndex(env, storage, ctx);
+  const index = await getOrBuildIndex(env, storage, ctx, tracer);
   let resources = index.registry;
 
   if (args.type) {
@@ -302,26 +304,27 @@ export async function handleSearch(
   env: Env,
   storage: AquiferStorage,
   ctx?: ExecutionContext,
+  tracer?: RequestTracer,
 ) {
   const query = String(args.query ?? "").trim();
   if (!query) return textResult("Please provide a search query.");
 
-  const index = await getOrBuildIndex(env, storage, ctx);
+  const index = await getOrBuildIndex(env, storage, ctx, tracer);
 
   const bbcccvvv = parseReference(query);
   if (bbcccvvv) {
-    return searchByPassage(bbcccvvv, index, storage);
+    return searchByPassage(bbcccvvv, index, storage, tracer);
   }
 
   if (query.includes(":") && /^[a-z]+:/i.test(query)) {
     return searchByEntity(query, index, env, storage);
   }
 
-  return searchByTitle(query, index, storage);
+  return searchByTitle(query, index, storage, tracer);
 }
 
-async function searchByPassage(ref: string, index: NavigabilityIndex, storage: AquiferStorage) {
-  const matches = await fanOutPassageSearch(ref, index, storage);
+async function searchByPassage(ref: string, index: NavigabilityIndex, storage: AquiferStorage, tracer?: RequestTracer) {
+  const matches = await fanOutPassageSearch(ref, index, storage, tracer);
 
   if (matches.length === 0) {
     return textResult(`No articles found for passage ${rangeToReadable(ref)}.`);
@@ -362,9 +365,9 @@ async function searchByEntity(entityQuery: string, index: NavigabilityIndex, env
   );
 }
 
-async function searchByTitle(query: string, index: NavigabilityIndex, storage: AquiferStorage) {
+async function searchByTitle(query: string, index: NavigabilityIndex, storage: AquiferStorage, tracer?: RequestTracer) {
   const terms = query.toLowerCase().split(/\s+/);
-  const matches = await fanOutTitleSearch(terms, index, storage);
+  const matches = await fanOutTitleSearch(terms, index, storage, tracer);
 
   if (matches.length === 0) {
     const hint = terms.length === 1
@@ -390,6 +393,7 @@ export async function handleGet(
   env: Env,
   storage: AquiferStorage,
   ctx?: ExecutionContext,
+  tracer?: RequestTracer,
 ) {
   const resourceCode = String(args.resource_code ?? "");
   const language = String(args.language ?? "");
@@ -399,7 +403,7 @@ export async function handleGet(
     return textResult("Missing required fields: resource_code, language, and content_id are all required.");
   }
 
-  const index = await getOrBuildIndex(env, storage, ctx);
+  const index = await getOrBuildIndex(env, storage, ctx, tracer);
   const entry = index.registry.find((r) => r.resource_code === resourceCode);
   if (!entry) {
     return textResult(`Resource "${resourceCode}" not found in the registry.`);
@@ -422,6 +426,7 @@ export async function handleRelated(
   env: Env,
   storage: AquiferStorage,
   ctx?: ExecutionContext,
+  tracer?: RequestTracer,
 ) {
   const resourceCode = String(args.resource_code ?? "");
   const language = String(args.language ?? "");
@@ -431,7 +436,7 @@ export async function handleRelated(
     return textResult("Missing required fields: resource_code, language, and content_id are all required.");
   }
 
-  const index = await getOrBuildIndex(env, storage, ctx);
+  const index = await getOrBuildIndex(env, storage, ctx, tracer);
   const entry = index.registry.find((r) => r.resource_code === resourceCode);
   if (!entry) return textResult(`Resource "${resourceCode}" not found.`);
 
@@ -446,7 +451,7 @@ export async function handleRelated(
     const passageRefs: ArticleRef[] = [];
     for (const assoc of article.associations.passage) {
       const range = `${assoc.start_ref}-${assoc.end_ref}`;
-      const overlapping = await fanOutPassageSearch(range, index, storage);
+      const overlapping = await fanOutPassageSearch(range, index, storage, tracer);
       passageRefs.push(...overlapping.filter(
         (r) => !(r.resource_code === resourceCode && r.content_id === contentId),
       ));
@@ -792,6 +797,7 @@ export async function handleBrowse(
   env: Env,
   storage: AquiferStorage,
   ctx?: ExecutionContext,
+  tracer?: RequestTracer,
 ) {
   const resourceCode = String(args.resource_code ?? "").trim();
   if (!resourceCode) return textResult("Missing required field: resource_code.");
@@ -800,7 +806,7 @@ export async function handleBrowse(
   const page = Math.max(1, Number(args.page) || 1);
   const pageSize = Math.min(100, Math.max(1, Number(args.page_size) || 50));
 
-  const index = await getOrBuildIndex(env, storage, ctx);
+  const index = await getOrBuildIndex(env, storage, ctx, tracer);
   const entry = index.registry.find((r) => r.resource_code === resourceCode);
   if (!entry) return textResult(`Resource "${resourceCode}" not found in the registry.`);
 
@@ -856,6 +862,7 @@ export async function handleScripture(
   env: Env,
   storage: AquiferStorage,
   ctx?: ExecutionContext,
+  tracer?: RequestTracer,
 ) {
   const reference = String(args.reference ?? "").trim();
   if (!reference) return textResult('Please provide a Bible reference (e.g. "John 3:16", "Rom 8:28").');
@@ -868,7 +875,7 @@ export async function handleScripture(
     return textResult(`Could not parse "${reference}" as a Bible reference. Try formats like "John 3:16", "Rom 8:28", "Gen 1:1-3".`);
   }
 
-  const index = await getOrBuildIndex(env, storage, ctx);
+  const index = await getOrBuildIndex(env, storage, ctx, tracer);
 
   // Find Bible resources
   const bibleResources = index.registry.filter((r) => {
@@ -993,12 +1000,13 @@ export async function handleEntity(
   env: Env,
   storage: AquiferStorage,
   ctx?: ExecutionContext,
+  tracer?: RequestTracer,
 ) {
   const entityId = String(args.entity_id ?? "").trim();
   if (!entityId) return textResult('Please provide an entity ID (e.g. "person:David", "place:Jerusalem").');
 
   const language = String(args.language ?? "eng").trim();
-  const index = await getOrBuildIndex(env, storage, ctx);
+  const index = await getOrBuildIndex(env, storage, ctx, tracer);
   const normalized = entityId.toLowerCase();
 
   // Find all articles referencing this entity
