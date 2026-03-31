@@ -8,6 +8,8 @@ import {
   handleReadme,
   handleTelemetryPolicy,
   handleTelemetryPublic,
+  handleScripture,
+  handleEntity,
 } from "./tools.js";
 import type { Env, NavigabilityIndex, ResourceEntry, ArticleRef, ArticleContent, ResourceMetadata } from "./types.js";
 
@@ -72,6 +74,38 @@ const FIA_MAPS_ENTRY: ResourceEntry = {
   localizations: [],
   article_count: 206,
   version: "1.0.0",
+};
+
+const BIBLE_ENTRY: ResourceEntry = {
+  resource_code: "BiblicaBible",
+  aquifer_type: "Bible",
+  resource_type: "Bible",
+  title: "Biblica Bible",
+  short_name: "BB",
+  order: "canonical",
+  language: "eng",
+  localizations: [],
+  article_count: 66,
+  version: "1.0.0",
+};
+
+const BIBLE_ARTICLE: ArticleContent = {
+  content_id: "500001",
+  reference_id: 200001,
+  version: "1.0.0",
+  title: "Romans 3:21-26",
+  media_type: "Text",
+  index_reference: "45003021-45003026",
+  language: "eng",
+  review_level: "None",
+  content: "<p>But now apart from the law the righteousness of God has been made known.</p><p>For all have sinned and fall short of the glory of God.</p>",
+  associations: {
+    passage: [
+      { start_ref: "45003021", start_ref_usfm: "ROM 3:21", end_ref: "45003026", end_ref_usfm: "ROM 3:26" },
+    ],
+    resource: [],
+    acai: [],
+  },
 };
 
 const ROMANS_ARTICLE_REF: ArticleRef = {
@@ -667,5 +701,109 @@ describe("handleTelemetryPublic", () => {
     expect(text).toContain("1. Cursor — 100% (64/64) | Open Ledger");
     expect(text).toContain("Self-Report Field Counts");
     expect(text).toContain("Excluded Fields");
+  });
+});
+
+describe("handleScripture", () => {
+  let env: Env;
+
+  beforeEach(() => {
+    env = { AQUIFER_CACHE: createMockKV(), AQUIFER_ORG: "BibleAquifer", DOCS_REPO: "docs", WORKER_ENV: "production" };
+    mockGetOrBuildIndex.mockResolvedValue(buildMockIndex([STUDY_NOTES_ENTRY, BIBLE_ENTRY]));
+  });
+
+  it("requires a reference", async () => {
+    const result = await handleScripture({}, env);
+    expect(result.content[0]!.text).toContain("Please provide a Bible reference");
+  });
+
+  it("returns error for unparseable reference", async () => {
+    const result = await handleScripture({ reference: "not a reference!!" }, env);
+    expect(result.content[0]!.text).toContain("Could not parse");
+  });
+
+  it("fetches Bible text for a valid reference", async () => {
+    mockFetchJson.mockImplementation(async (url: string) => {
+      if (url.includes("45.content.json")) return [BIBLE_ARTICLE];
+      return null;
+    });
+
+    const result = await handleScripture({ reference: "Romans 3:23" }, env);
+    const text = result.content[0]!.text;
+    expect(text).toContain("Scripture:");
+    expect(text).toContain("Biblica Bible");
+    expect(text).toContain("all have sinned");
+  });
+
+  it("parses abbreviation 'Rom 3:23'", async () => {
+    mockFetchJson.mockImplementation(async (url: string) => {
+      if (url.includes("45.content.json")) return [BIBLE_ARTICLE];
+      return null;
+    });
+
+    const result = await handleScripture({ reference: "Rom 3:23" }, env);
+    expect(result.content[0]!.text).toContain("all have sinned");
+  });
+
+  it("returns no-text message when no Bible articles match", async () => {
+    mockFetchJson.mockResolvedValue(null);
+    const result = await handleScripture({ reference: "Rev 22:21" }, env);
+    expect(result.content[0]!.text).toContain("No Bible text found");
+  });
+
+  it("filters by resource_code when specified", async () => {
+    mockFetchJson.mockResolvedValue(null);
+    const result = await handleScripture({ reference: "Rom 3:23", resource_code: "NonExistentBible" }, env);
+    expect(result.content[0]!.text).toContain("not found");
+  });
+});
+
+describe("handleEntity", () => {
+  let env: Env;
+
+  beforeEach(() => {
+    env = { AQUIFER_CACHE: createMockKV(), AQUIFER_ORG: "BibleAquifer", DOCS_REPO: "docs", WORKER_ENV: "production" };
+    mockGetOrBuildIndex.mockResolvedValue(buildMockIndex([STUDY_NOTES_ENTRY, FIA_MAPS_ENTRY]));
+    mockFetchJson.mockResolvedValue(null);
+  });
+
+  it("requires an entity_id", async () => {
+    const result = await handleEntity({}, env);
+    expect(result.content[0]!.text).toContain("Please provide an entity ID");
+  });
+
+  it("returns grouped results for known entity", async () => {
+    const result = await handleEntity({ entity_id: "person:Paul" }, env);
+    const text = result.content[0]!.text;
+    expect(text).toContain("Entity Profile: person:Paul");
+    expect(text).toContain("Romans 1:1–17");
+    expect(text).toContain("Use `get`");
+  });
+
+  it("returns not-found for unknown entity", async () => {
+    const result = await handleEntity({ entity_id: "person:UnknownEntity" }, env);
+    expect(result.content[0]!.text).toContain("No articles found");
+  });
+});
+
+describe("handleList capabilities", () => {
+  let env: Env;
+
+  beforeEach(() => {
+    env = { AQUIFER_CACHE: createMockKV(), AQUIFER_ORG: "BibleAquifer", DOCS_REPO: "docs", WORKER_ENV: "production" };
+    mockGetOrBuildIndex.mockResolvedValue(buildMockIndex([STUDY_NOTES_ENTRY, BIBLE_ENTRY]));
+  });
+
+  it("shows scripture in capabilities for Bible resources", async () => {
+    const result = await handleList({ type: "Bible" }, env);
+    const text = result.content[0]!.text;
+    expect(text).toContain("Tools: scripture, search, get, related, browse");
+  });
+
+  it("does not show scripture for non-Bible resources", async () => {
+    const result = await handleList({ type: "StudyNotes" }, env);
+    const text = result.content[0]!.text;
+    expect(text).toContain("Tools: search, get, related, browse");
+    expect(text).not.toContain("scripture");
   });
 });

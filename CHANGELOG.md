@@ -2,6 +2,28 @@
 
 All notable changes to aquifer-mcp will be documented in this file.
 
+## [1.0.0] - 2026-03-30
+
+### Added
+
+- **`scripture` tool**: Deterministic Bible text lookup by natural reference. Accepts full names ("Romans 3:16"), USFM codes ("ROM 3:16"), and abbreviations ("Rom 3:16", "Jn 3:16", "Gen 1:1-3"). Searches all Bible resources in parallel via `Promise.allSettled`. Returns plain text with HTML stripped.
+- **`entity` tool**: Entity profile aggregation. Given an ACAI entity ID (e.g. "person:David"), returns all referencing articles grouped by resource type with progressive disclosure (first 5 per type, then "use get for more"). Collapses 10+ tool calls into 1 for the most common exploration pattern.
+- **Reference parser abbreviation expansion**: ~80 new entries in `BOOK_NAME_TO_USFM` covering common English abbreviations (rom, jn, mk, gen, ps, heb, etc.), short forms (ro, mt, lk, ac, etc.), and multi-language aliases (romanos, jean, mateo, génesis, etc.). USFM regex branches now fall through to name-based lookup when the code isn't a valid USFM abbreviation, enabling two-letter abbreviations.
+- **Capabilities hint in `list` output**: Each resource now shows which tools work with it (e.g. `Tools: scripture, search, get, related, browse` for Bibles, `Tools: search, get, related, browse` for others).
+
+### Changed
+
+- **Two-tier index loading**: Hot path serves from cached KV pointer (`index:latest-composite-sha`) in ~10ms. Background SHA refresh via `ctx.waitUntil` every 5 minutes. Cold path falls back to full 49-API-call build. Eliminates timeout on every tool call.
+- **Parallel entity bootstrap**: `bootstrapEntityMatches` now uses double-parallel `Promise.allSettled` — across resources AND across files within each resource. Sequential O(N×M) → O(max(M_i)).
+- **`ExecutionContext` threading**: All tool handlers that call `getOrBuildIndex` now receive `ctx` as optional third parameter, enabling `ctx.waitUntil` for background refresh.
+- Index cache key bumped to `v7` for two-tier pointer compatibility.
+- Bumped runtime, package metadata, and User-Agent strings to `1.0.0`.
+
+### Fixed
+
+- **Bible resources no longer show "Articles: 0"**: When `article_metadata` is empty but the resource has content files (scripture_burrito ingredients), the article count is derived from content file count.
+- **Two-letter abbreviations now parse correctly**: "Ro 3:24", "Jn 3:16", "Mt 5:1", "Mk 4", "Lk 2:1-20", "Ps 23", "Ac 2:1" all resolve. Previously these matched the USFM regex, failed the lookup, and returned null instead of falling through to the name-based path.
+
 ## [0.9.0] - 2026-03-20
 
 ### Changed

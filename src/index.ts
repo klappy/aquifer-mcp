@@ -11,6 +11,8 @@ import {
   handleReadme,
   handleTelemetryPolicy,
   handleTelemetryPublic,
+  handleScripture,
+  handleEntity,
 } from "./tools.js";
 import { recordPublicTelemetry } from "./telemetry.js";
 
@@ -38,10 +40,10 @@ const CORS_PREFLIGHT_HEADERS: Record<string, string> = {
   "Access-Control-Max-Age": "86400",
 };
 
-function createServer(env: Env) {
+function createServer(env: Env, ctx: ExecutionContext) {
   const server = new McpServer({
     name: "aquifer-mcp",
-    version: "0.9.0",
+    version: "1.0.0",
   });
 
   server.tool(
@@ -84,18 +86,18 @@ function createServer(env: Env) {
         "Filter by language code (e.g. eng, spa, fra). Omit for all."
       ),
     },
-    async (args) => handleList(args, env),
+    async (args) => handleList(args, env, ctx),
   );
 
   server.tool(
     "search",
-    'Search Aquifer articles by passage reference ("Romans 3:24", "ROM 3:24", "45003024"), ACAI entity ID ("keyterm:Justification"), or keyword in article titles. Returns article references, not full content — use get to fetch details.',
+    'Search Aquifer articles by passage reference ("Romans 3:24", "ROM 3:24", "Rom 3:24", "45003024"), ACAI entity ID ("keyterm:Justification"), or keyword in article titles. Returns article references, not full content — use get to fetch details.',
     {
       query: z.string().describe(
         'A passage reference, ACAI entity (e.g. "keyterm:Justification", "person:Paul"), or keyword to search article titles.'
       ),
     },
-    async (args) => handleSearch(args, env),
+    async (args) => handleSearch(args, env, ctx),
   );
 
   server.tool(
@@ -106,7 +108,7 @@ function createServer(env: Env) {
       language: z.string().describe("Language code (e.g. eng)."),
       content_id: z.string().describe("The article content ID."),
     },
-    async (args) => handleGet(args, env),
+    async (args) => handleGet(args, env, ctx),
   );
 
   server.tool(
@@ -117,7 +119,7 @@ function createServer(env: Env) {
       language: z.string().describe("Language code."),
       content_id: z.string().describe("The article content ID."),
     },
-    async (args) => handleRelated(args, env),
+    async (args) => handleRelated(args, env, ctx),
   );
 
   server.tool(
@@ -129,7 +131,35 @@ function createServer(env: Env) {
       page: z.number().optional().describe("Page number, 1-indexed (default: 1)."),
       page_size: z.number().optional().describe("Articles per page, 1-100 (default: 50)."),
     },
-    async (args) => handleBrowse(args, env),
+    async (args) => handleBrowse(args, env, ctx),
+  );
+
+  server.tool(
+    "scripture",
+    'Fetch Bible text for a passage reference. Accepts natural language ("Romans 3:16"), ' +
+    'USFM codes ("ROM 3:16"), or abbreviations ("Jn 3:16", "Gen 1:1-3"). ' +
+    'Returns text from available Aquifer Bible resources.',
+    {
+      reference: z.string().describe('Bible reference: "John 3:16", "Rom 8:28", "Gen 1:1-3"'),
+      resource_code: z.string().optional().describe("Specific Bible resource code. Omit for all available."),
+      language: z.string().optional().describe("Language code (default: eng)."),
+    },
+    async (args) => handleScripture(args, env, ctx),
+  );
+
+  server.tool(
+    "entity",
+    'Get a profile summary for a biblical entity (person, place, keyterm). ' +
+    'Returns dictionary entries, study note references, related maps/images, ' +
+    'and theological links — aggregated across all Aquifer resources. ' +
+    'Use this as a starting point, then use get for full article content.',
+    {
+      entity_id: z.string().describe(
+        'ACAI entity ID (e.g. "person:David", "place:Jerusalem", "keyterm:Justification").'
+      ),
+      language: z.string().optional().describe("Language code (default: eng)."),
+    },
+    async (args) => handleEntity(args, env, ctx),
   );
 
   return server;
@@ -142,7 +172,7 @@ export default {
     // Health check — keep outside MCP handler
     if (url.pathname === "/health" || (url.pathname === "/" && request.method === "GET")) {
       return new Response(
-        JSON.stringify({ status: "ok", server: { name: "aquifer-mcp", version: "0.9.0" } }),
+        JSON.stringify({ status: "ok", server: { name: "aquifer-mcp", version: "1.0.0" } }),
         { headers: { "Content-Type": "application/json" } },
       );
     }
@@ -174,7 +204,7 @@ export default {
       effectiveRequest = new Request(request, { headers });
     }
 
-    const server = createServer(env);
+    const server = createServer(env, ctx);
     const response = await createMcpHandler(server, { route: "/mcp" })(effectiveRequest, env, ctx);
 
     // Ensure CORS headers on actual responses include x-aquifer-* headers.
