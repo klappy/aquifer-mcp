@@ -192,27 +192,10 @@ export default {
       ctx.waitUntil(recordPublicTelemetry(request, env));
     }
 
-    // Streamable HTTP transport (agents >=0.7) requires Accept to include
-    // both application/json and text/event-stream.  Older MCP clients
-    // (including Aquifer Window) may omit this.  Inject the header so
-    // they aren't rejected with a 406 "Not Acceptable" error.
-    const accept = request.headers.get("accept") ?? "";
-    const needsJson = !accept.includes("application/json");
-    const needsSse = !accept.includes("text/event-stream");
-    let effectiveRequest = request;
-    if ((needsJson || needsSse) && url.pathname === "/mcp") {
-      const parts: string[] = [accept];
-      if (needsJson) parts.push("application/json");
-      if (needsSse) parts.push("text/event-stream");
-      const headers = new Headers(request.headers);
-      headers.set("accept", parts.filter(Boolean).join(", "));
-      effectiveRequest = new Request(request, { headers });
-    }
-
     const tracer = new RequestTracer();
     const server = createServer(env, ctx, tracer);
 
-    const response = await createMcpHandler(server, { route: "/mcp", enableJsonResponse: true })(effectiveRequest, env, ctx);
+    const response = await createMcpHandler(server, { route: "/mcp", enableJsonResponse: true })(request, env, ctx);
 
     // Ensure CORS headers on actual responses include x-aquifer-* headers.
     // The agents handler sets Access-Control-Allow-Origin: * but its
