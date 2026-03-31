@@ -68,15 +68,17 @@ export class AquiferStorage {
 
     // Populate Cache API for next request
     if (c) {
-      await c.put(
-        this.cacheRequest(key),
-        new Response(text, {
-          headers: {
-            "Content-Type": "application/json",
-            "Cache-Control": "public, max-age=604800",
-          },
-        }),
-      );
+      try {
+        await c.put(
+          this.cacheRequest(key),
+          new Response(text, {
+            headers: {
+              "Content-Type": "application/json",
+              "Cache-Control": "public, max-age=604800",
+            },
+          }),
+        );
+      } catch { /* cache promotion is best-effort */ }
     }
 
     return { data: JSON.parse(text) as T, source: "r2" };
@@ -105,15 +107,17 @@ export class AquiferStorage {
     // Populate Cache API
     const c = this.cache;
     if (c) {
-      await c.put(
-        this.cacheRequest(key),
-        new Response(text, {
-          headers: {
-            "Content-Type": "application/json",
-            "Cache-Control": "public, max-age=604800",
-          },
-        }),
-      );
+      try {
+        await c.put(
+          this.cacheRequest(key),
+          new Response(text, {
+            headers: {
+              "Content-Type": "application/json",
+              "Cache-Control": "public, max-age=604800",
+            },
+          }),
+        );
+      } catch { /* cache population is best-effort; R2 write already succeeded */ }
     }
 
     return true;
