@@ -14,6 +14,12 @@ binding = "AQUIFER_CACHE"
 id = "aa19ca4a80aa48a5bf25317fd9b2d4e1"
 preview_id = "f73869e2e7ac4e04a9ee2fa3887ceefe"
 
+# R2 for content files, navigability index, browse catalogs, entity caches.
+# KV (AQUIFER_CACHE) retained for SHA pointers, ETags, telemetry counters only.
+[[r2_buckets]]
+binding = "AQUIFER_CONTENT"
+bucket_name = "aquifer-content"
+
 # Optional Wrangler environment for local dev / maintainer experiments (`wrangler dev --env staging`).
 # Cloudflare Git builds: branch previews use `<branch-slug>-aquifer-mcp.klappy.workers.dev` (git branch `staging` -> staging-aquifer-mcp.klappy.workers.dev).
 # Uses preview KV (shared with `wrangler dev` default preview binding).

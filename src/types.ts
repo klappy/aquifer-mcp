@@ -1,5 +1,6 @@
 export interface Env {
   AQUIFER_CACHE: KVNamespace;
+  AQUIFER_CONTENT: R2Bucket;
   AQUIFER_ORG: string;
   DOCS_REPO: string;
   WORKER_ENV?: string;

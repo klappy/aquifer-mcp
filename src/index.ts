@@ -15,6 +15,7 @@ import {
   handleEntity,
 } from "./tools.js";
 import { recordPublicTelemetry } from "./telemetry.js";
+import { AquiferStorage } from "./storage.js";
 
 const ALLOWED_HEADERS = [
   "Content-Type",
@@ -41,9 +42,11 @@ const CORS_PREFLIGHT_HEADERS: Record<string, string> = {
 };
 
 function createServer(env: Env, ctx: ExecutionContext) {
+  const storage = new AquiferStorage(env, caches);
+
   const server = new McpServer({
     name: "aquifer-mcp",
-    version: "1.0.0",
+    version: "1.1.0",
   });
 
   server.tool(
@@ -86,7 +89,7 @@ function createServer(env: Env, ctx: ExecutionContext) {
         "Filter by language code (e.g. eng, spa, fra). Omit for all."
       ),
     },
-    async (args) => handleList(args, env, ctx),
+    async (args) => handleList(args, env, storage, ctx),
   );
 
   server.tool(
@@ -97,7 +100,7 @@ function createServer(env: Env, ctx: ExecutionContext) {
         'A passage reference, ACAI entity (e.g. "keyterm:Justification", "person:Paul"), or keyword to search article titles.'
       ),
     },
-    async (args) => handleSearch(args, env, ctx),
+    async (args) => handleSearch(args, env, storage, ctx),
   );
 
   server.tool(
@@ -108,7 +111,7 @@ function createServer(env: Env, ctx: ExecutionContext) {
       language: z.string().describe("Language code (e.g. eng)."),
       content_id: z.string().describe("The article content ID."),
     },
-    async (args) => handleGet(args, env, ctx),
+    async (args) => handleGet(args, env, storage, ctx),
   );
 
   server.tool(
@@ -119,7 +122,7 @@ function createServer(env: Env, ctx: ExecutionContext) {
       language: z.string().describe("Language code."),
       content_id: z.string().describe("The article content ID."),
     },
-    async (args) => handleRelated(args, env, ctx),
+    async (args) => handleRelated(args, env, storage, ctx),
   );
 
   server.tool(
@@ -131,7 +134,7 @@ function createServer(env: Env, ctx: ExecutionContext) {
       page: z.number().optional().describe("Page number, 1-indexed (default: 1)."),
       page_size: z.number().optional().describe("Articles per page, 1-100 (default: 50)."),
     },
-    async (args) => handleBrowse(args, env, ctx),
+    async (args) => handleBrowse(args, env, storage, ctx),
   );
 
   server.tool(
@@ -144,7 +147,7 @@ function createServer(env: Env, ctx: ExecutionContext) {
       resource_code: z.string().optional().describe("Specific Bible resource code. Omit for all available."),
       language: z.string().optional().describe("Language code (default: eng)."),
     },
-    async (args) => handleScripture(args, env, ctx),
+    async (args) => handleScripture(args, env, storage, ctx),
   );
 
   server.tool(
@@ -159,7 +162,7 @@ function createServer(env: Env, ctx: ExecutionContext) {
       ),
       language: z.string().optional().describe("Language code (default: eng)."),
     },
-    async (args) => handleEntity(args, env, ctx),
+    async (args) => handleEntity(args, env, storage, ctx),
   );
 
   return server;
@@ -172,7 +175,7 @@ export default {
     // Health check — keep outside MCP handler
     if (url.pathname === "/health" || (url.pathname === "/" && request.method === "GET")) {
       return new Response(
-        JSON.stringify({ status: "ok", server: { name: "aquifer-mcp", version: "1.0.0" } }),
+        JSON.stringify({ status: "ok", server: { name: "aquifer-mcp", version: "1.1.0" } }),
         { headers: { "Content-Type": "application/json" } },
       );
     }
