@@ -228,6 +228,7 @@ vi.mock("./github.js", () => ({
   metadataUrl: vi.fn((org: string, code: string, lang: string) => `https://raw.githubusercontent.com/${org}/${code}/main/${lang}/metadata.json`),
   contentUrl: vi.fn((org: string, code: string, lang: string, file: string) => `https://raw.githubusercontent.com/${org}/${code}/main/${lang}/json/${file}`),
   fetchJson: vi.fn(),
+  fetchRepoSha: vi.fn(async () => "abc123"),
   GC_TTL: 2592000,
 }));
 
@@ -639,8 +640,8 @@ describe("handleReadme", () => {
     fetchSpy.mockRestore();
   });
 
-  it("returns cached README when refresh is false", async () => {
-    await env.AQUIFER_CACHE.put("readme:v1:main", "# Cached README");
+  it("returns cached README when SHA matches", async () => {
+    await env.AQUIFER_CACHE.put("readme:v1:abc123", "# Cached README");
     const fetchSpy = vi.spyOn(globalThis, "fetch");
 
     const result = await handleReadme({}, env);
@@ -649,12 +650,11 @@ describe("handleReadme", () => {
     fetchSpy.mockRestore();
   });
 
-  it("falls back to cached README if fetch fails", async () => {
-    await env.AQUIFER_CACHE.put("readme:v1:main", "# Cached README");
+  it("returns error message if fetch fails with no cache", async () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("network"));
 
-    const result = await handleReadme({ refresh: true }, env);
-    expect(result.content[0]!.text).toContain("# Cached README");
+    const result = await handleReadme({}, env);
+    expect(result.content[0]!.text).toContain("Failed to fetch README.");
     fetchSpy.mockRestore();
   });
 });

@@ -36,7 +36,7 @@ Two slices of one pie:
 
 ## What It Exposes
 
-Aquifer MCP provides ten tools:
+Aquifer MCP provides these tools:
 
 - `readme` - fetch this README as markdown through MCP
 - `telemetry_policy` - fetch telemetry-sharing policy and client integration guidance

@@ -1,6 +1,6 @@
 import type { Env, ArticleRef, ArticleContent, NavigabilityIndex, ResourceEntry, ResourceMetadata } from "./types.js";
 import { parseReference, rangesOverlap, rangeToReadable, isValidIndexReference, bbcccvvvToReadable } from "./references.js";
-import { contentUrl, metadataUrl, fetchJson, GC_TTL } from "./github.js";
+import { contentUrl, metadataUrl, fetchJson, GC_TTL, fetchRepoSha } from "./github.js";
 import { getOrBuildIndex, fanOutPassageSearch, fanOutTitleSearch, loadArticleLookup, type ArticleLookupEntry } from "./registry.js";
 import { getPublicTelemetrySnapshot } from "./telemetry.js";
 import { AquiferStorage, contentKey, metadataKey, catalogKey, entityKey } from "./storage.js";
@@ -86,21 +86,17 @@ export async function handleReadme(
   args: Record<string, unknown>,
   env: Env,
 ) {
-  const refresh = Boolean(args.refresh);
-  const cacheKey = "readme:v1:main";
+  const sha = await fetchRepoSha("klappy", "aquifer-mcp", env);
+  const cacheKey = `readme:v1:${sha}`;
 
-  if (!refresh) {
-    const cached = await env.AQUIFER_CACHE.get(cacheKey);
-    if (cached) return textResult(cached);
-  }
+  const cached = await env.AQUIFER_CACHE.get(cacheKey);
+  if (cached) return textResult(cached);
 
   try {
     const resp = await fetch(README_RAW_URL, {
       headers: { "User-Agent": `aquifer-mcp/${VERSION}` },
     });
     if (!resp.ok) {
-      const cached = await env.AQUIFER_CACHE.get(cacheKey);
-      if (cached) return textResult(cached);
       return textResult(`Failed to fetch README (${resp.status}).`);
     }
 
@@ -108,8 +104,6 @@ export async function handleReadme(
     await env.AQUIFER_CACHE.put(cacheKey, readme, { expirationTtl: GC_TTL });
     return textResult(readme);
   } catch {
-    const cached = await env.AQUIFER_CACHE.get(cacheKey);
-    if (cached) return textResult(cached);
     return textResult("Failed to fetch README.");
   }
 }
