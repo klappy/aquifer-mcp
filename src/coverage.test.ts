@@ -28,16 +28,26 @@ function loadManifest(): Manifest {
   return JSON.parse(raw) as Manifest;
 }
 
-async function fetchOrgRepoNames(): Promise<string[]> {
-  const resp = await fetch(ORG_API, {
-    headers: {
-      "User-Agent": "aquifer-mcp-ci",
-      Accept: "application/vnd.github.v3+json",
-    },
-  });
-  if (!resp.ok) throw new Error(`GitHub API returned ${resp.status}`);
-  const repos = (await resp.json()) as Array<{ name: string }>;
-  return repos.map((r) => r.name);
+let _orgRepoNamesCache: Promise<string[]> | null = null;
+
+function fetchOrgRepoNames(): Promise<string[]> {
+  if (!_orgRepoNamesCache) {
+    _orgRepoNamesCache = (async () => {
+      const headers: Record<string, string> = {
+        "User-Agent": "aquifer-mcp-ci",
+        Accept: "application/vnd.github.v3+json",
+      };
+      const token = process.env.GITHUB_TOKEN;
+      if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+      }
+      const resp = await fetch(ORG_API, { headers });
+      if (!resp.ok) throw new Error(`GitHub API returned ${resp.status}`);
+      const repos = (await resp.json()) as Array<{ name: string }>;
+      return repos.map((r) => r.name);
+    })();
+  }
+  return _orgRepoNamesCache;
 }
 
 describe("resource coverage manifest", () => {
