@@ -5,6 +5,7 @@ export interface Env {
   DOCS_REPO: string;
   WORKER_ENV?: string;
   TELEMETRY_VERIFIED_CLIENTS?: string;
+  GITHUB_TOKEN?: string;
 }
 
 export interface ResourceEntry {

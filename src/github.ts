@@ -40,6 +40,7 @@ export async function fetchOrgRepos(org: string, env: Env): Promise<string[]> {
     "User-Agent": `aquifer-mcp/${VERSION}`,
     "Accept": "application/vnd.github.v3+json",
   };
+  if (env.GITHUB_TOKEN) headers["Authorization"] = `token ${env.GITHUB_TOKEN}`;
   if (etag && cached) headers["If-None-Match"] = etag;
 
   const resp = await fetch(
@@ -86,6 +87,7 @@ export async function fetchRepoSha(org: string, repo: string, env: Env): Promise
     "User-Agent": `aquifer-mcp/${VERSION}`,
     "Accept": "application/vnd.github.v3.sha",
   };
+  if (env.GITHUB_TOKEN) headers["Authorization"] = `token ${env.GITHUB_TOKEN}`;
   if (etag && cachedSha) headers["If-None-Match"] = etag;
 
   const resp = await fetch(
