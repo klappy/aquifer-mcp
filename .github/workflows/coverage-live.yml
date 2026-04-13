@@ -20,7 +20,7 @@ jobs:
             -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"list","arguments":{}}}')
 
           # Server uses enableJsonResponse: true, so response is plain JSON (not SSE)
-          echo "$RESPONSE" > /tmp/mcp_response.json
+          printf '%s' "$RESPONSE" > /tmp/mcp_response.json
 
           # Verify we got a valid response
           if [ ! -s /tmp/mcp_response.json ]; then
