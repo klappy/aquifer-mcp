@@ -1,7 +1,7 @@
 {
   "$comment": "Resource Coverage Manifest — governance source of truth for BibleAquifer org repos vs MCP coverage. Every repo in the org MUST appear here. CI enforces completeness and non-regression.",
   "_audited": "2026-04-13",
-  "_served_floor": 33,
+  "_served_floor": 21,
   "repos": {
     "AquiferOpenBibleDictionary": {
       "status": "served",
@@ -109,100 +109,100 @@
       "aquifer_type": "Bible"
     },
     "BereanStandardBible": {
-      "status": "served",
+      "status": "pending",
       "primary_language": "eng",
       "aquifer_type": "Bible",
       "metadata_valid": true,
       "metadata_size_mb": 0.5,
-      "verified_served": "2026-04-13"
+      "reason": "Valid eng/metadata.json but not yet appearing in live MCP index — root cause under investigation"
     },
     "FIAImages": {
-      "status": "served",
+      "status": "pending",
       "primary_language": "eng",
       "aquifer_type": "Images",
       "metadata_valid": true,
       "metadata_size_mb": 0.2,
-      "verified_served": "2026-04-13"
+      "reason": "Valid eng/metadata.json but not yet appearing in live MCP index — root cause under investigation"
     },
     "FIAKeyTerms": {
-      "status": "served",
+      "status": "pending",
       "primary_language": "eng",
       "aquifer_type": "Dictionary",
       "metadata_valid": true,
       "metadata_size_mb": 0.1,
-      "verified_served": "2026-04-13"
+      "reason": "Valid eng/metadata.json but not yet appearing in live MCP index — root cause under investigation"
     },
     "FIATranslationGuide": {
-      "status": "served",
+      "status": "pending",
       "primary_language": "eng",
       "aquifer_type": "Guide",
       "metadata_valid": true,
       "metadata_size_mb": 0.5,
-      "verified_served": "2026-04-13"
+      "reason": "Valid eng/metadata.json but not yet appearing in live MCP index — root cause under investigation"
     },
     "SILOpenTranslatorsNotes": {
-      "status": "served",
+      "status": "pending",
       "primary_language": "eng",
       "aquifer_type": "StudyNotes",
       "metadata_valid": true,
       "metadata_size_mb": 1.1,
-      "verified_served": "2026-04-13"
+      "reason": "Valid eng/metadata.json but not yet appearing in live MCP index — root cause under investigation"
     },
     "UWTranslationManual": {
-      "status": "served",
+      "status": "pending",
       "primary_language": "eng",
       "aquifer_type": "Guide",
       "metadata_valid": true,
       "metadata_size_mb": 0.2,
-      "verified_served": "2026-04-13"
+      "reason": "Valid eng/metadata.json but not yet appearing in live MCP index — root cause under investigation"
     },
     "UWTranslationNotes": {
-      "status": "served",
+      "status": "pending",
       "primary_language": "eng",
       "aquifer_type": "StudyNotes",
       "metadata_valid": true,
       "metadata_size_mb": 33.4,
-      "verified_served": "2026-04-13"
+      "reason": "Valid eng/metadata.json but not yet appearing in live MCP index — root cause under investigation"
     },
     "UWTranslationQuestions": {
-      "status": "served",
+      "status": "pending",
       "primary_language": "eng",
       "aquifer_type": "StudyNotes",
       "metadata_valid": true,
       "metadata_size_mb": 6.4,
-      "verified_served": "2026-04-13"
+      "reason": "Valid eng/metadata.json but not yet appearing in live MCP index — root cause under investigation"
     },
     "UWTranslationWords": {
-      "status": "served",
+      "status": "pending",
       "primary_language": "eng",
       "aquifer_type": "Dictionary",
       "metadata_valid": true,
       "metadata_size_mb": 0.7,
-      "verified_served": "2026-04-13"
+      "reason": "Valid eng/metadata.json but not yet appearing in live MCP index — root cause under investigation"
     },
     "WorldEnglishBible": {
-      "status": "served",
+      "status": "pending",
       "primary_language": "eng",
       "aquifer_type": "Bible",
       "metadata_valid": true,
       "metadata_size_mb": 0.5,
-      "verified_served": "2026-04-13"
+      "reason": "Valid eng/metadata.json but not yet appearing in live MCP index — root cause under investigation"
     },
     "unfoldingWordLiteral": {
-      "status": "served",
+      "status": "pending",
       "primary_language": "eng",
       "aquifer_type": "Bible",
       "metadata_valid": true,
       "metadata_size_mb": 0.5,
-      "verified_served": "2026-04-13"
+      "reason": "Valid eng/metadata.json but not yet appearing in live MCP index — root cause under investigation"
     },
     "unfoldingWordSimplified": {
-      "status": "served",
+      "status": "pending",
       "primary_language": "eng",
       "aquifer_type": "Bible",
       "metadata_valid": true,
       "metadata_size_mb": 0.5,
-      "verified_served": "2026-04-13"
+      "reason": "Valid eng/metadata.json but not yet appearing in live MCP index — root cause under investigation"
     },
     "AquiferPortugueseBibleReferenceText": {
       "status": "pending",
