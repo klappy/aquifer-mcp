@@ -154,8 +154,19 @@ async function fetchAllRepoShas(repoCodes: string[], env: Env): Promise<Map<stri
     }),
   );
   const map = new Map<string, string>();
-  for (const r of results) {
-    if (r.status === "fulfilled") map.set(r.value.code, r.value.sha);
+  const rejected: string[] = [];
+  for (const [i, r] of results.entries()) {
+    if (r.status === "fulfilled") {
+      map.set(r.value.code, r.value.sha);
+    } else {
+      rejected.push(`${repoCodes[i]}: ${r.reason?.message ?? "unknown"}`);
+    }
+  }
+  if (rejected.length > 0) {
+    console.error(
+      `fetchAllRepoShas: ${rejected.length}/${repoCodes.length} repos failed SHA fetch — these will be EXCLUDED from index:`,
+      rejected,
+    );
   }
   return map;
 }
