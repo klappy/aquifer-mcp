@@ -1300,3 +1300,21 @@ Zero-subrequest endpoints: 77-568ms wall. One-subrequest: 107-574ms. Two-subrequ
 **H5: Two candidate fixes were identified for the ~1,100ms gap: enableJsonResponse and SDK downgrade. Both tested, neither was the root cause. Led to H6.**
 
 **H6: After merging PR #14, validate production at aquifer.klappy.dev. Expected: memory-cached list < 200ms, scripture < 400ms, search < 700ms.**
+
+---
+
+### J-001 — Resource Coverage Audit & Governance System
+
+**Observation:** Audit of BibleAquifer GitHub org (62 repos) against live Aquifer MCP server (`list` tool) revealed 21/56 content repos served (37.5% coverage). Two root causes identified — one confirmed through direct observation, one inferred from code analysis:
+
+1. **eng-only metadata probe (confirmed)** — `buildIndex` in `src/registry.ts` hardcodes `metadataUrl(env.AQUIFER_ORG, code, "eng")`. The 22 repos whose primary language is not English have no `eng/metadata.json` and are silently dropped via `if (!metadata?.resource_metadata) return null`. Verified: each repo's primary language checked against its top-level directory structure. One additional repo (PSLE) returns 404 for `eng/metadata.json` despite having an `eng/` folder.
+
+2. **Silent cold-build failures (inferred, not directly observed)** — 12 repos that ARE eng-primary and DO have valid `eng/metadata.json` (each verified via `raw.githubusercontent.com`) are still not in the index. Code analysis shows: `fetchAllRepoShas` uses `Promise.allSettled` with rejected promises silently dropped, `buildIndex` skips repos where `!repoSha`, and 62+ unauthenticated GitHub API calls exceed the 60/hr rate limit during cold builds. **However:** I have not observed an actual cold build in action. ETag-based conditional requests reduce rate limit consumption on warm builds. The actual cause could be different — stale R2 cached index, Workers memory limits during parallel metadata fetch (UWTranslationNotes is 33.4 MB), or something else. The governance system catches the symptom regardless of root cause. **To validate:** add logging to `fetchAllRepoShas` rejected promises, or check `x-aquifer-trace` headers during a forced index rebuild.
+
+**Learning:** Silent failures in index building create invisible regression risk that can persist indefinitely — the only signal is absence. `Promise.allSettled` without rejected-promise logging is a code-level anti-pattern when completeness matters (confirmed by code read, but the causal link to the missing 12 repos is inferred). The eng-only metadata probe is a structural ceiling on coverage — fixing it would immediately add 22+ resources. The governance mechanism works regardless of which root cause is correct for the 12 eng-primary repos because it tracks the symptom (served count) not the mechanism.
+
+**Decision:** Implement manifest-driven governance: `schemas/resource-manifest.json` categorizes all 62 org repos as served (21), pending (35), or excluded (6). CI test (`src/coverage.test.ts`) enforces: manifest is well-formed, served count ≥ floor (ratchet — can only increase), every org repo is categorized, no phantom entries. Scheduled weekly workflow (`.github/workflows/coverage-live.yml`) validates live MCP server against manifest — catches silent server-side regressions that code-level tests can't see.
+
+**Constraint:** CI test must not depend on live MCP server (fragile production dependency). Served floor (21) is a ratchet — lowering requires explicit justification in PR. New org repos block CI until categorized in manifest. Manifest must be human-reviewable in PRs.
+
+**Handoff:** `docs/planning/resource-coverage-governance-prd.md` contains full PRD with reference implementations. Coding agent creates three files: `schemas/resource-manifest.json`, `src/coverage.test.ts`, `.github/workflows/coverage-live.yml`. Commit to a branch (not main) per established convention.

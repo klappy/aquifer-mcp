@@ -1,0 +1,98 @@
+name: Coverage Live Check
+
+on:
+  schedule:
+    - cron: "0 8 * * 1" # Every Monday at 08:00 UTC
+  workflow_dispatch: {} # Allow manual trigger
+
+jobs:
+  check-live-coverage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch MCP resource list from live server
+        id: mcp
+        run: |
+          RESPONSE=$(curl -s -X POST https://aquifer.klappy.dev/mcp \
+            -H "Content-Type: application/json" \
+            -H "Accept: application/json, text/event-stream" \
+            -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"list","arguments":{}}}')
+
+          # Parse SSE: extract the data: line containing the JSON-RPC response
+          echo "$RESPONSE" | grep '^data:' | head -1 | sed 's/^data: //' > /tmp/mcp_response.json
+
+          # Verify we got a valid response
+          if [ ! -s /tmp/mcp_response.json ]; then
+            echo "❌ Empty response from MCP server"
+            echo "$RESPONSE"
+            exit 1
+          fi
+
+      - name: Compare live server against manifest
+        run: |
+          python3 << 'SCRIPT'
+          import json, re, sys
+
+          # Load manifest
+          with open("schemas/resource-manifest.json") as f:
+              manifest = json.load(f)
+
+          # Load MCP response
+          with open("/tmp/mcp_response.json") as f:
+              rpc = json.load(f)
+
+          # Extract resource_codes from MCP list output
+          # Format: "- **Title** (ResourceCode)\n  Type: ..."
+          text = ""
+          for content in rpc.get("result", {}).get("content", []):
+              if content.get("type") == "text":
+                  text = content["text"]
+                  break
+
+          if not text:
+              print("❌ No text content in MCP response")
+              print(json.dumps(rpc, indent=2)[:500])
+              sys.exit(1)
+
+          live_codes = set(re.findall(r'\((\w+)\)', text))
+          manifest_served = {
+              name for name, entry in manifest["repos"].items()
+              if entry["status"] == "served"
+          }
+          floor = manifest["_served_floor"]
+
+          print(f"Live MCP resources:  {len(live_codes)}")
+          print(f"Manifest served:     {len(manifest_served)}")
+          print(f"Served floor:        {floor}")
+          print()
+
+          failed = False
+
+          # Check 1: Floor violation
+          if len(live_codes) < floor:
+              print(f"❌ FLOOR VIOLATION — live count ({len(live_codes)}) < floor ({floor})")
+              failed = True
+
+          # Check 2: Regression — served in manifest but missing from live
+          missing = manifest_served - live_codes
+          if missing:
+              print(f"❌ REGRESSION — {len(missing)} served resource(s) missing from live server:")
+              for m in sorted(missing):
+                  print(f"   - {m}")
+              failed = True
+
+          # Check 3: New arrivals — in live but not served in manifest (informational)
+          new_served = live_codes - manifest_served
+          if new_served:
+              print(f"ℹ️  {len(new_served)} resource(s) in live server not yet marked served in manifest:")
+              for n in sorted(new_served):
+                  print(f"   + {n}")
+              print("   → Update manifest: change status to 'served' and increment _served_floor")
+              print()
+
+          if failed:
+              sys.exit(1)
+
+          print("✅ All manifest served resources present in live server")
+          SCRIPT
