@@ -19,8 +19,8 @@ jobs:
             -H "Accept: application/json, text/event-stream" \
             -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"list","arguments":{}}}')
 
-          # Parse SSE: extract the data: line containing the JSON-RPC response
-          echo "$RESPONSE" | grep '^data:' | head -1 | sed 's/^data: //' > /tmp/mcp_response.json
+          # Server uses enableJsonResponse: true, so response is plain JSON (not SSE)
+          echo "$RESPONSE" > /tmp/mcp_response.json
 
           # Verify we got a valid response
           if [ ! -s /tmp/mcp_response.json ]; then
@@ -55,7 +55,7 @@ jobs:
               print(json.dumps(rpc, indent=2)[:500])
               sys.exit(1)
 
-          live_codes = set(re.findall(r'\((\w+)\)', text))
+          live_codes = set(re.findall(r'\*\*[^*]+\*\*\s*\((\w+)\)', text))
           manifest_served = {
               name for name, entry in manifest["repos"].items()
               if entry["status"] == "served"

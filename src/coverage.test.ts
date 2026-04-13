@@ -92,11 +92,11 @@ describe("resource coverage manifest", () => {
       const m = loadManifest();
       const orgRepos = await fetchOrgRepoNames();
 
-      // Safety: if org exceeds 100 repos, we need pagination
+      // Safety: if org has exactly 100 repos, the API may be truncating — add pagination
       expect(
         orgRepos.length,
-        "BibleAquifer org may have exceeded 100 repos — add pagination to fetchOrgRepoNames",
-      ).toBeLessThanOrEqual(100);
+        "BibleAquifer org returned exactly 100 repos — likely truncated, add pagination to fetchOrgRepoNames",
+      ).toBeLessThan(100);
 
       const uncategorized = orgRepos.filter((name) => !(name in m.repos));
       expect(
