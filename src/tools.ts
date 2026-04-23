@@ -773,7 +773,14 @@ export async function bootstrapEntityMatches(
     async (entry) => {
       if (isPastDeadline()) return [];
       const repoSha = index.repo_shas.get(entry.resource_code);
-      if (!repoSha) return [];
+      if (!repoSha) {
+        // Resource has no SHA pointer, so there is nothing scannable. Count it
+        // as scanned so an unscannable registry entry does not permanently
+        // prevent `complete` from becoming true (which would block caching and
+        // force a full re-scan on every subsequent lookup).
+        scannedResources++;
+        return [];
+      }
       const files = await listContentFiles(entry.resource_code, entry.language, entry.order, env, storage, repoSha, tracer);
       totalFilesEstimate += files.length;
 
@@ -829,7 +836,7 @@ export async function bootstrapEntityMatches(
     "entity-bootstrap",
     durationMs,
     undefined,
-    `${scannedResources}/${index.registry.length} resources, ${scannedFiles}/${totalFilesEstimate} files, ${deduped.length} matches${complete ? "" : " (PARTIAL: budget_exceeded)"}`,
+    `${scannedResources}/${index.registry.length} resources, ${scannedFiles}/${totalFilesEstimate} files, ${deduped.length} matches${complete ? "" : ` (PARTIAL: ${budgetExceeded ? "budget_exceeded" : "scan_incomplete"})`}`,
   );
 
   // Only cache complete results. Partial results from a deadline bail would
