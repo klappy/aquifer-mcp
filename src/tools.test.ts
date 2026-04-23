@@ -993,6 +993,7 @@ describe("BootstrapEntityResult transparency", () => {
       scanned_resources: expect.any(Number),
       total_resources: expect.any(Number),
       scanned_files: expect.any(Number),
+      failed_files: expect.any(Number),
       total_files_estimate: expect.any(Number),
       budget_exceeded: expect.any(Boolean),
       duration_ms: expect.any(Number),
