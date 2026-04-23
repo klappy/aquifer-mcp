@@ -3,6 +3,17 @@ main = "src/index.ts"
 compatibility_date = "2025-03-14"
 compatibility_flags = ["nodejs_compat"]
 
+# Workers Logs — captures per-invocation logs, exceptions, CPU and wall time,
+# and subrequest counts for 7 days. Enabled in response to incident J-002
+# (transient 503s on 2026-04-22T00:17Z). Without this block, edge-injected 5xx
+# responses cannot be correlated to a runtime cause.
+[observability]
+enabled = true
+
+  [observability.logs]
+  invocation_logs = true
+  head_sampling_rate = 1
+
 [vars]
 AQUIFER_ORG = "BibleAquifer"
 DOCS_REPO = "docs"
@@ -39,3 +50,10 @@ id = "f73869e2e7ac4e04a9ee2fa3887ceefe"
 [[env.staging.r2_buckets]]
 binding = "AQUIFER_CONTENT"
 bucket_name = "aquifer-content"
+
+[env.staging.observability]
+enabled = true
+
+  [env.staging.observability.logs]
+  invocation_logs = true
+  head_sampling_rate = 1
