@@ -774,7 +774,12 @@ export async function bootstrapEntityMatches(
   // past the client's timeout.
   function withinDeadline<T>(p: Promise<T>): Promise<T> {
     const remaining = deadline - performance.now();
-    if (remaining <= 0) return Promise.reject(new Error("DEADLINE"));
+    if (remaining <= 0) {
+      // Absorb rejections from the abandoned promise so late failures do not
+      // surface as unhandled promise rejections in Workers Logs.
+      p.catch(() => {});
+      return Promise.reject(new Error("DEADLINE"));
+    }
     let timer: ReturnType<typeof setTimeout> | undefined;
     const derived = p.then(
       (v) => {
