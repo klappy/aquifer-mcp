@@ -10,6 +10,7 @@ import {
   handleTelemetryPublic,
   handleScripture,
   handleEntity,
+  settledInChunks,
 } from "./tools.js";
 import type { Env, NavigabilityIndex, ResourceEntry, ArticleRef, ArticleContent, ResourceMetadata } from "./types.js";
 import type { AquiferStorage } from "./storage.js";
@@ -844,5 +845,62 @@ describe("handleList capabilities", () => {
     const text = result.content[0]!.text;
     expect(text).toContain("Tools: search, get, related, browse");
     expect(text).not.toContain("scripture");
+  });
+});
+
+
+describe("settledInChunks", () => {
+  it("processes items in chunks no larger than chunkSize", async () => {
+    const inFlight = { current: 0, max: 0 };
+    const items = Array.from({ length: 33 }, (_, i) => i);
+    const fn = async (n: number) => {
+      inFlight.current++;
+      inFlight.max = Math.max(inFlight.max, inFlight.current);
+      // Yield to allow other tasks to start (simulates a real fetch).
+      await new Promise((r) => setTimeout(r, 1));
+      inFlight.current--;
+      return n * 2;
+    };
+    const results = await settledInChunks(items, 4, fn);
+    expect(results.length).toBe(33);
+    expect(inFlight.max).toBeLessThanOrEqual(4);
+    expect(results.every((r) => r.status === "fulfilled")).toBe(true);
+    expect(results.map((r) => (r as PromiseFulfilledResult<number>).value)).toEqual(items.map((n) => n * 2));
+  });
+
+  it("preserves the PromiseSettledResult shape on rejection", async () => {
+    const fn = async (n: number) => {
+      if (n === 2) throw new Error(`boom-${n}`);
+      return n;
+    };
+    const results = await settledInChunks([0, 1, 2, 3, 4], 2, fn);
+    expect(results.length).toBe(5);
+    expect(results[0]?.status).toBe("fulfilled");
+    expect(results[2]?.status).toBe("rejected");
+    if (results[2]?.status === "rejected") {
+      expect(String(results[2].reason)).toContain("boom-2");
+    }
+    // Items after the failing one in the same batch must still settle.
+    expect(results[3]?.status).toBe("fulfilled");
+    expect(results[4]?.status).toBe("fulfilled");
+  });
+
+  it("handles empty input", async () => {
+    const results = await settledInChunks([], 4, async (n: number) => n);
+    expect(results).toEqual([]);
+  });
+
+  it("rejects chunkSize <= 0", async () => {
+    await expect(settledInChunks([1, 2], 0, async (n) => n)).rejects.toThrow(/chunkSize must be > 0/);
+  });
+
+  it("passes the original index to the callback", async () => {
+    const seen: Array<[number, number]> = [];
+    await settledInChunks(["a", "b", "c", "d", "e"], 2, async (item, idx) => {
+      seen.push([idx, item.charCodeAt(0)]);
+      return item;
+    });
+    seen.sort((a, b) => a[0] - b[0]);
+    expect(seen).toEqual([[0, 97], [1, 98], [2, 99], [3, 100], [4, 101]]);
   });
 });

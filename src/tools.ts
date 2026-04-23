@@ -13,6 +13,42 @@ function textResult(text: string) {
   return { content: [{ type: "text" as const, text }] };
 }
 
+// Concurrency caps for entity bootstrap fanout. The bootstrap is a worst-case
+// path that scans the article corpus when an entity isn't already present in
+// the pre-built index. Without these caps the inner Promise.allSettled fanout
+// produced ~255 simultaneous R2 subrequests on a single invocation, exhausting
+// the 128MB Worker memory budget (`exceededMemory`, Cloudflare Error 1102).
+// See odd/ledger/journal.md J-002/J-003 for the incident and fix history.
+const ENTITY_BOOTSTRAP_RESOURCE_CONCURRENCY = 4;
+const ENTITY_BOOTSTRAP_FILE_CONCURRENCY = 8;
+const ENTITY_BOOTSTRAP_WALLCLOCK_BUDGET_MS = 20_000;
+
+/**
+ * Run `fn` over `items` in batches of `chunkSize`, awaiting each batch to
+ * settle before starting the next. Returns the same shape as
+ * `Promise.allSettled` so callers can replace the latter with no other change.
+ *
+ * Why this exists: Cloudflare Workers have a 128MB memory cap and per-isolate
+ * subrequest concurrency limits. An unbounded `Promise.allSettled(items.map(fetch))`
+ * over a few hundred items produces a working set proportional to the number
+ * of items, not the number of *active* requests, because every response body
+ * is held in memory until the whole `allSettled` resolves.
+ */
+export async function settledInChunks<T, R>(
+  items: readonly T[],
+  chunkSize: number,
+  fn: (item: T, index: number) => Promise<R>,
+): Promise<PromiseSettledResult<R>[]> {
+  if (chunkSize <= 0) throw new Error("settledInChunks: chunkSize must be > 0");
+  const results: PromiseSettledResult<R>[] = [];
+  for (let i = 0; i < items.length; i += chunkSize) {
+    const batch = items.slice(i, i + chunkSize);
+    const settled = await Promise.allSettled(batch.map((item, j) => fn(item, i + j)));
+    for (const r of settled) results.push(r);
+  }
+  return results;
+}
+
 const TELEMETRY_POLICY_BASE = [
   "# Aquifer Telemetry Policy (v1)",
   "",
@@ -678,17 +714,28 @@ async function bootstrapEntityMatches(
 
   const matches: ArticleRef[] = [];
   const bootstrapStart = performance.now();
+  const deadline = bootstrapStart + ENTITY_BOOTSTRAP_WALLCLOCK_BUDGET_MS;
+  const isPastDeadline = () => performance.now() > deadline;
 
-  // Parallel across resources
-  const resourceResults = await Promise.allSettled(
-    index.registry.map(async (entry) => {
+  // Bounded fanout across resources. Each batch's R2 reads are awaited and
+  // released before the next batch starts, so memory usage is proportional to
+  // ENTITY_BOOTSTRAP_RESOURCE_CONCURRENCY * ENTITY_BOOTSTRAP_FILE_CONCURRENCY
+  // outstanding fetch responses (~32 in flight at most), not the full corpus.
+  const resourceResults = await settledInChunks(
+    index.registry,
+    ENTITY_BOOTSTRAP_RESOURCE_CONCURRENCY,
+    async (entry) => {
+      if (isPastDeadline()) return [];
       const repoSha = index.repo_shas.get(entry.resource_code);
       if (!repoSha) return [];
       const files = await listContentFiles(entry.resource_code, entry.language, entry.order, env, storage, repoSha, tracer);
 
-      // Parallel across files within each resource
-      const fileResults = await Promise.allSettled(
-        files.map(async (file) => {
+      // Bounded fanout across files within each resource.
+      const fileResults = await settledInChunks(
+        files,
+        ENTITY_BOOTSTRAP_FILE_CONCURRENCY,
+        async (file) => {
+          if (isPastDeadline()) return [];
           const articles = await fetchContentFile(entry.resource_code, entry.language, file, env, storage, repoSha, tracer);
           if (!articles?.length) return [];
           const found: ArticleRef[] = [];
@@ -707,7 +754,7 @@ async function bootstrapEntityMatches(
             });
           }
           return found;
-        }),
+        },
       );
 
       const refs: ArticleRef[] = [];
@@ -715,16 +762,24 @@ async function bootstrapEntityMatches(
         if (fr.status === "fulfilled") refs.push(...fr.value);
       }
       return refs;
-    }),
+    },
   );
 
   for (const rr of resourceResults) {
     if (rr.status === "fulfilled") matches.push(...rr.value);
   }
 
+  const completed = !isPastDeadline();
   const deduped = deduplicateRefs(matches);
-  tracer?.addSpan("entity-bootstrap", Math.round(performance.now() - bootstrapStart), undefined, `${index.registry.length} resources, ${deduped.length} matches`);
-  if (deduped.length > 0) {
+  tracer?.addSpan(
+    "entity-bootstrap",
+    Math.round(performance.now() - bootstrapStart),
+    undefined,
+    `${index.registry.length} resources, ${deduped.length} matches${completed ? "" : " (BUDGET_EXCEEDED, partial)"}`,
+  );
+  // Only cache complete results; partial results from a deadline bail would
+  // poison the cache and prevent later (successful) retries from improving it.
+  if (deduped.length > 0 && completed) {
     index.entity.set(normalizedEntityId, deduped);
     await storage.putJSON(key, deduped);
   }
