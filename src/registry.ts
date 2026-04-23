@@ -416,7 +416,7 @@ async function populateEntityIndexes(
     const entityMap = new Map<string, ArticleRef[]>();
 
     await settledInChunks(files, ENTITY_BUILD_FILE_CONCURRENCY, async (file) => {
-      const url = `https://raw.githubusercontent.com/${env.AQUIFER_ORG}/${code}/${sha}/json/${file}`;
+      const url = `https://raw.githubusercontent.com/${env.AQUIFER_ORG}/${code}/${sha}/${language}/json/${file}`;
       const key = contentKey(code, sha, language, file);
       let articles: import("./types.js").ArticleContent[] | null = null;
       try {
