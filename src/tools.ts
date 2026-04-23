@@ -34,13 +34,23 @@ const ENTITY_BOOTSTRAP_WALLCLOCK_BUDGET_MS = 20_000;
  */
 export interface BootstrapEntityResult {
   matches: ArticleRef[];
-  /** True only if every resource and every file was scanned to completion. */
+  /**
+   * True only if every resource was scanned to completion AND every file
+   * fetch within those resources resolved successfully. False if any
+   * resource was skipped, any file fetch was rejected/deadline-killed, or
+   * any resource only partially completed its file fanout.
+   */
   complete: boolean;
+  /** Resources where every file fetch resolved successfully. */
   scanned_resources: number;
   total_resources: number;
+  /** Successful file fetches that returned (data or null). */
   scanned_files: number;
+  /** File fetches that rejected or were killed by the deadline race. */
+  failed_files: number;
+  /** Sum of file counts across resources where listContentFiles succeeded. */
   total_files_estimate: number;
-  /** True iff the wall-clock deadline was the cause of incompletion. */
+  /** True iff the wall-clock deadline expired during this scan. */
   budget_exceeded: boolean;
   duration_ms: number;
 }
@@ -744,6 +754,7 @@ export async function bootstrapEntityMatches(
       scanned_resources: index.registry.length,
       total_resources: index.registry.length,
       scanned_files: 0,
+      failed_files: 0,
       total_files_estimate: 0,
       budget_exceeded: false,
       duration_ms: 0,
@@ -755,12 +766,44 @@ export async function bootstrapEntityMatches(
   const deadline = bootstrapStart + ENTITY_BOOTSTRAP_WALLCLOCK_BUDGET_MS;
   const isPastDeadline = () => performance.now() > deadline;
 
-  // Per-resource scan accounting. We track scanned/total at both the resource
-  // and file level so callers can report exactly what was and wasn't covered
-  // when the wall-clock budget trips. Counters are mutated from inside the
-  // bounded fanout below.
-  let scannedResources = 0;
+  // Race a fetch promise against the remaining wall-clock budget. If the
+  // deadline fires first, the fetch is abandoned (it still resolves in the
+  // background — Cloudflare cleans it up — but its result is discarded).
+  // Without this, slow fetches launched just before the deadline check would
+  // run to completion, blowing the wall-clock cap and pushing the worker
+  // past the client's timeout.
+  function withinDeadline<T>(p: Promise<T>): Promise<T> {
+    const remaining = deadline - performance.now();
+    if (remaining <= 0) return Promise.reject(new Error("DEADLINE"));
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    return Promise.race([
+      p.then(
+        (v) => {
+          if (timer) clearTimeout(timer);
+          return v;
+        },
+        (e) => {
+          if (timer) clearTimeout(timer);
+          throw e;
+        },
+      ),
+      new Promise<T>((_, rej) => {
+        timer = setTimeout(() => rej(new Error("DEADLINE")), remaining);
+      }),
+    ]);
+  }
+
+  // Per-resource scan accounting. We track at three granularities:
+  //   - resourcesComplete:  no failures, no deadline kills, no rejections
+  //   - resourcesPartial:   started but some files failed, were killed, or
+  //                          listContentFiles itself threw
+  //   - resourcesSkipped:   never entered (deadline already past on launch)
+  // The full-completeness signal requires zero partial AND zero skipped.
+  // File-level counters track scanned vs failed for the disclosure note.
+  let resourcesComplete = 0;
+  let resourcesPartial = 0;
   let scannedFiles = 0;
+  let failedFiles = 0;
   let totalFilesEstimate = 0;
 
   // Bounded fanout across resources. Each batch's R2 reads are awaited and
@@ -771,26 +814,53 @@ export async function bootstrapEntityMatches(
     index.registry,
     ENTITY_BOOTSTRAP_RESOURCE_CONCURRENCY,
     async (entry) => {
-      if (isPastDeadline()) return [];
-      const repoSha = index.repo_shas.get(entry.resource_code);
-      if (!repoSha) {
-        // Resource has no SHA pointer, so there is nothing scannable. Count it
-        // as scanned so an unscannable registry entry does not permanently
-        // prevent `complete` from becoming true (which would block caching and
-        // force a full re-scan on every subsequent lookup).
-        scannedResources++;
+      if (isPastDeadline()) {
+        // Skipped — the per-resource counter is computed at the end as
+        // (registry.length - resourcesComplete - resourcesPartial); this branch
+        // contributes neither.
         return [];
       }
-      const files = await listContentFiles(entry.resource_code, entry.language, entry.order, env, storage, repoSha, tracer);
+      const repoSha = index.repo_shas.get(entry.resource_code);
+      if (!repoSha) {
+        // Unscannable registry entry counts as complete by absence — there is
+        // nothing to fetch and no missing data to disclose.
+        resourcesComplete++;
+        return [];
+      }
+
+      let files: string[];
+      try {
+        files = await withinDeadline(
+          listContentFiles(entry.resource_code, entry.language, entry.order, env, storage, repoSha, tracer),
+        );
+      } catch {
+        // Could not even enumerate files — partial, not skipped, because we
+        // attempted work for this resource and got nothing.
+        resourcesPartial++;
+        return [];
+      }
       totalFilesEstimate += files.length;
 
-      // Bounded fanout across files within each resource.
+      // Bounded fanout across files within each resource. Each fetch is raced
+      // against the remaining deadline so a slow upstream cannot blow the
+      // overall wall-clock budget.
       const fileResults = await settledInChunks(
         files,
         ENTITY_BOOTSTRAP_FILE_CONCURRENCY,
         async (file) => {
-          if (isPastDeadline()) return [];
-          const articles = await fetchContentFile(entry.resource_code, entry.language, file, env, storage, repoSha, tracer);
+          if (isPastDeadline()) {
+            failedFiles++;
+            throw new Error("DEADLINE");
+          }
+          let articles: Awaited<ReturnType<typeof fetchContentFile>>;
+          try {
+            articles = await withinDeadline(
+              fetchContentFile(entry.resource_code, entry.language, file, env, storage, repoSha, tracer),
+            );
+          } catch {
+            failedFiles++;
+            throw new Error("FETCH_FAILED");
+          }
           scannedFiles++;
           if (!articles?.length) return [];
           const found: ArticleRef[] = [];
@@ -813,12 +883,22 @@ export async function bootstrapEntityMatches(
       );
 
       const refs: ArticleRef[] = [];
+      let hadFailure = false;
       for (const fr of fileResults) {
-        if (fr.status === "fulfilled") refs.push(...fr.value);
+        if (fr.status === "fulfilled") {
+          refs.push(...fr.value);
+        } else {
+          hadFailure = true;
+        }
       }
-      // A resource counts as fully scanned only when none of its file fetches
-      // were short-circuited by the deadline mid-batch.
-      if (!isPastDeadline()) scannedResources++;
+      // A resource is fully scanned only when EVERY file fetch resolved
+      // successfully (no rejections from deadline kills, fetch errors, or
+      // upstream 5xx). One failed file makes the resource scan partial.
+      if (hadFailure) {
+        resourcesPartial++;
+      } else {
+        resourcesComplete++;
+      }
       return refs;
     },
   );
@@ -828,15 +908,30 @@ export async function bootstrapEntityMatches(
   }
 
   const budgetExceeded = isPastDeadline();
-  const complete = !budgetExceeded && scannedResources === index.registry.length;
+  const resourcesSkipped = index.registry.length - resourcesComplete - resourcesPartial;
+  // The completion signal is determined by counters, not by whether the
+  // deadline was tripped. A scan that finished every resource right at the
+  // deadline boundary is still complete; a scan that finished early but had
+  // one rejected file is not. budgetExceeded is reported separately as the
+  // most likely *cause* of incompleteness when one occurred.
+  const complete = resourcesPartial === 0 && resourcesSkipped === 0 && failedFiles === 0;
   const deduped = deduplicateRefs(matches);
   const durationMs = Math.round(performance.now() - bootstrapStart);
 
+  // Tracer label uses the same reason taxonomy as the user-facing note: the
+  // primary signal is what went wrong, not the secondary signal of whether
+  // the wall-clock happens to have expired.
+  let tracerReason = "";
+  if (!complete) {
+    if (budgetExceeded) tracerReason = " (PARTIAL: budget_exceeded)";
+    else if (failedFiles > 0) tracerReason = " (PARTIAL: fetch_failures)";
+    else tracerReason = " (PARTIAL: scan_incomplete)";
+  }
   tracer?.addSpan(
     "entity-bootstrap",
     durationMs,
     undefined,
-    `${scannedResources}/${index.registry.length} resources, ${scannedFiles}/${totalFilesEstimate} files, ${deduped.length} matches${complete ? "" : ` (PARTIAL: ${budgetExceeded ? "budget_exceeded" : "scan_incomplete"})`}`,
+    `${resourcesComplete}/${index.registry.length} resources complete, ${scannedFiles}/${totalFilesEstimate} files (${failedFiles} failed), ${deduped.length} matches${tracerReason}`,
   );
 
   // Only cache complete results. Partial results from a deadline bail would
@@ -849,9 +944,10 @@ export async function bootstrapEntityMatches(
   return {
     matches: deduped,
     complete,
-    scanned_resources: scannedResources,
+    scanned_resources: resourcesComplete,
     total_resources: index.registry.length,
     scanned_files: scannedFiles,
+    failed_files: failedFiles,
     total_files_estimate: totalFilesEstimate,
     budget_exceeded: budgetExceeded,
     duration_ms: durationMs,
@@ -866,10 +962,21 @@ export async function bootstrapEntityMatches(
  * authoritative — see BootstrapEntityResult for the contract.
  */
 function formatPartialBootstrapNote(r: BootstrapEntityResult): string {
-  const reason = r.budget_exceeded
-    ? `lookup deadline reached (${(r.duration_ms / 1000).toFixed(1)}s)`
-    : "scan incomplete";
-  return `\n\n_⚠ Partial result: ${reason}. Scanned ${r.scanned_resources}/${r.total_resources} resources and ${r.scanned_files}/${r.total_files_estimate} files. Additional matches may exist in unscanned content. Retrying may continue the scan from a warm cache._`;
+  // The reason taxonomy mirrors the tracer label: budget_exceeded is the
+  // primary cause whenever the deadline expired (regardless of whether files
+  // also failed), then fetch failures, then "scan_incomplete" as a catch-all.
+  // This keeps the user-facing string and the trace header in lockstep so an
+  // operator debugging from logs sees the same diagnosis the user saw.
+  let reason: string;
+  if (r.budget_exceeded) {
+    reason = `lookup deadline reached (${(r.duration_ms / 1000).toFixed(1)}s)`;
+  } else if (r.failed_files > 0) {
+    reason = `${r.failed_files} content file fetch(es) failed`;
+  } else {
+    reason = "scan incomplete";
+  }
+  const failedSuffix = r.failed_files > 0 ? `, ${r.failed_files} failed` : "";
+  return `\n\n_⚠ Partial result: ${reason}. Scanned ${r.scanned_resources}/${r.total_resources} resources and ${r.scanned_files}/${r.total_files_estimate} files${failedSuffix}. Additional matches may exist in unscanned content. Retrying may continue the scan from a warm cache._`;
 }
 
 function formatArticleRef(ref: ArticleRef): string {
