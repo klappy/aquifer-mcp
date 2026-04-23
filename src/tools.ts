@@ -776,17 +776,22 @@ export async function bootstrapEntityMatches(
     const remaining = deadline - performance.now();
     if (remaining <= 0) return Promise.reject(new Error("DEADLINE"));
     let timer: ReturnType<typeof setTimeout> | undefined;
+    const derived = p.then(
+      (v) => {
+        if (timer) clearTimeout(timer);
+        return v;
+      },
+      (e) => {
+        if (timer) clearTimeout(timer);
+        throw e;
+      },
+    );
+    // Absorb late rejections from the derived promise so that fetches which
+    // reject after the deadline wins the race do not surface as unhandled
+    // promise rejections in Workers Logs.
+    derived.catch(() => {});
     return Promise.race([
-      p.then(
-        (v) => {
-          if (timer) clearTimeout(timer);
-          return v;
-        },
-        (e) => {
-          if (timer) clearTimeout(timer);
-          throw e;
-        },
-      ),
+      derived,
       new Promise<T>((_, rej) => {
         timer = setTimeout(() => rej(new Error("DEADLINE")), remaining);
       }),
