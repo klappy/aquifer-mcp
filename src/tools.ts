@@ -13,6 +13,74 @@ function textResult(text: string) {
   return { content: [{ type: "text" as const, text }] };
 }
 
+// Concurrency caps for entity bootstrap fanout. The bootstrap is a worst-case
+// path that scans the article corpus when an entity isn't already present in
+// the pre-built index. Without these caps the inner Promise.allSettled fanout
+// produced ~255 simultaneous R2 subrequests on a single invocation, exhausting
+// the 128MB Worker memory budget (`exceededMemory`, Cloudflare Error 1102).
+// See odd/ledger/journal.md J-002/J-003 for the incident and fix history.
+const ENTITY_BOOTSTRAP_RESOURCE_CONCURRENCY = 4;
+const ENTITY_BOOTSTRAP_FILE_CONCURRENCY = 8;
+const ENTITY_BOOTSTRAP_WALLCLOCK_BUDGET_MS = 20_000;
+
+/**
+ * Result of an entity bootstrap scan over the article corpus. The `complete`
+ * flag tells callers whether they can treat `matches` as authoritative or
+ * whether the scan bailed early under the wall-clock budget — in which case
+ * additional matches may exist in the resources/files that were not yet
+ * scanned. Callers MUST surface partial state to end users; the absence of
+ * this signal would silently present incomplete results as exhaustive, which
+ * is the failure mode this type exists to prevent.
+ */
+export interface BootstrapEntityResult {
+  matches: ArticleRef[];
+  /**
+   * True only if every resource was scanned to completion AND every file
+   * fetch within those resources resolved successfully. False if any
+   * resource was skipped, any file fetch was rejected/deadline-killed, or
+   * any resource only partially completed its file fanout.
+   */
+  complete: boolean;
+  /** Resources where every file fetch resolved successfully. */
+  scanned_resources: number;
+  total_resources: number;
+  /** Successful file fetches that returned (data or null). */
+  scanned_files: number;
+  /** File fetches that rejected or were killed by the deadline race. */
+  failed_files: number;
+  /** Sum of file counts across resources where listContentFiles succeeded. */
+  total_files_estimate: number;
+  /** True iff the wall-clock deadline expired during this scan. */
+  budget_exceeded: boolean;
+  duration_ms: number;
+}
+
+/**
+ * Run `fn` over `items` in batches of `chunkSize`, awaiting each batch to
+ * settle before starting the next. Returns the same shape as
+ * `Promise.allSettled` so callers can replace the latter with no other change.
+ *
+ * Why this exists: Cloudflare Workers have a 128MB memory cap and per-isolate
+ * subrequest concurrency limits. An unbounded `Promise.allSettled(items.map(fetch))`
+ * over a few hundred items produces a working set proportional to the number
+ * of items, not the number of *active* requests, because every response body
+ * is held in memory until the whole `allSettled` resolves.
+ */
+export async function settledInChunks<T, R>(
+  items: readonly T[],
+  chunkSize: number,
+  fn: (item: T, index: number) => Promise<R>,
+): Promise<PromiseSettledResult<R>[]> {
+  if (chunkSize <= 0) throw new Error("settledInChunks: chunkSize must be > 0");
+  const results: PromiseSettledResult<R>[] = [];
+  for (let i = 0; i < items.length; i += chunkSize) {
+    const batch = items.slice(i, i + chunkSize);
+    const settled = await Promise.allSettled(batch.map((item, j) => fn(item, i + j)));
+    for (const r of settled) results.push(r);
+  }
+  return results;
+}
+
 const TELEMETRY_POLICY_BASE = [
   "# Aquifer Telemetry Policy (v1)",
   "",
@@ -350,20 +418,25 @@ async function searchByEntity(entityQuery: string, index: NavigabilityIndex, env
     }
   }
 
+  let partialNote = "";
   if (matches.length === 0) {
-    const bootstrapped = await bootstrapEntityMatches(normalized, index, env, storage, tracer);
-    matches.push(...bootstrapped);
+    const bootstrap = await bootstrapEntityMatches(normalized, index, env, storage, tracer);
+    matches.push(...bootstrap.matches);
+    if (!bootstrap.complete) {
+      partialNote = formatPartialBootstrapNote(bootstrap);
+    }
   }
 
   if (matches.length === 0) {
-    return textResult(`No articles found for entity "${entityQuery}".`);
+    const noMatch = `No articles found for entity "${entityQuery}".`;
+    return textResult(partialNote ? `${noMatch}${partialNote}` : noMatch);
   }
 
   const deduped = deduplicateRefs(matches);
   const lines = deduped.map(formatArticleRef);
 
   return textResult(
-    `Found ${deduped.length} article(s) referencing ${entityQuery}:\n\n${lines.join("\n\n")}`,
+    `Found ${deduped.length} article(s) referencing ${entityQuery}:\n\n${lines.join("\n\n")}${partialNote}`,
   );
 }
 
@@ -661,35 +734,144 @@ function ingestArticleEntities(index: NavigabilityIndex, entry: ResourceEntry, a
   }
 }
 
-async function bootstrapEntityMatches(
+export async function bootstrapEntityMatches(
   normalizedEntityId: string,
   index: NavigabilityIndex,
   env: Env,
   storage: AquiferStorage,
   tracer?: RequestTracer,
-): Promise<ArticleRef[]> {
-  // Entity bootstrap cache stored in R2, keyed by composite SHA + entity ID
+): Promise<BootstrapEntityResult> {
+  // Entity bootstrap cache stored in R2, keyed by composite SHA + entity ID.
+  // A cache hit is by definition a `complete` result — only complete scans
+  // are ever written to this cache (see the cache-write gate at the end).
   const key = entityKey(index.composite_sha, normalizedEntityId);
   const { data: cached } = await storage.getJSON<ArticleRef[]>(key, tracer);
   if (cached?.length) {
     index.entity.set(normalizedEntityId, cached);
-    return cached;
+    return {
+      matches: cached,
+      complete: true,
+      scanned_resources: index.registry.length,
+      total_resources: index.registry.length,
+      scanned_files: 0,
+      failed_files: 0,
+      total_files_estimate: 0,
+      budget_exceeded: false,
+      duration_ms: 0,
+    };
   }
 
   const matches: ArticleRef[] = [];
   const bootstrapStart = performance.now();
+  const deadline = bootstrapStart + ENTITY_BOOTSTRAP_WALLCLOCK_BUDGET_MS;
+  const isPastDeadline = () => performance.now() > deadline;
 
-  // Parallel across resources
-  const resourceResults = await Promise.allSettled(
-    index.registry.map(async (entry) => {
+  // Race a fetch promise against the remaining wall-clock budget. If the
+  // deadline fires first, the fetch is abandoned (it still resolves in the
+  // background — Cloudflare cleans it up — but its result is discarded).
+  // Without this, slow fetches launched just before the deadline check would
+  // run to completion, blowing the wall-clock cap and pushing the worker
+  // past the client's timeout.
+  function withinDeadline<T>(p: Promise<T>): Promise<T> {
+    const remaining = deadline - performance.now();
+    if (remaining <= 0) {
+      // Absorb rejections from the abandoned promise so late failures do not
+      // surface as unhandled promise rejections in Workers Logs.
+      p.catch(() => {});
+      return Promise.reject(new Error("DEADLINE"));
+    }
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const derived = p.then(
+      (v) => {
+        if (timer) clearTimeout(timer);
+        return v;
+      },
+      (e) => {
+        if (timer) clearTimeout(timer);
+        throw e;
+      },
+    );
+    // Absorb late rejections from the derived promise so that fetches which
+    // reject after the deadline wins the race do not surface as unhandled
+    // promise rejections in Workers Logs.
+    derived.catch(() => {});
+    return Promise.race([
+      derived,
+      new Promise<T>((_, rej) => {
+        timer = setTimeout(() => rej(new Error("DEADLINE")), remaining);
+      }),
+    ]);
+  }
+
+  // Per-resource scan accounting. We track at three granularities:
+  //   - resourcesComplete:  no failures, no deadline kills, no rejections
+  //   - resourcesPartial:   started but some files failed, were killed, or
+  //                          listContentFiles itself threw
+  //   - resourcesSkipped:   never entered (deadline already past on launch)
+  // The full-completeness signal requires zero partial AND zero skipped.
+  // File-level counters track scanned vs failed for the disclosure note.
+  let resourcesComplete = 0;
+  let resourcesPartial = 0;
+  let scannedFiles = 0;
+  let failedFiles = 0;
+  let totalFilesEstimate = 0;
+
+  // Bounded fanout across resources. Each batch's R2 reads are awaited and
+  // released before the next batch starts, so memory usage is proportional to
+  // ENTITY_BOOTSTRAP_RESOURCE_CONCURRENCY * ENTITY_BOOTSTRAP_FILE_CONCURRENCY
+  // outstanding fetch responses (~32 in flight at most), not the full corpus.
+  const resourceResults = await settledInChunks(
+    index.registry,
+    ENTITY_BOOTSTRAP_RESOURCE_CONCURRENCY,
+    async (entry) => {
+      if (isPastDeadline()) {
+        // Skipped — the per-resource counter is computed at the end as
+        // (registry.length - resourcesComplete - resourcesPartial); this branch
+        // contributes neither.
+        return [];
+      }
       const repoSha = index.repo_shas.get(entry.resource_code);
-      if (!repoSha) return [];
-      const files = await listContentFiles(entry.resource_code, entry.language, entry.order, env, storage, repoSha, tracer);
+      if (!repoSha) {
+        // Unscannable registry entry counts as complete by absence — there is
+        // nothing to fetch and no missing data to disclose.
+        resourcesComplete++;
+        return [];
+      }
 
-      // Parallel across files within each resource
-      const fileResults = await Promise.allSettled(
-        files.map(async (file) => {
-          const articles = await fetchContentFile(entry.resource_code, entry.language, file, env, storage, repoSha, tracer);
+      let files: string[];
+      try {
+        files = await withinDeadline(
+          listContentFiles(entry.resource_code, entry.language, entry.order, env, storage, repoSha, tracer),
+        );
+      } catch {
+        // Could not even enumerate files — partial, not skipped, because we
+        // attempted work for this resource and got nothing.
+        resourcesPartial++;
+        return [];
+      }
+      totalFilesEstimate += files.length;
+
+      // Bounded fanout across files within each resource. Each fetch is raced
+      // against the remaining deadline so a slow upstream cannot blow the
+      // overall wall-clock budget.
+      const fileResults = await settledInChunks(
+        files,
+        ENTITY_BOOTSTRAP_FILE_CONCURRENCY,
+        async (file) => {
+          if (isPastDeadline()) {
+            failedFiles++;
+            throw new Error("DEADLINE");
+          }
+          let articles: Awaited<ReturnType<typeof fetchContentFile>>;
+          try {
+            articles = await withinDeadline(
+              fetchContentFile(entry.resource_code, entry.language, file, env, storage, repoSha, tracer),
+            );
+          } catch {
+            failedFiles++;
+            throw new Error("FETCH_FAILED");
+          }
+          scannedFiles++;
           if (!articles?.length) return [];
           const found: ArticleRef[] = [];
           for (const article of articles) {
@@ -707,28 +889,113 @@ async function bootstrapEntityMatches(
             });
           }
           return found;
-        }),
+        },
       );
 
       const refs: ArticleRef[] = [];
+      let hadFailure = false;
       for (const fr of fileResults) {
-        if (fr.status === "fulfilled") refs.push(...fr.value);
+        if (fr.status === "fulfilled") {
+          refs.push(...fr.value);
+        } else {
+          hadFailure = true;
+        }
+      }
+      // A resource is fully scanned only when EVERY file fetch resolved
+      // successfully (no rejections from deadline kills, fetch errors, or
+      // upstream 5xx). One failed file makes the resource scan partial.
+      if (hadFailure) {
+        resourcesPartial++;
+      } else {
+        resourcesComplete++;
       }
       return refs;
-    }),
+    },
   );
 
   for (const rr of resourceResults) {
     if (rr.status === "fulfilled") matches.push(...rr.value);
   }
 
+  const budgetExceeded = isPastDeadline();
+  const resourcesSkipped = index.registry.length - resourcesComplete - resourcesPartial;
+  // The completion signal is determined by counters, not by whether the
+  // deadline was tripped. A scan that finished every resource right at the
+  // deadline boundary is still complete; a scan that finished early but had
+  // one rejected file is not. budgetExceeded is reported separately as the
+  // most likely *cause* of incompleteness when one occurred.
+  const complete = resourcesPartial === 0 && resourcesSkipped === 0 && failedFiles === 0;
   const deduped = deduplicateRefs(matches);
-  tracer?.addSpan("entity-bootstrap", Math.round(performance.now() - bootstrapStart), undefined, `${index.registry.length} resources, ${deduped.length} matches`);
-  if (deduped.length > 0) {
+  const durationMs = Math.round(performance.now() - bootstrapStart);
+
+  // Tracer label uses the same reason taxonomy as the user-facing note: the
+  // primary signal is what went wrong, not the secondary signal of whether
+  // the wall-clock happens to have expired.
+  let tracerReason = "";
+  if (!complete) {
+    if (budgetExceeded) tracerReason = " (PARTIAL: budget_exceeded)";
+    else if (failedFiles > 0) tracerReason = " (PARTIAL: fetch_failures)";
+    else tracerReason = " (PARTIAL: scan_incomplete)";
+  }
+  tracer?.addSpan(
+    "entity-bootstrap",
+    durationMs,
+    undefined,
+    `${resourcesComplete}/${index.registry.length} resources complete, ${scannedFiles}/${totalFilesEstimate} files (${failedFiles} failed), ${deduped.length} matches${tracerReason}`,
+  );
+
+  // Only cache complete results. Partial results from a deadline bail would
+  // poison the cache and prevent later complete retries from improving it.
+  if (deduped.length > 0 && complete) {
     index.entity.set(normalizedEntityId, deduped);
     await storage.putJSON(key, deduped);
   }
-  return deduped;
+
+  return {
+    matches: deduped,
+    complete,
+    scanned_resources: resourcesComplete,
+    total_resources: index.registry.length,
+    scanned_files: scannedFiles,
+    failed_files: failedFiles,
+    total_files_estimate: totalFilesEstimate,
+    budget_exceeded: budgetExceeded,
+    duration_ms: durationMs,
+  };
+}
+
+/**
+ * Render a transparent disclosure note for a partial bootstrap result. The
+ * note must be unambiguous about (a) the scan was incomplete, (b) what was
+ * and wasn't covered, and (c) what action the caller can take. This is the
+ * mechanism that prevents silent presentation of partial results as
+ * authoritative — see BootstrapEntityResult for the contract.
+ */
+function formatPartialBootstrapNote(r: BootstrapEntityResult): string {
+  // The reason taxonomy mirrors the tracer label: budget_exceeded is the
+  // primary cause whenever the deadline expired (regardless of whether files
+  // also failed), then fetch failures, then "scan_incomplete" as a catch-all.
+  // This keeps the user-facing string and the trace header in lockstep so an
+  // operator debugging from logs sees the same diagnosis the user saw.
+  let reason: string;
+  // failedSuffix surfaces the failure count alongside the file ratio, but
+  // ONLY when the reason text doesn't already say it. In the failed_files
+  // branch the count is already in `reason` ("N content file fetch(es)
+  // failed") and repeating it produces duplicated noise like
+  // "...3 fetch(es) failed. Scanned 4/33 resources and 17/230 files, 3 failed".
+  // The suffix is useful only in the budget_exceeded branch, where the
+  // primary reason text doesn't carry the failure count and the suffix is
+  // the only place the user sees how many files failed.
+  let failedSuffix = "";
+  if (r.budget_exceeded) {
+    reason = `lookup deadline reached (${(r.duration_ms / 1000).toFixed(1)}s)`;
+    if (r.failed_files > 0) failedSuffix = `, ${r.failed_files} failed`;
+  } else if (r.failed_files > 0) {
+    reason = `${r.failed_files} content file fetch(es) failed`;
+  } else {
+    reason = "scan incomplete";
+  }
+  return `\n\n_⚠ Partial result: ${reason}. Scanned ${r.scanned_resources}/${r.total_resources} resources and ${r.scanned_files}/${r.total_files_estimate} files${failedSuffix}. Additional matches may exist in unscanned content. Retrying may continue the scan from a warm cache._`;
 }
 
 function formatArticleRef(ref: ArticleRef): string {
@@ -1086,19 +1353,29 @@ export async function handleEntity(
   const index = await getOrBuildIndex(env, storage, ctx, tracer);
   const normalized = entityId.toLowerCase();
 
-  // Find all articles referencing this entity
+  // Find all articles referencing this entity. Hot path: pre-built index map.
+  // Cold path: scan the article corpus via bootstrapEntityMatches, which may
+  // return PARTIAL results under wall-clock pressure — surface that to the
+  // user so they can decide whether to retry.
   let refs = index.entity.get(normalized);
+  let partialNote = "";
   if (!refs?.length) {
-    refs = await bootstrapEntityMatches(normalized, index, env, storage, tracer);
+    const bootstrap = await bootstrapEntityMatches(normalized, index, env, storage, tracer);
+    refs = bootstrap.matches;
+    if (!bootstrap.complete) {
+      partialNote = formatPartialBootstrapNote(bootstrap);
+    }
   }
 
   if (!refs?.length) {
-    return textResult(`No articles found for entity "${entityId}".`);
+    const noMatch = `No articles found for entity "${entityId}".`;
+    return textResult(partialNote ? `${noMatch}${partialNote}` : noMatch);
   }
 
   refs = refs.filter((r) => r.language === language);
   if (!refs.length) {
-    return textResult(`No articles found for entity "${entityId}" in language "${language}".`);
+    const noMatch = `No articles found for entity "${entityId}" in language "${language}".`;
+    return textResult(partialNote ? `${noMatch}${partialNote}` : noMatch);
   }
 
   // Group by resource type for progressive disclosure
@@ -1138,7 +1415,7 @@ export async function handleEntity(
   sections.push("---");
   sections.push("_Use `get` with any article's resource_code/language/content_id to fetch full content._");
 
-  return textResult(sections.join("\n"));
+  return textResult(sections.join("\n") + partialNote);
 }
 
 function deduplicateRefs(refs: ArticleRef[]): ArticleRef[] {
