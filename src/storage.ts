@@ -175,3 +175,20 @@ export function titleIndexKey(resourceCode: string, sha: string): string {
 export function articleIndexKey(resourceCode: string, sha: string): string {
   return `index/${resourceCode}/${sha}/articles.json`;
 }
+
+/**
+ * Per-resource entity index. Maps lowercase entity_id (e.g. "person:paul") to
+ * the ArticleRefs in this resource that reference that entity. Built once at
+ * index-build time by scanning the resource's content files; queried via
+ * fanOutEntitySearch which loads all per-resource entity indexes in parallel.
+ *
+ * Why per-resource and not a single global blob: keeps each R2 object small
+ * (typically <100KB), makes the SHA-keyed lifecycle work the same as the
+ * other indexes, and matches the established passageIndexKey/titleIndexKey
+ * pattern. The fan-out at query time is N small reads in parallel, which is
+ * fast and memory-bounded — the opposite of the bootstrap path's pre-H11
+ * behavior of scanning every content file on every cold entity lookup.
+ */
+export function entityIndexKey(resourceCode: string, sha: string): string {
+  return `index/${resourceCode}/${sha}/entities.json`;
+}

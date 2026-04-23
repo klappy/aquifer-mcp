@@ -7,7 +7,7 @@ import type {
 } from "./types.js";
 import { metadataUrl, fetchJson, fetchRepoSha, fetchOrgRepos } from "./github.js";
 import { isValidIndexReference, rangesOverlap } from "./references.js";
-import { AquiferStorage, indexKey, metadataKey, passageIndexKey, titleIndexKey, articleIndexKey } from "./storage.js";
+import { AquiferStorage, indexKey, metadataKey, passageIndexKey, titleIndexKey, articleIndexKey, entityIndexKey, contentKey } from "./storage.js";
 
 /** Per-resource article lookup: content_id → file location + minimal metadata. */
 export interface ArticleLookupEntry {
@@ -21,6 +21,44 @@ import type { RequestTracer } from "./tracing.js";
 const CURRENT_INDEX_KEY = "index/current/navigability.json";
 const SHA_STALE_MS = 15 * 60 * 1000; // 15 minutes
 const INDEX_MEMORY_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
+/**
+ * Concurrency caps for entity index population during buildIndex. Scanning all
+ * content files for ACAI entity references would otherwise blow the Worker
+ * memory budget — the same OOM mechanism (J-002 / J-003) that affected the
+ * old user-blocking bootstrap path. The same caps apply here for the same
+ * reason; this code runs at index-build time instead of per-query, which
+ * removes the user-visible latency but does not change the per-fetch memory
+ * cost.
+ */
+const ENTITY_BUILD_RESOURCE_CONCURRENCY = 4;
+const ENTITY_BUILD_FILE_CONCURRENCY = 8;
+
+/**
+ * Run `fn` over `items` in batches of `chunkSize`, awaiting each batch to
+ * settle before starting the next. Same shape as Promise.allSettled but with
+ * memory usage bounded by the chunk size rather than the total item count.
+ *
+ * Duplicated from tools.ts intentionally: registry.ts cannot import from
+ * tools.ts (tools.ts depends on registry.ts), and the helper is small enough
+ * that a single canonical source isn't worth the dependency-graph contortion.
+ * See odd/ledger/journal.md J-005 for H12 — both call sites should eventually
+ * collapse onto a shared helper module if this duplication ever grows.
+ */
+async function settledInChunks<T, R>(
+  items: readonly T[],
+  chunkSize: number,
+  fn: (item: T, index: number) => Promise<R>,
+): Promise<PromiseSettledResult<R>[]> {
+  if (chunkSize <= 0) throw new Error("settledInChunks: chunkSize must be > 0");
+  const results: PromiseSettledResult<R>[] = [];
+  for (let i = 0; i < items.length; i += chunkSize) {
+    const batch = items.slice(i, i + chunkSize);
+    const settled = await Promise.allSettled(batch.map((item, j) => fn(item, i + j)));
+    for (const r of settled) results.push(r);
+  }
+  return results;
+}
 
 /** Module-level memory cache — survives across requests within the same isolate. */
 let cachedIndex: NavigabilityIndex | null = null;
@@ -305,8 +343,19 @@ async function buildIndex(
     }
   }
 
-  // Write all per-resource indexes to R2 in parallel
+  // Write all per-resource indexes (passage/title/article) to R2 in parallel
   await Promise.allSettled(writePromises);
+
+  // H11: populate per-resource entity indexes. This scans every content file
+  // for ACAI entity references and writes one entityIndexKey per resource.
+  // It does the SAME work the pre-H11 bootstrap was doing on every cold-cache
+  // entity lookup — moved here to index-build time so user-facing entity
+  // queries become O(N_resources) parallel R2 reads (~30 small parallel
+  // requests, each <100KB) instead of O(N_files) blocking R2 reads gated by
+  // the per-isolate memory budget. The bounded fanout caps keep the per-fetch
+  // memory profile identical to bootstrap; only the latency cost moves off
+  // the user-blocking path.
+  await populateEntityIndexes(results, env, storage, repoShas);
 
   // Return lightweight index — passage/title/entity are empty.
   // Queries use fan-out functions to load per-resource indexes on demand.
@@ -319,6 +368,144 @@ async function buildIndex(
     composite_sha: "",
     repo_shas: repoShas,
   };
+}
+
+/**
+ * H11: Build per-resource entity indexes by scanning content files. For each
+ * resource, walks every JSON content file in scripture_burrito.ingredients,
+ * collects every (entity_id → ArticleRef[]) mapping found in
+ * `article.associations.acai`, and writes the resulting Map to R2 keyed by
+ * entityIndexKey(code, sha). Memory is bounded by ENTITY_BUILD_RESOURCE_*
+ * and ENTITY_BUILD_FILE_CONCURRENCY caps using settledInChunks, mirroring
+ * the pre-H11 bootstrap path's safety profile.
+ *
+ * Failure handling: per-file failures are swallowed (the file's entities
+ * just don't appear in the index for this build). Per-resource failures
+ * mean the resource has no entityIndexKey written; fanOutEntitySearch will
+ * see a miss for that resource on the next query, which is the correct
+ * truthful-degradation behavior. The next index rebuild gets another shot.
+ *
+ * Performance: this adds a one-time cost to cold index builds. The pre-H11
+ * bootstrap was paying this cost per-entity-lookup; H11 pays it once and
+ * memoizes for the life of the composite SHA. Background refresh
+ * (refreshAndUpdateCurrentIndex via ctx.waitUntil) absorbs the cost away
+ * from user-visible latency for non-first cold builds.
+ */
+async function populateEntityIndexes(
+  results: PromiseSettledResult<{ code: string; metadata: ResourceMetadata } | null>[],
+  env: Env,
+  storage: AquiferStorage,
+  repoShas: Map<string, string>,
+): Promise<void> {
+  const resources: Array<{ code: string; language: string; files: string[]; sha: string }> = [];
+  for (const result of results) {
+    if (result.status !== "fulfilled" || !result.value) continue;
+    const { code, metadata } = result.value;
+    const sha = repoShas.get(code);
+    if (!sha) continue;
+    const ingredients = Object.keys(metadata.scripture_burrito?.ingredients ?? {});
+    const files = ingredients
+      .filter((k) => k.startsWith("json/") && k.endsWith(".content.json"))
+      .map((k) => k.replace(/^json\//, ""))
+      .sort();
+    if (files.length === 0) continue;
+    resources.push({ code, language: metadata.resource_metadata.language, files, sha });
+  }
+
+  await settledInChunks(resources, ENTITY_BUILD_RESOURCE_CONCURRENCY, async ({ code, language, files, sha }) => {
+    const entityMap = new Map<string, ArticleRef[]>();
+
+    await settledInChunks(files, ENTITY_BUILD_FILE_CONCURRENCY, async (file) => {
+      const url = `https://raw.githubusercontent.com/${env.AQUIFER_ORG}/${code}/${sha}/json/${file}`;
+      const key = contentKey(code, sha, language, file);
+      let articles: import("./types.js").ArticleContent[] | null = null;
+      try {
+        articles = await fetchJson<import("./types.js").ArticleContent[]>(url, storage, key);
+      } catch {
+        return; // per-file failure — swallow, see comment above
+      }
+      if (!articles?.length) return;
+      for (const article of articles) {
+        const acaiAssociations = article.associations?.acai ?? [];
+        for (const a of acaiAssociations) {
+          const entityId = String(a.id || "").toLowerCase();
+          if (!entityId) continue;
+          const ref: ArticleRef = {
+            resource_code: code,
+            language: article.language || language,
+            content_id: String(article.content_id),
+            title: article.title || `Article ${article.content_id}`,
+            resource_type: "",
+            index_reference: article.index_reference,
+          };
+          const existing = entityMap.get(entityId);
+          if (existing) {
+            existing.push(ref);
+          } else {
+            entityMap.set(entityId, [ref]);
+          }
+        }
+      }
+    });
+
+    if (entityMap.size > 0) {
+      // Serialize Map → array of [entityId, ArticleRef[]] entries for JSON.
+      await storage.putJSON(entityIndexKey(code, sha), Array.from(entityMap.entries()));
+    }
+  });
+}
+
+/**
+ * H11: load all per-resource entity indexes in parallel and union-merge any
+ * matches for the requested entityId. This is the post-H11 hot path for
+ * entity lookup — replaces the pre-H11 user-blocking bootstrap scan with N
+ * parallel R2 reads of small per-resource entity blobs (typically <100KB
+ * each). Resource-types are filled in from index.registry on read, since the
+ * stored per-resource entity index doesn't carry that metadata.
+ */
+export async function fanOutEntitySearch(
+  entityId: string,
+  index: NavigabilityIndex,
+  storage: AquiferStorage,
+  tracer?: RequestTracer,
+): Promise<ArticleRef[]> {
+  const normalized = entityId.toLowerCase();
+
+  // If entity data is already in memory (tests provide this), use it directly.
+  const memHit = index.entity.get(normalized);
+  if (memHit?.length) return memHit;
+
+  const fanStart = performance.now();
+  let hits = 0;
+  let misses = 0;
+
+  const results = await Promise.allSettled(
+    index.registry.map(async (entry) => {
+      const sha = index.repo_shas.get(entry.resource_code);
+      if (!sha) { misses++; return []; }
+      const key = entityIndexKey(entry.resource_code, sha);
+      const { data } = await storage.getJSON<Array<[string, ArticleRef[]]>>(key, tracer);
+      if (!data) { misses++; return []; }
+      hits++;
+      // Find this entityId in the per-resource entity map (entries form).
+      for (const [eid, refs] of data) {
+        if (eid === normalized) {
+          // Backfill resource_type from registry — per-resource index doesn't store it.
+          return refs.map((r) => ({ ...r, resource_type: entry.resource_type }));
+        }
+      }
+      return [];
+    }),
+  );
+
+  tracer?.addSpan("fanout-entities", Math.round(performance.now() - fanStart), undefined,
+    `${index.registry.length} resources, ${hits} hits, ${misses} misses`);
+
+  const matches: ArticleRef[] = [];
+  for (const r of results) {
+    if (r.status === "fulfilled") matches.push(...r.value);
+  }
+  return matches;
 }
 
 // --- Fan-out query functions ---
