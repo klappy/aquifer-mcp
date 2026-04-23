@@ -978,14 +978,23 @@ function formatPartialBootstrapNote(r: BootstrapEntityResult): string {
   // This keeps the user-facing string and the trace header in lockstep so an
   // operator debugging from logs sees the same diagnosis the user saw.
   let reason: string;
+  // failedSuffix surfaces the failure count alongside the file ratio, but
+  // ONLY when the reason text doesn't already say it. In the failed_files
+  // branch the count is already in `reason` ("N content file fetch(es)
+  // failed") and repeating it produces duplicated noise like
+  // "...3 fetch(es) failed. Scanned 4/33 resources and 17/230 files, 3 failed".
+  // The suffix is useful only in the budget_exceeded branch, where the
+  // primary reason text doesn't carry the failure count and the suffix is
+  // the only place the user sees how many files failed.
+  let failedSuffix = "";
   if (r.budget_exceeded) {
     reason = `lookup deadline reached (${(r.duration_ms / 1000).toFixed(1)}s)`;
+    if (r.failed_files > 0) failedSuffix = `, ${r.failed_files} failed`;
   } else if (r.failed_files > 0) {
     reason = `${r.failed_files} content file fetch(es) failed`;
   } else {
     reason = "scan incomplete";
   }
-  const failedSuffix = r.failed_files > 0 ? `, ${r.failed_files} failed` : "";
   return `\n\n_⚠ Partial result: ${reason}. Scanned ${r.scanned_resources}/${r.total_resources} resources and ${r.scanned_files}/${r.total_files_estimate} files${failedSuffix}. Additional matches may exist in unscanned content. Retrying may continue the scan from a warm cache._`;
 }
 

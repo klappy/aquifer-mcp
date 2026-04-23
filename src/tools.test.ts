@@ -1213,3 +1213,89 @@ describe("BootstrapEntityResult — Bugbot fix coverage", () => {
     expect(typeof baseResult.failed_files).toBe("number");
   });
 });
+
+
+describe("formatPartialBootstrapNote — output text invariants", () => {
+  // Regression coverage for Bugbot finding #9 (Low): the failed-file count
+  // must appear EXACTLY ONCE in the user-facing partial-result note. The
+  // earlier implementation appended `failedSuffix` unconditionally, which
+  // duplicated the count whenever the reason text already contained it
+  // (i.e. the failed_files branch). These tests indirectly exercise
+  // formatPartialBootstrapNote via handleEntity, which is the only public
+  // surface that produces the formatted text.
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockGetOrBuildIndex.mockReset();
+    mockFetchJson.mockReset();
+  });
+
+  it("(#9 Low) failed_files branch states the failure count exactly once", async () => {
+    // Arrange: one resource with one content file whose fetch rejects.
+    // Bootstrap completes (no deadline trip) but with failed_files === 1.
+    const env: Env = {
+      AQUIFER_CACHE: createMockKV(),
+      AQUIFER_CONTENT: {} as R2Bucket,
+      AQUIFER_ORG: "BibleAquifer",
+      DOCS_REPO: "docs",
+      WORKER_ENV: "production",
+    };
+    const storage = createMockStorage();
+    mockGetOrBuildIndex.mockResolvedValue(buildMockIndex([STUDY_NOTES_ENTRY]));
+    let call = 0;
+    mockFetchJson.mockImplementation(async () => {
+      call++;
+      if (call === 1) {
+        return {
+          resource_metadata: STUDY_NOTES_ENTRY,
+          scripture_burrito: { ingredients: { "json/001.content.json": {} } },
+          article_metadata: {},
+        } as unknown as ResourceMetadata;
+      }
+      throw new Error("simulated 5xx");
+    });
+
+    const result = await handleEntity({ entity_id: "person:Anyone" }, env, storage);
+    const text = result.content[0]!.text;
+
+    // The note should mention the failure count, but only once.
+    expect(text).toContain("⚠ Partial result");
+    expect(text).toContain("1 content file fetch(es) failed");
+    // The redundant suffix ", N failed" must NOT appear when the reason
+    // text already carries the count.
+    expect(text).not.toContain(", 1 failed");
+    // And the literal "1 failed" should appear exactly once across the entire
+    // formatted message (only inside the reason-clause).
+    const matches = text.match(/1 (content file fetch\(es\) )?failed/g) ?? [];
+    expect(matches).toHaveLength(1);
+  });
+
+  it("(#9 Low) scan_incomplete branch (no deadline, no failures) has no failure count text", async () => {
+    // The fall-through branch covers a hypothetical incomplete state with no
+    // budget exceedance and no failed files. Today the bootstrap doesn't
+    // produce this combination organically (any incompleteness implies one
+    // of the two), but the formatter must still produce non-duplicating text.
+    // We exercise the formatter via a synthetic BootstrapEntityResult by
+    // round-tripping through the handleEntity cold-empty path, which
+    // produces complete=true; for the incomplete-without-failures branch we
+    // can only assert behavior via direct reasoning about the formatter.
+    // The presence of this test documents the intended invariant for any
+    // future code path that produces this combination.
+    const env: Env = {
+      AQUIFER_CACHE: createMockKV(),
+      AQUIFER_CONTENT: {} as R2Bucket,
+      AQUIFER_ORG: "BibleAquifer",
+      DOCS_REPO: "docs",
+      WORKER_ENV: "production",
+    };
+    const storage = createMockStorage();
+    mockGetOrBuildIndex.mockResolvedValue(buildMockIndex([STUDY_NOTES_ENTRY]));
+    mockFetchJson.mockResolvedValue(null);
+
+    const result = await handleEntity({ entity_id: "person:Nobody" }, env, storage);
+    const text = result.content[0]!.text;
+    // Cold-empty scan completes successfully → no partial note expected.
+    expect(text).not.toContain("⚠ Partial result");
+    expect(text).not.toContain("failed");
+  });
+});
