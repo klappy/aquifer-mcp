@@ -24,6 +24,28 @@ const ENTITY_BOOTSTRAP_FILE_CONCURRENCY = 8;
 const ENTITY_BOOTSTRAP_WALLCLOCK_BUDGET_MS = 20_000;
 
 /**
+ * Result of an entity bootstrap scan over the article corpus. The `complete`
+ * flag tells callers whether they can treat `matches` as authoritative or
+ * whether the scan bailed early under the wall-clock budget — in which case
+ * additional matches may exist in the resources/files that were not yet
+ * scanned. Callers MUST surface partial state to end users; the absence of
+ * this signal would silently present incomplete results as exhaustive, which
+ * is the failure mode this type exists to prevent.
+ */
+export interface BootstrapEntityResult {
+  matches: ArticleRef[];
+  /** True only if every resource and every file was scanned to completion. */
+  complete: boolean;
+  scanned_resources: number;
+  total_resources: number;
+  scanned_files: number;
+  total_files_estimate: number;
+  /** True iff the wall-clock deadline was the cause of incompletion. */
+  budget_exceeded: boolean;
+  duration_ms: number;
+}
+
+/**
  * Run `fn` over `items` in batches of `chunkSize`, awaiting each batch to
  * settle before starting the next. Returns the same shape as
  * `Promise.allSettled` so callers can replace the latter with no other change.
@@ -386,20 +408,25 @@ async function searchByEntity(entityQuery: string, index: NavigabilityIndex, env
     }
   }
 
+  let partialNote = "";
   if (matches.length === 0) {
-    const bootstrapped = await bootstrapEntityMatches(normalized, index, env, storage, tracer);
-    matches.push(...bootstrapped);
+    const bootstrap = await bootstrapEntityMatches(normalized, index, env, storage, tracer);
+    matches.push(...bootstrap.matches);
+    if (!bootstrap.complete) {
+      partialNote = formatPartialBootstrapNote(bootstrap);
+    }
   }
 
   if (matches.length === 0) {
-    return textResult(`No articles found for entity "${entityQuery}".`);
+    const noMatch = `No articles found for entity "${entityQuery}".`;
+    return textResult(partialNote ? `${noMatch}${partialNote}` : noMatch);
   }
 
   const deduped = deduplicateRefs(matches);
   const lines = deduped.map(formatArticleRef);
 
   return textResult(
-    `Found ${deduped.length} article(s) referencing ${entityQuery}:\n\n${lines.join("\n\n")}`,
+    `Found ${deduped.length} article(s) referencing ${entityQuery}:\n\n${lines.join("\n\n")}${partialNote}`,
   );
 }
 
@@ -697,25 +724,44 @@ function ingestArticleEntities(index: NavigabilityIndex, entry: ResourceEntry, a
   }
 }
 
-async function bootstrapEntityMatches(
+export async function bootstrapEntityMatches(
   normalizedEntityId: string,
   index: NavigabilityIndex,
   env: Env,
   storage: AquiferStorage,
   tracer?: RequestTracer,
-): Promise<ArticleRef[]> {
-  // Entity bootstrap cache stored in R2, keyed by composite SHA + entity ID
+): Promise<BootstrapEntityResult> {
+  // Entity bootstrap cache stored in R2, keyed by composite SHA + entity ID.
+  // A cache hit is by definition a `complete` result — only complete scans
+  // are ever written to this cache (see the cache-write gate at the end).
   const key = entityKey(index.composite_sha, normalizedEntityId);
   const { data: cached } = await storage.getJSON<ArticleRef[]>(key, tracer);
   if (cached?.length) {
     index.entity.set(normalizedEntityId, cached);
-    return cached;
+    return {
+      matches: cached,
+      complete: true,
+      scanned_resources: index.registry.length,
+      total_resources: index.registry.length,
+      scanned_files: 0,
+      total_files_estimate: 0,
+      budget_exceeded: false,
+      duration_ms: 0,
+    };
   }
 
   const matches: ArticleRef[] = [];
   const bootstrapStart = performance.now();
   const deadline = bootstrapStart + ENTITY_BOOTSTRAP_WALLCLOCK_BUDGET_MS;
   const isPastDeadline = () => performance.now() > deadline;
+
+  // Per-resource scan accounting. We track scanned/total at both the resource
+  // and file level so callers can report exactly what was and wasn't covered
+  // when the wall-clock budget trips. Counters are mutated from inside the
+  // bounded fanout below.
+  let scannedResources = 0;
+  let scannedFiles = 0;
+  let totalFilesEstimate = 0;
 
   // Bounded fanout across resources. Each batch's R2 reads are awaited and
   // released before the next batch starts, so memory usage is proportional to
@@ -729,6 +775,7 @@ async function bootstrapEntityMatches(
       const repoSha = index.repo_shas.get(entry.resource_code);
       if (!repoSha) return [];
       const files = await listContentFiles(entry.resource_code, entry.language, entry.order, env, storage, repoSha, tracer);
+      totalFilesEstimate += files.length;
 
       // Bounded fanout across files within each resource.
       const fileResults = await settledInChunks(
@@ -737,6 +784,7 @@ async function bootstrapEntityMatches(
         async (file) => {
           if (isPastDeadline()) return [];
           const articles = await fetchContentFile(entry.resource_code, entry.language, file, env, storage, repoSha, tracer);
+          scannedFiles++;
           if (!articles?.length) return [];
           const found: ArticleRef[] = [];
           for (const article of articles) {
@@ -761,6 +809,9 @@ async function bootstrapEntityMatches(
       for (const fr of fileResults) {
         if (fr.status === "fulfilled") refs.push(...fr.value);
       }
+      // A resource counts as fully scanned only when none of its file fetches
+      // were short-circuited by the deadline mid-batch.
+      if (!isPastDeadline()) scannedResources++;
       return refs;
     },
   );
@@ -769,21 +820,49 @@ async function bootstrapEntityMatches(
     if (rr.status === "fulfilled") matches.push(...rr.value);
   }
 
-  const completed = !isPastDeadline();
+  const budgetExceeded = isPastDeadline();
+  const complete = !budgetExceeded && scannedResources === index.registry.length;
   const deduped = deduplicateRefs(matches);
+  const durationMs = Math.round(performance.now() - bootstrapStart);
+
   tracer?.addSpan(
     "entity-bootstrap",
-    Math.round(performance.now() - bootstrapStart),
+    durationMs,
     undefined,
-    `${index.registry.length} resources, ${deduped.length} matches${completed ? "" : " (BUDGET_EXCEEDED, partial)"}`,
+    `${scannedResources}/${index.registry.length} resources, ${scannedFiles}/${totalFilesEstimate} files, ${deduped.length} matches${complete ? "" : " (PARTIAL: budget_exceeded)"}`,
   );
-  // Only cache complete results; partial results from a deadline bail would
-  // poison the cache and prevent later (successful) retries from improving it.
-  if (deduped.length > 0 && completed) {
+
+  // Only cache complete results. Partial results from a deadline bail would
+  // poison the cache and prevent later complete retries from improving it.
+  if (deduped.length > 0 && complete) {
     index.entity.set(normalizedEntityId, deduped);
     await storage.putJSON(key, deduped);
   }
-  return deduped;
+
+  return {
+    matches: deduped,
+    complete,
+    scanned_resources: scannedResources,
+    total_resources: index.registry.length,
+    scanned_files: scannedFiles,
+    total_files_estimate: totalFilesEstimate,
+    budget_exceeded: budgetExceeded,
+    duration_ms: durationMs,
+  };
+}
+
+/**
+ * Render a transparent disclosure note for a partial bootstrap result. The
+ * note must be unambiguous about (a) the scan was incomplete, (b) what was
+ * and wasn't covered, and (c) what action the caller can take. This is the
+ * mechanism that prevents silent presentation of partial results as
+ * authoritative — see BootstrapEntityResult for the contract.
+ */
+function formatPartialBootstrapNote(r: BootstrapEntityResult): string {
+  const reason = r.budget_exceeded
+    ? `lookup deadline reached (${(r.duration_ms / 1000).toFixed(1)}s)`
+    : "scan incomplete";
+  return `\n\n_⚠ Partial result: ${reason}. Scanned ${r.scanned_resources}/${r.total_resources} resources and ${r.scanned_files}/${r.total_files_estimate} files. Additional matches may exist in unscanned content. Retrying may continue the scan from a warm cache._`;
 }
 
 function formatArticleRef(ref: ArticleRef): string {
@@ -1141,19 +1220,29 @@ export async function handleEntity(
   const index = await getOrBuildIndex(env, storage, ctx, tracer);
   const normalized = entityId.toLowerCase();
 
-  // Find all articles referencing this entity
+  // Find all articles referencing this entity. Hot path: pre-built index map.
+  // Cold path: scan the article corpus via bootstrapEntityMatches, which may
+  // return PARTIAL results under wall-clock pressure — surface that to the
+  // user so they can decide whether to retry.
   let refs = index.entity.get(normalized);
+  let partialNote = "";
   if (!refs?.length) {
-    refs = await bootstrapEntityMatches(normalized, index, env, storage, tracer);
+    const bootstrap = await bootstrapEntityMatches(normalized, index, env, storage, tracer);
+    refs = bootstrap.matches;
+    if (!bootstrap.complete) {
+      partialNote = formatPartialBootstrapNote(bootstrap);
+    }
   }
 
   if (!refs?.length) {
-    return textResult(`No articles found for entity "${entityId}".`);
+    const noMatch = `No articles found for entity "${entityId}".`;
+    return textResult(partialNote ? `${noMatch}${partialNote}` : noMatch);
   }
 
   refs = refs.filter((r) => r.language === language);
   if (!refs.length) {
-    return textResult(`No articles found for entity "${entityId}" in language "${language}".`);
+    const noMatch = `No articles found for entity "${entityId}" in language "${language}".`;
+    return textResult(partialNote ? `${noMatch}${partialNote}` : noMatch);
   }
 
   // Group by resource type for progressive disclosure
@@ -1193,7 +1282,7 @@ export async function handleEntity(
   sections.push("---");
   sections.push("_Use `get` with any article's resource_code/language/content_id to fetch full content._");
 
-  return textResult(sections.join("\n"));
+  return textResult(sections.join("\n") + partialNote);
 }
 
 function deduplicateRefs(refs: ArticleRef[]): ArticleRef[] {
