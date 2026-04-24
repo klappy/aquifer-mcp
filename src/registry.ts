@@ -346,16 +346,19 @@ async function buildIndex(
   // Write all per-resource indexes (passage/title/article) to R2 in parallel
   await Promise.allSettled(writePromises);
 
-  // H11: populate per-resource entity indexes. This scans every content file
-  // for ACAI entity references and writes one entityIndexKey per resource.
-  // It does the SAME work the pre-H11 bootstrap was doing on every cold-cache
-  // entity lookup — moved here to index-build time so user-facing entity
-  // queries become O(N_resources) parallel R2 reads (~30 small parallel
-  // requests, each <100KB) instead of O(N_files) blocking R2 reads gated by
-  // the per-isolate memory budget. The bounded fanout caps keep the per-fetch
-  // memory profile identical to bootstrap; only the latency cost moves off
-  // the user-blocking path.
-  await populateEntityIndexes(results, env, storage, repoShas);
+  // H11b: entity-index population is NOT done here anymore. The inline scan
+  // here (H11) added ~22s to cold index builds, which is still user-blocking
+  // on true cold-starts. Instead, entity indexes are lazily populated per
+  // resource when fanOutEntitySearch encounters a missing per-resource index
+  // at query time: the missing resource's scan is triggered via
+  // ctx.waitUntil(), the caller receives a partial-with-transparency
+  // response now, and the next visit finds the warmed index.
+  //
+  // This implements the principle: "partial data with transparency to come
+  // back for more; background fetch warms the cache before you come back."
+  // The user never blocks on a corpus scan — not at index-build time, not at
+  // query time. populateEntityIndexes stays as the scan implementation
+  // invoked from the background path; see warmEntityIndexesForResources.
 
   // Return lightweight index — passage/title/entity are empty.
   // Queries use fan-out functions to load per-resource indexes on demand.
@@ -456,56 +459,199 @@ async function populateEntityIndexes(
 }
 
 /**
- * H11: load all per-resource entity indexes in parallel and union-merge any
- * matches for the requested entityId. This is the post-H11 hot path for
- * entity lookup — replaces the pre-H11 user-blocking bootstrap scan with N
- * parallel R2 reads of small per-resource entity blobs (typically <100KB
- * each). Resource-types are filled in from index.registry on read, since the
- * stored per-resource entity index doesn't carry that metadata.
+ * Result of a fanOutEntitySearch. Carries `matches` (the union of ArticleRefs
+ * found across per-resource entity indexes), a `missing_resources` list of
+ * registry entries that had no entity index populated at query time (these
+ * are the resources the caller should kick off a background warm for), and
+ * `scanned_resources`/`total_resources` for disclosure text.
+ *
+ * `complete` is true iff every registry resource either returned a
+ * populated per-resource entity index OR had no repoSha (structurally
+ * unscannable — absence is not incompleteness). False means at least one
+ * resource is still un-indexed and a warm should be triggered.
+ */
+export interface FanOutEntityResult {
+  matches: ArticleRef[];
+  complete: boolean;
+  scanned_resources: number;
+  total_resources: number;
+  missing_resources: ResourceEntry[];
+}
+
+/**
+ * H11b: load all per-resource entity indexes in parallel and union-merge any
+ * matches for the requested entityId. The returned FanOutEntityResult tells
+ * the caller which per-resource indexes were missing; callers should kick
+ * off a background warm for those (via ctx.waitUntil +
+ * warmEntityIndexesForResources) and surface the partial result to the user
+ * with transparent disclosure.
+ *
+ * This is the hot path — it MUST remain fast. It does N parallel R2 reads
+ * of small per-resource entity blobs (typically <100KB each) and nothing
+ * else. The corpus scan that builds those blobs lives in the warm path.
  */
 export async function fanOutEntitySearch(
   entityId: string,
   index: NavigabilityIndex,
   storage: AquiferStorage,
   tracer?: RequestTracer,
-): Promise<ArticleRef[]> {
+): Promise<FanOutEntityResult> {
   const normalized = entityId.toLowerCase();
 
-  // If entity data is already in memory (tests provide this), use it directly.
+  // In-memory short-circuit (tests pre-seed this; also serves production
+  // callers within the same isolate when an entity has been warmed recently).
   const memHit = index.entity.get(normalized);
-  if (memHit?.length) return memHit;
+  if (memHit?.length) {
+    return {
+      matches: memHit,
+      complete: true,
+      scanned_resources: index.registry.length,
+      total_resources: index.registry.length,
+      missing_resources: [],
+    };
+  }
 
   const fanStart = performance.now();
   let hits = 0;
   let misses = 0;
+  const missingResources: ResourceEntry[] = [];
 
   const results = await Promise.allSettled(
     index.registry.map(async (entry) => {
       const sha = index.repo_shas.get(entry.resource_code);
-      if (!sha) { misses++; return []; }
+      if (!sha) {
+        // Structurally unscannable — absence of a repoSha means this resource
+        // has no content to scan, so it counts as "scanned" for completeness
+        // purposes (the warm path would write an empty index for it).
+        return { refs: [] as ArticleRef[], hit: true };
+      }
       const key = entityIndexKey(entry.resource_code, sha);
       const { data } = await storage.getJSON<Array<[string, ArticleRef[]]>>(key, tracer);
-      if (!data) { misses++; return []; }
+      if (!data) {
+        missingResources.push(entry);
+        misses++;
+        return { refs: [], hit: false };
+      }
       hits++;
-      // Find this entityId in the per-resource entity map (entries form).
       for (const [eid, refs] of data) {
         if (eid === normalized) {
-          // Backfill resource_type from registry — per-resource index doesn't store it.
-          return refs.map((r) => ({ ...r, resource_type: entry.resource_type }));
+          return {
+            refs: refs.map((r) => ({ ...r, resource_type: entry.resource_type })),
+            hit: true,
+          };
         }
       }
-      return [];
+      // Index present but no match for this entity in this resource.
+      return { refs: [], hit: true };
     }),
   );
 
   tracer?.addSpan("fanout-entities", Math.round(performance.now() - fanStart), undefined,
-    `${index.registry.length} resources, ${hits} hits, ${misses} misses`);
+    `${index.registry.length} resources, ${hits} hits, ${misses} missing`);
 
   const matches: ArticleRef[] = [];
   for (const r of results) {
-    if (r.status === "fulfilled") matches.push(...r.value);
+    if (r.status === "fulfilled") matches.push(...r.value.refs);
   }
-  return matches;
+
+  return {
+    matches,
+    complete: missingResources.length === 0,
+    scanned_resources: index.registry.length - missingResources.length,
+    total_resources: index.registry.length,
+    missing_resources: missingResources,
+  };
+}
+
+/**
+ * H11b: background warm — scan the content files for ONLY the specified
+ * resources and write their per-resource entity indexes to R2. Called from
+ * ctx.waitUntil() after a partial fanOutEntitySearch, so the user's response
+ * has already been returned before this runs.
+ *
+ * Memory profile is identical to populateEntityIndexes: same
+ * ENTITY_BUILD_RESOURCE_CONCURRENCY × ENTITY_BUILD_FILE_CONCURRENCY caps.
+ * Failures are swallowed per-file and per-resource — a failed warm just
+ * means the next query re-triggers the same warm (self-healing).
+ *
+ * This function re-fetches each resource's metadata to enumerate its
+ * content files. That's an extra metadata fetch per call, but the
+ * metadata fetch is already cached at the storage layer (R2 KV), so the
+ * cost is bounded.
+ */
+export async function warmEntityIndexesForResources(
+  resources: readonly ResourceEntry[],
+  repoShas: Map<string, string>,
+  env: Env,
+  storage: AquiferStorage,
+): Promise<void> {
+  const scanTargets: Array<{ code: string; language: string; files: string[]; sha: string }> = [];
+
+  for (const entry of resources) {
+    const sha = repoShas.get(entry.resource_code);
+    if (!sha) continue;
+    const url = metadataUrl(env.AQUIFER_ORG, entry.resource_code, entry.language);
+    const key = metadataKey(entry.resource_code, sha, entry.language);
+    let metadata: ResourceMetadata | null = null;
+    try {
+      metadata = await fetchJson<ResourceMetadata>(url, storage, key);
+    } catch {
+      continue; // per-resource metadata fetch failure — skip; next warm retries
+    }
+    if (!metadata?.scripture_burrito?.ingredients) continue;
+    const ingredients = Object.keys(metadata.scripture_burrito.ingredients);
+    const files = ingredients
+      .filter((k) => k.startsWith("json/") && k.endsWith(".content.json"))
+      .map((k) => k.replace(/^json\//, ""))
+      .sort();
+    if (files.length === 0) continue;
+    scanTargets.push({ code: entry.resource_code, language: entry.language, files, sha });
+  }
+
+  await settledInChunks(scanTargets, ENTITY_BUILD_RESOURCE_CONCURRENCY, async ({ code, language, files, sha }) => {
+    // Before doing the work, check if another concurrent warm already wrote
+    // this resource's index — idempotency cheap guard against duplicate work.
+    const key = entityIndexKey(code, sha);
+    const { data: existing } = await storage.getJSON<Array<[string, ArticleRef[]]>>(key);
+    if (existing) return;
+
+    const entityMap = new Map<string, ArticleRef[]>();
+
+    await settledInChunks(files, ENTITY_BUILD_FILE_CONCURRENCY, async (file) => {
+      const url = `https://raw.githubusercontent.com/${env.AQUIFER_ORG}/${code}/${sha}/${language}/json/${file}`;
+      const contentK = contentKey(code, sha, language, file);
+      let articles: import("./types.js").ArticleContent[] | null = null;
+      try {
+        articles = await fetchJson<import("./types.js").ArticleContent[]>(url, storage, contentK);
+      } catch {
+        return; // per-file failure — swallowed; self-healing on next warm
+      }
+      if (!articles?.length) return;
+      for (const article of articles) {
+        const acaiAssociations = article.associations?.acai ?? [];
+        for (const a of acaiAssociations) {
+          const entityId = String(a.id || "").toLowerCase();
+          if (!entityId) continue;
+          const ref: ArticleRef = {
+            resource_code: code,
+            language: article.language || language,
+            content_id: String(article.content_id),
+            title: article.title || `Article ${article.content_id}`,
+            resource_type: "",
+            index_reference: article.index_reference,
+          };
+          const existing = entityMap.get(entityId);
+          if (existing) existing.push(ref);
+          else entityMap.set(entityId, [ref]);
+        }
+      }
+    });
+
+    // Always write — even an empty map is a valid signal: "this resource has
+    // no ACAI associations." Without this, fanOutEntitySearch would keep
+    // scheduling warms forever for resources that genuinely have no entities.
+    await storage.putJSON(key, Array.from(entityMap.entries()));
+  });
 }
 
 // --- Fan-out query functions ---

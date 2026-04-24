@@ -1,7 +1,7 @@
 import type { Env, ArticleRef, ArticleContent, NavigabilityIndex, ResourceEntry, ResourceMetadata } from "./types.js";
 import { parseReference, rangesOverlap, rangeToReadable, isValidIndexReference, bbcccvvvToReadable } from "./references.js";
 import { contentUrl, metadataUrl, fetchJson, GC_TTL } from "./github.js";
-import { getOrBuildIndex, fanOutPassageSearch, fanOutTitleSearch, fanOutEntitySearch, loadArticleLookup, type ArticleLookupEntry } from "./registry.js";
+import { getOrBuildIndex, fanOutPassageSearch, fanOutTitleSearch, fanOutEntitySearch, warmEntityIndexesForResources, loadArticleLookup, type ArticleLookupEntry } from "./registry.js";
 import { getPublicTelemetrySnapshot } from "./telemetry.js";
 import { AquiferStorage, contentKey, metadataKey, catalogKey, entityKey } from "./storage.js";
 import type { RequestTracer } from "./tracing.js";
@@ -420,19 +420,21 @@ async function searchByEntity(entityQuery: string, index: NavigabilityIndex, env
 
   let partialNote = "";
   if (matches.length === 0) {
-    // H11: fan out to per-resource entity indexes first (fast, parallel).
-    const fanned = await fanOutEntitySearch(normalized, index, storage, tracer);
-    matches.push(...fanned);
-    if (matches.length === 0) {
-      // Defensive fallback: if no per-resource entity indexes have been
-      // populated yet (e.g. the index pre-dates H11 deploy), fall back to
-      // the on-demand bootstrap. Once any complete bootstrap result has
-      // been cached, future entity lookups skip this path entirely.
-      const bootstrap = await bootstrapEntityMatches(normalized, index, env, storage, tracer);
-      matches.push(...bootstrap.matches);
-      if (!bootstrap.complete) {
-        partialNote = formatPartialBootstrapNote(bootstrap);
-      }
+    // H11b: fan out to per-resource entity indexes. Returns a structured
+    // result that tells us which (if any) resources are still un-indexed.
+    const fan = await fanOutEntitySearch(normalized, index, storage, tracer);
+    matches.push(...fan.matches);
+
+    if (fan.missing_resources.length > 0) {
+      // Kick off a background warm for the missing resources. The user's
+      // response has already been computed; ctx.waitUntil extends the
+      // invocation lifetime so the warm can complete after we return.
+      // If ctx is unavailable (e.g. tests), the warm is simply skipped —
+      // next query retriggers it. Self-healing.
+      ctx?.waitUntil?.(warmEntityIndexesForResources(fan.missing_resources, index.repo_shas, env, storage));
+
+      // Compose the transparent disclosure note.
+      partialNote = formatPartialFanOutNote(fan);
     }
   }
 
@@ -980,6 +982,17 @@ export async function bootstrapEntityMatches(
  * mechanism that prevents silent presentation of partial results as
  * authoritative — see BootstrapEntityResult for the contract.
  */
+/**
+ * H11b: user-facing disclosure when a fanOutEntitySearch is incomplete and
+ * a background warm has been kicked off. The note is deliberately concrete
+ * ("N of M resources") and actionable ("retry in a few seconds") so the
+ * user understands both what's missing and what to do about it.
+ */
+function formatPartialFanOutNote(r: import("./registry.js").FanOutEntityResult): string {
+  const remaining = r.missing_resources.length;
+  return `\n\n_⚠ Partial result: ${r.scanned_resources}/${r.total_resources} resources indexed, ${remaining} still warming in the background. Retry in a few seconds for the complete result._`;
+}
+
 function formatPartialBootstrapNote(r: BootstrapEntityResult): string {
   // The reason taxonomy mirrors the tracer label: budget_exceeded is the
   // primary cause whenever the deadline expired (regardless of whether files
@@ -1362,22 +1375,22 @@ export async function handleEntity(
   const index = await getOrBuildIndex(env, storage, ctx, tracer);
   const normalized = entityId.toLowerCase();
 
-  // Find all articles referencing this entity. Three-tier lookup:
-  //   (1) in-memory index.entity map (tests + warm bootstrap cache)
-  //   (2) H11: fan out to per-resource entity indexes — fast, parallel
-  //   (3) Defensive fallback: on-demand bootstrap if (2) returns empty
-  //       (e.g. for indexes built pre-H11). Once any complete bootstrap has
-  //       cached its result, future entity lookups skip this fallback.
+  // Find all articles referencing this entity. H11b two-tier lookup:
+  //   (1) in-memory index.entity map (tests + warm isolate)
+  //   (2) fanOutEntitySearch over per-resource entity indexes in R2
+  //       - If complete: return matches.
+  //       - If partial: return whatever matches were found, surface a
+  //         transparent disclosure note, and kick off a background warm
+  //         (ctx.waitUntil) to populate the missing per-resource indexes.
+  //         The user can retry in a few seconds and get the complete result.
   let refs = index.entity.get(normalized);
   let partialNote = "";
   if (!refs?.length) {
-    refs = await fanOutEntitySearch(normalized, index, storage, tracer);
-  }
-  if (!refs?.length) {
-    const bootstrap = await bootstrapEntityMatches(normalized, index, env, storage, tracer);
-    refs = bootstrap.matches;
-    if (!bootstrap.complete) {
-      partialNote = formatPartialBootstrapNote(bootstrap);
+    const fan = await fanOutEntitySearch(normalized, index, storage, tracer);
+    refs = fan.matches;
+    if (fan.missing_resources.length > 0) {
+      ctx?.waitUntil?.(warmEntityIndexesForResources(fan.missing_resources, index.repo_shas, env, storage));
+      partialNote = formatPartialFanOutNote(fan);
     }
   }
 
