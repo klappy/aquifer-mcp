@@ -590,8 +590,8 @@ export async function warmEntityIndexesForResources(
   for (const entry of resources) {
     const sha = repoShas.get(entry.resource_code);
     if (!sha) continue;
-    const url = metadataUrl(env.AQUIFER_ORG, entry.resource_code, entry.language);
-    const key = metadataKey(entry.resource_code, sha, entry.language);
+    const url = metadataUrl(env.AQUIFER_ORG, entry.resource_code, "eng");
+    const key = metadataKey(entry.resource_code, sha, "eng");
     let metadata: ResourceMetadata | null = null;
     try {
       metadata = await fetchJson<ResourceMetadata>(url, storage, key);

@@ -976,13 +976,6 @@ export async function bootstrapEntityMatches(
 }
 
 /**
- * Render a transparent disclosure note for a partial bootstrap result. The
- * note must be unambiguous about (a) the scan was incomplete, (b) what was
- * and wasn't covered, and (c) what action the caller can take. This is the
- * mechanism that prevents silent presentation of partial results as
- * authoritative — see BootstrapEntityResult for the contract.
- */
-/**
  * H11b: user-facing disclosure when a fanOutEntitySearch is incomplete and
  * a background warm has been kicked off. The note is deliberately concrete
  * ("N of M resources") and actionable ("retry in a few seconds") so the
@@ -993,6 +986,13 @@ function formatPartialFanOutNote(r: import("./registry.js").FanOutEntityResult):
   return `\n\n_⚠ Partial result: ${r.scanned_resources}/${r.total_resources} resources indexed, ${remaining} still warming in the background. Retry in a few seconds for the complete result._`;
 }
 
+/**
+ * Render a transparent disclosure note for a partial bootstrap result. The
+ * note must be unambiguous about (a) the scan was incomplete, (b) what was
+ * and wasn't covered, and (c) what action the caller can take. This is the
+ * mechanism that prevents silent presentation of partial results as
+ * authoritative — see BootstrapEntityResult for the contract.
+ */
 function formatPartialBootstrapNote(r: BootstrapEntityResult): string {
   // The reason taxonomy mirrors the tracer label: budget_exceeded is the
   // primary cause whenever the deadline expired (regardless of whether files
