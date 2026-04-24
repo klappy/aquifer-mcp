@@ -357,8 +357,8 @@ async function buildIndex(
   // This implements the principle: "partial data with transparency to come
   // back for more; background fetch warms the cache before you come back."
   // The user never blocks on a corpus scan — not at index-build time, not at
-  // query time. populateEntityIndexes stays as the scan implementation
-  // invoked from the background path; see warmEntityIndexesForResources.
+  // query time. See warmEntityIndexesForResources for the background warm
+  // implementation invoked from ctx.waitUntil at the caller site.
 
   // Return lightweight index — passage/title/entity are empty.
   // Queries use fan-out functions to load per-resource indexes on demand.
@@ -371,91 +371,6 @@ async function buildIndex(
     composite_sha: "",
     repo_shas: repoShas,
   };
-}
-
-/**
- * H11: Build per-resource entity indexes by scanning content files. For each
- * resource, walks every JSON content file in scripture_burrito.ingredients,
- * collects every (entity_id → ArticleRef[]) mapping found in
- * `article.associations.acai`, and writes the resulting Map to R2 keyed by
- * entityIndexKey(code, sha). Memory is bounded by ENTITY_BUILD_RESOURCE_*
- * and ENTITY_BUILD_FILE_CONCURRENCY caps using settledInChunks, mirroring
- * the pre-H11 bootstrap path's safety profile.
- *
- * Failure handling: per-file failures are swallowed (the file's entities
- * just don't appear in the index for this build). Per-resource failures
- * mean the resource has no entityIndexKey written; fanOutEntitySearch will
- * see a miss for that resource on the next query, which is the correct
- * truthful-degradation behavior. The next index rebuild gets another shot.
- *
- * Performance: this adds a one-time cost to cold index builds. The pre-H11
- * bootstrap was paying this cost per-entity-lookup; H11 pays it once and
- * memoizes for the life of the composite SHA. Background refresh
- * (refreshAndUpdateCurrentIndex via ctx.waitUntil) absorbs the cost away
- * from user-visible latency for non-first cold builds.
- */
-async function populateEntityIndexes(
-  results: PromiseSettledResult<{ code: string; metadata: ResourceMetadata } | null>[],
-  env: Env,
-  storage: AquiferStorage,
-  repoShas: Map<string, string>,
-): Promise<void> {
-  const resources: Array<{ code: string; language: string; files: string[]; sha: string }> = [];
-  for (const result of results) {
-    if (result.status !== "fulfilled" || !result.value) continue;
-    const { code, metadata } = result.value;
-    const sha = repoShas.get(code);
-    if (!sha) continue;
-    const ingredients = Object.keys(metadata.scripture_burrito?.ingredients ?? {});
-    const files = ingredients
-      .filter((k) => k.startsWith("json/") && k.endsWith(".content.json"))
-      .map((k) => k.replace(/^json\//, ""))
-      .sort();
-    if (files.length === 0) continue;
-    resources.push({ code, language: metadata.resource_metadata.language, files, sha });
-  }
-
-  await settledInChunks(resources, ENTITY_BUILD_RESOURCE_CONCURRENCY, async ({ code, language, files, sha }) => {
-    const entityMap = new Map<string, ArticleRef[]>();
-
-    await settledInChunks(files, ENTITY_BUILD_FILE_CONCURRENCY, async (file) => {
-      const url = `https://raw.githubusercontent.com/${env.AQUIFER_ORG}/${code}/${sha}/${language}/json/${file}`;
-      const key = contentKey(code, sha, language, file);
-      let articles: import("./types.js").ArticleContent[] | null = null;
-      try {
-        articles = await fetchJson<import("./types.js").ArticleContent[]>(url, storage, key);
-      } catch {
-        return; // per-file failure — swallow, see comment above
-      }
-      if (!articles?.length) return;
-      for (const article of articles) {
-        const acaiAssociations = article.associations?.acai ?? [];
-        for (const a of acaiAssociations) {
-          const entityId = String(a.id || "").toLowerCase();
-          if (!entityId) continue;
-          const ref: ArticleRef = {
-            resource_code: code,
-            language: article.language || language,
-            content_id: String(article.content_id),
-            title: article.title || `Article ${article.content_id}`,
-            resource_type: "",
-            index_reference: article.index_reference,
-          };
-          const existing = entityMap.get(entityId);
-          if (existing) {
-            existing.push(ref);
-          } else {
-            entityMap.set(entityId, [ref]);
-          }
-        }
-      }
-    });
-
-    if (entityMap.size > 0) {
-      // Serialize Map → array of [entityId, ArticleRef[]] entries for JSON.
-      await storage.putJSON(entityIndexKey(code, sha), Array.from(entityMap.entries()));
-    }
-  });
 }
 
 /**
@@ -579,8 +494,9 @@ export async function fanOutEntitySearch(
  * ctx.waitUntil() after a partial fanOutEntitySearch, so the user's response
  * has already been returned before this runs.
  *
- * Memory profile is identical to populateEntityIndexes: same
- * ENTITY_BUILD_RESOURCE_CONCURRENCY × ENTITY_BUILD_FILE_CONCURRENCY caps.
+ * Memory profile: bounded by ENTITY_BUILD_RESOURCE_CONCURRENCY ×
+ * ENTITY_BUILD_FILE_CONCURRENCY caps (see settledInChunks invocations
+ * below) — max ~32 in-flight content fetches regardless of corpus size.
  * Failures are swallowed per-file and per-resource — a failed warm just
  * means the next query re-triggers the same warm (self-healing).
  *

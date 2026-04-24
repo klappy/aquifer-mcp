@@ -1343,7 +1343,7 @@ describe("H11 — fanOutEntitySearch eager entity index", () => {
     mockGetOrBuildIndex.mockResolvedValue(idx);
 
     // Pre-seed the per-resource entity index in storage. Format matches what
-    // populateEntityIndexes writes: array of [entityId, ArticleRef[]] entries.
+    // warmEntityIndexesForResources writes: array of [entityId, ArticleRef[]] entries.
     const studyNotesSha = idx.repo_shas.get(STUDY_NOTES_ENTRY.resource_code)!;
     const entityIndexKey = `index/${STUDY_NOTES_ENTRY.resource_code}/${studyNotesSha}/entities.json`;
     const seededRefs: ArticleRef[] = [{
