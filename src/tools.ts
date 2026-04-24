@@ -387,7 +387,7 @@ export async function handleSearch(
   }
 
   if (query.includes(":") && /^[a-z]+:/i.test(query)) {
-    return searchByEntity(query, index, env, storage, tracer);
+    return searchByEntity(query, index, env, storage, ctx, tracer);
   }
 
   return searchByTitle(query, index, storage, tracer);
@@ -408,7 +408,7 @@ async function searchByPassage(ref: string, index: NavigabilityIndex, storage: A
   );
 }
 
-async function searchByEntity(entityQuery: string, index: NavigabilityIndex, env: Env, storage: AquiferStorage, tracer?: RequestTracer) {
+async function searchByEntity(entityQuery: string, index: NavigabilityIndex, env: Env, storage: AquiferStorage, ctx?: ExecutionContext, tracer?: RequestTracer) {
   const matches: ArticleRef[] = [];
   const normalized = entityQuery.toLowerCase();
 
