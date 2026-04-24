@@ -526,7 +526,17 @@ export async function fanOutEntitySearch(
         return { refs: [] as ArticleRef[], hit: true };
       }
       const key = entityIndexKey(entry.resource_code, sha);
-      const { data } = await storage.getJSON<Array<[string, ArticleRef[]]>>(key, tracer);
+      let data: Array<[string, ArticleRef[]]> | null = null;
+      try {
+        ({ data } = await storage.getJSON<Array<[string, ArticleRef[]]>>(key, tracer));
+      } catch {
+        // Storage read failed (R2 outage, corrupt JSON, etc.) — treat as
+        // missing so the caller triggers a warm and surfaces partial
+        // disclosure rather than falsely reporting completeness.
+        missingResources.push(entry);
+        misses++;
+        return { refs: [], hit: false };
+      }
       if (!data) {
         missingResources.push(entry);
         misses++;
