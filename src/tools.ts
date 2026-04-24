@@ -1,7 +1,7 @@
 import type { Env, ArticleRef, ArticleContent, NavigabilityIndex, ResourceEntry, ResourceMetadata } from "./types.js";
 import { parseReference, rangesOverlap, rangeToReadable, isValidIndexReference, bbcccvvvToReadable } from "./references.js";
 import { contentUrl, metadataUrl, fetchJson, GC_TTL } from "./github.js";
-import { getOrBuildIndex, fanOutPassageSearch, fanOutTitleSearch, loadArticleLookup, type ArticleLookupEntry } from "./registry.js";
+import { getOrBuildIndex, fanOutPassageSearch, fanOutTitleSearch, fanOutEntitySearch, loadArticleLookup, type ArticleLookupEntry } from "./registry.js";
 import { getPublicTelemetrySnapshot } from "./telemetry.js";
 import { AquiferStorage, contentKey, metadataKey, catalogKey, entityKey } from "./storage.js";
 import type { RequestTracer } from "./tracing.js";
@@ -420,10 +420,19 @@ async function searchByEntity(entityQuery: string, index: NavigabilityIndex, env
 
   let partialNote = "";
   if (matches.length === 0) {
-    const bootstrap = await bootstrapEntityMatches(normalized, index, env, storage, tracer);
-    matches.push(...bootstrap.matches);
-    if (!bootstrap.complete) {
-      partialNote = formatPartialBootstrapNote(bootstrap);
+    // H11: fan out to per-resource entity indexes first (fast, parallel).
+    const fanned = await fanOutEntitySearch(normalized, index, storage, tracer);
+    matches.push(...fanned);
+    if (matches.length === 0) {
+      // Defensive fallback: if no per-resource entity indexes have been
+      // populated yet (e.g. the index pre-dates H11 deploy), fall back to
+      // the on-demand bootstrap. Once any complete bootstrap result has
+      // been cached, future entity lookups skip this path entirely.
+      const bootstrap = await bootstrapEntityMatches(normalized, index, env, storage, tracer);
+      matches.push(...bootstrap.matches);
+      if (!bootstrap.complete) {
+        partialNote = formatPartialBootstrapNote(bootstrap);
+      }
     }
   }
 
@@ -1353,12 +1362,17 @@ export async function handleEntity(
   const index = await getOrBuildIndex(env, storage, ctx, tracer);
   const normalized = entityId.toLowerCase();
 
-  // Find all articles referencing this entity. Hot path: pre-built index map.
-  // Cold path: scan the article corpus via bootstrapEntityMatches, which may
-  // return PARTIAL results under wall-clock pressure — surface that to the
-  // user so they can decide whether to retry.
+  // Find all articles referencing this entity. Three-tier lookup:
+  //   (1) in-memory index.entity map (tests + warm bootstrap cache)
+  //   (2) H11: fan out to per-resource entity indexes — fast, parallel
+  //   (3) Defensive fallback: on-demand bootstrap if (2) returns empty
+  //       (e.g. for indexes built pre-H11). Once any complete bootstrap has
+  //       cached its result, future entity lookups skip this fallback.
   let refs = index.entity.get(normalized);
   let partialNote = "";
+  if (!refs?.length) {
+    refs = await fanOutEntitySearch(normalized, index, storage, tracer);
+  }
   if (!refs?.length) {
     const bootstrap = await bootstrapEntityMatches(normalized, index, env, storage, tracer);
     refs = bootstrap.matches;

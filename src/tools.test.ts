@@ -1299,3 +1299,167 @@ describe("formatPartialBootstrapNote — output text invariants", () => {
     expect(text).not.toContain("failed");
   });
 });
+
+
+describe("H11 — fanOutEntitySearch eager entity index", () => {
+  // These tests verify the post-H11 behavior: when per-resource entity indexes
+  // exist in storage (built at index-build time), entity lookups return data
+  // from those small per-resource blobs in parallel WITHOUT scanning content
+  // files at query time. Bootstrap remains as a defensive fallback only.
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockGetOrBuildIndex.mockReset();
+    mockFetchJson.mockReset();
+  });
+
+  it("returns matches from per-resource entity index without bootstrap scan", async () => {
+    // Arrange: storage pre-seeded with a per-resource entity index for
+    // STUDY_NOTES_ENTRY containing person:Paul; no metadata fetches
+    // configured (mockFetchJson would throw if anything tries them).
+    const env: Env = {
+      AQUIFER_CACHE: createMockKV(),
+      AQUIFER_CONTENT: {} as R2Bucket,
+      AQUIFER_ORG: "BibleAquifer",
+      DOCS_REPO: "docs",
+      WORKER_ENV: "production",
+    };
+    const storage = createMockStorage();
+    const idx = buildMockIndex([STUDY_NOTES_ENTRY]);
+    // Clear in-memory entity map so the fan-out path is the one under test
+    // (default buildMockIndex pre-seeds it with a fixture for tier-1 tests).
+    idx.entity.clear();
+    mockGetOrBuildIndex.mockResolvedValue(idx);
+
+    // Pre-seed the per-resource entity index in storage. Format matches what
+    // populateEntityIndexes writes: array of [entityId, ArticleRef[]] entries.
+    const studyNotesSha = idx.repo_shas.get(STUDY_NOTES_ENTRY.resource_code)!;
+    const entityIndexKey = `index/${STUDY_NOTES_ENTRY.resource_code}/${studyNotesSha}/entities.json`;
+    const seededRefs: ArticleRef[] = [{
+      resource_code: STUDY_NOTES_ENTRY.resource_code,
+      language: "eng",
+      content_id: "9640",
+      title: "Acts 7:58",
+      resource_type: "",  // Backfilled by fanOutEntitySearch from registry
+      index_reference: "ACT 7:58",
+    }];
+    await storage.putJSON(entityIndexKey, [["person:paul", seededRefs]]);
+
+    // mockFetchJson must NOT be called — if it is, that means the bootstrap
+    // path (which scans content files via fetchJson) ran when it shouldn't.
+    mockFetchJson.mockImplementation(() => {
+      throw new Error("UNEXPECTED: bootstrap fetched content when fanout should have served");
+    });
+
+    const result = await handleEntity({ entity_id: "person:Paul" }, env, storage);
+    const text = result.content[0]!.text;
+
+    expect(text).toContain("Found 1 article(s)");
+    expect(text).toContain("Acts 7:58");
+    // resource_type should be filled in from registry
+    expect(text).toContain("Study Notes");
+    // No partial note — fan-out path doesn't produce them
+    expect(text).not.toContain("Partial result");
+    // Bootstrap should NOT have been invoked
+    expect(mockFetchJson).not.toHaveBeenCalled();
+  });
+
+  it("falls through to bootstrap when no per-resource entity index exists", async () => {
+    // Defensive fallback: if no per-resource entity index has been written to
+    // storage (e.g. index built pre-H11), fan-out returns empty and the
+    // bootstrap kicks in. This is the migration-safety path; once any
+    // bootstrap result is cached, fan-out will start finding it on next
+    // index rebuild.
+    const env: Env = {
+      AQUIFER_CACHE: createMockKV(),
+      AQUIFER_CONTENT: {} as R2Bucket,
+      AQUIFER_ORG: "BibleAquifer",
+      DOCS_REPO: "docs",
+      WORKER_ENV: "production",
+    };
+    const storage = createMockStorage();
+    mockGetOrBuildIndex.mockResolvedValue(buildMockIndex([STUDY_NOTES_ENTRY]));
+    // No entity index pre-seeded, mockFetchJson returns null for everything
+    // → bootstrap walks the empty corpus, returns complete=true with no matches.
+    mockFetchJson.mockResolvedValue(null);
+
+    const result = await handleEntity({ entity_id: "person:Whoever" }, env, storage);
+    const text = result.content[0]!.text;
+    expect(text).toContain("No articles found");
+    // Bootstrap WAS invoked (because fan-out returned empty), and that's
+    // signaled by mockFetchJson being called at least once for the metadata.
+    expect(mockFetchJson).toHaveBeenCalled();
+  });
+
+  it("merges results from multiple per-resource entity indexes", async () => {
+    // Arrange: TWO per-resource entity indexes both contain entries for
+    // person:paul. Fan-out should union them and return all refs.
+    const env: Env = {
+      AQUIFER_CACHE: createMockKV(),
+      AQUIFER_CONTENT: {} as R2Bucket,
+      AQUIFER_ORG: "BibleAquifer",
+      DOCS_REPO: "docs",
+      WORKER_ENV: "production",
+    };
+    const storage = createMockStorage();
+    const idx = buildMockIndex([STUDY_NOTES_ENTRY, FIA_MAPS_ENTRY]);
+    idx.entity.clear();  // Force fan-out path
+    mockGetOrBuildIndex.mockResolvedValue(idx);
+
+    const sha1 = idx.repo_shas.get(STUDY_NOTES_ENTRY.resource_code)!;
+    const sha2 = idx.repo_shas.get(FIA_MAPS_ENTRY.resource_code)!;
+    await storage.putJSON(`index/${STUDY_NOTES_ENTRY.resource_code}/${sha1}/entities.json`, [
+      ["person:paul", [{
+        resource_code: STUDY_NOTES_ENTRY.resource_code, language: "eng",
+        content_id: "9640", title: "Acts 7:58", resource_type: "", index_reference: "ACT 7:58",
+      }]],
+    ]);
+    await storage.putJSON(`index/${FIA_MAPS_ENTRY.resource_code}/${sha2}/entities.json`, [
+      ["person:paul", [{
+        resource_code: FIA_MAPS_ENTRY.resource_code, language: "eng",
+        content_id: "500001", title: "Paul's Missionary Journeys", resource_type: "", index_reference: "",
+      }]],
+    ]);
+    mockFetchJson.mockImplementation(() => { throw new Error("should not be called"); });
+
+    const result = await handleEntity({ entity_id: "person:Paul" }, env, storage);
+    const text = result.content[0]!.text;
+    expect(text).toContain("Found 2 article(s)");
+    expect(text).toContain("Acts 7:58");
+    expect(text).toContain("Paul's Missionary Journeys");
+    // Both resource_types backfilled from registry
+    expect(text).toContain("Study Notes");
+    expect(text).toContain("Maps");
+  });
+
+  it("normalizes entity_id case before lookup", async () => {
+    // Per-resource entity indexes store entityIds lowercase; the fan-out
+    // function must normalize the query the same way so case differences
+    // don't produce false misses.
+    const env: Env = {
+      AQUIFER_CACHE: createMockKV(),
+      AQUIFER_CONTENT: {} as R2Bucket,
+      AQUIFER_ORG: "BibleAquifer",
+      DOCS_REPO: "docs",
+      WORKER_ENV: "production",
+    };
+    const storage = createMockStorage();
+    const idx = buildMockIndex([STUDY_NOTES_ENTRY]);
+    idx.entity.clear();  // Force fan-out path
+    mockGetOrBuildIndex.mockResolvedValue(idx);
+    const sha = idx.repo_shas.get(STUDY_NOTES_ENTRY.resource_code)!;
+    await storage.putJSON(`index/${STUDY_NOTES_ENTRY.resource_code}/${sha}/entities.json`, [
+      ["person:paul", [{
+        resource_code: STUDY_NOTES_ENTRY.resource_code, language: "eng",
+        content_id: "9640", title: "Acts 7:58", resource_type: "", index_reference: "ACT 7:58",
+      }]],
+    ]);
+    mockFetchJson.mockImplementation(() => { throw new Error("should not be called"); });
+
+    // Query with mixed case
+    const result = await handleEntity({ entity_id: "PERSON:Paul" }, env, storage);
+    const text = result.content[0]!.text;
+    expect(text).toContain("Found 1 article(s)");
+    expect(text).toContain("Acts 7:58");
+  });
+});
