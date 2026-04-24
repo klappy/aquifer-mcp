@@ -945,9 +945,10 @@ describe("BootstrapEntityResult transparency", () => {
     expect(result.total_resources).toBe(2);
   });
 
-  it("renders no partial note when handleEntity bootstrap completes empty", async () => {
-    // Verifies the user-facing text path: cold-path empty + complete should
-    // produce ONLY "No articles found", never the partial-result warning.
+  it("renders no partial note when all per-resource entity indexes are populated (complete empty)", async () => {
+    // H11b: if every resource has a populated entity index and none of them
+    // contain the requested entity, the result is complete-but-empty and
+    // MUST NOT emit the partial-result warning.
     const env: Env = {
       AQUIFER_CACHE: createMockKV(),
       AQUIFER_CONTENT: {} as R2Bucket,
@@ -956,8 +957,14 @@ describe("BootstrapEntityResult transparency", () => {
       WORKER_ENV: "production",
     };
     const storage = createMockStorage();
-    mockGetOrBuildIndex.mockResolvedValue(buildMockIndex([STUDY_NOTES_ENTRY, FIA_MAPS_ENTRY]));
-    mockFetchJson.mockResolvedValue(null);
+    const idx = buildMockIndex([STUDY_NOTES_ENTRY, FIA_MAPS_ENTRY]);
+    idx.entity.clear();  // Force fan-out path
+    mockGetOrBuildIndex.mockResolvedValue(idx);
+    // Pre-seed per-resource entity indexes with no matching entity.
+    const sha1 = idx.repo_shas.get(STUDY_NOTES_ENTRY.resource_code)!;
+    const sha2 = idx.repo_shas.get(FIA_MAPS_ENTRY.resource_code)!;
+    await storage.putJSON(`index/${STUDY_NOTES_ENTRY.resource_code}/${sha1}/entities.json`, []);
+    await storage.putJSON(`index/${FIA_MAPS_ENTRY.resource_code}/${sha2}/entities.json`, []);
 
     const result = await handleEntity({ entity_id: "person:DefinitelyAbsent" }, env, storage);
     const text = result.content[0]!.text;
@@ -1201,12 +1208,13 @@ describe("BootstrapEntityResult — Bugbot fix coverage", () => {
       throw new Error("force fetch failure");
     });
 
-    const result = await handleEntity({ entity_id: "person:Trigger" }, env, storage);
-    const text = result.content[0]!.text;
-    // Failed-fetch branch should produce the "content file fetch(es) failed"
-    // reason, with failed file count surfaced.
-    expect(text).toContain("⚠ Partial result");
-    expect(text).toContain("fetch(es) failed");
+    // H11b: handleEntity no longer routes to bootstrap, so the failed-fetch
+    // reason is exercised by calling bootstrapEntityMatches directly.
+    // The function is still exported and used as a manual diagnostic path.
+    const idx = await mockGetOrBuildIndex(env, storage);
+    const bootstrap = await bootstrapEntityMatches("person:Trigger", idx, env, storage);
+    expect(bootstrap.complete).toBe(false);
+    expect(bootstrap.failed_files).toBeGreaterThan(0);
 
     // Type-level: the BootstrapEntityResult shape should always include
     // failed_files. Use the fixture above to assert against the type.
@@ -1255,19 +1263,17 @@ describe("formatPartialBootstrapNote — output text invariants", () => {
       throw new Error("simulated 5xx");
     });
 
-    const result = await handleEntity({ entity_id: "person:Anyone" }, env, storage);
-    const text = result.content[0]!.text;
-
-    // The note should mention the failure count, but only once.
-    expect(text).toContain("⚠ Partial result");
-    expect(text).toContain("1 content file fetch(es) failed");
-    // The redundant suffix ", N failed" must NOT appear when the reason
-    // text already carries the count.
-    expect(text).not.toContain(", 1 failed");
-    // And the literal "1 failed" should appear exactly once across the entire
-    // formatted message (only inside the reason-clause).
-    const matches = text.match(/1 (content file fetch\(es\) )?failed/g) ?? [];
-    expect(matches).toHaveLength(1);
+    // H11b: handleEntity no longer routes to bootstrap. The underlying
+    // correctness property (failed_files=1 and complete=false) is still
+    // verified on the bootstrap function itself; the formatter dedup bug
+    // fix is a display-layer concern tested by the formatter's own unit.
+    // Here we verify the structured result carries exactly what the formatter
+    // expects — if the formatter regresses, its own test will catch it.
+    const idx = await mockGetOrBuildIndex(env, storage);
+    const bootstrap = await bootstrapEntityMatches("person:Anyone", idx, env, storage);
+    expect(bootstrap.complete).toBe(false);
+    expect(bootstrap.failed_files).toBe(1);
+    expect(bootstrap.budget_exceeded).toBe(false);
   });
 
   it("(#9 Low) scan_incomplete branch (no deadline, no failures) has no failure count text", async () => {
@@ -1292,9 +1298,14 @@ describe("formatPartialBootstrapNote — output text invariants", () => {
     mockGetOrBuildIndex.mockResolvedValue(buildMockIndex([STUDY_NOTES_ENTRY]));
     mockFetchJson.mockResolvedValue(null);
 
+    // H11b: handleEntity uses fan-out, not bootstrap. A cold-empty fan-out
+    // where per-resource indexes DO exist (all populated, entity just absent)
+    // completes without a partial note. We pre-seed empty indexes to hit that.
+    const idx = await mockGetOrBuildIndex(env, storage);
+    const sha = idx.repo_shas.get(STUDY_NOTES_ENTRY.resource_code)!;
+    await storage.putJSON(`index/${STUDY_NOTES_ENTRY.resource_code}/${sha}/entities.json`, []);
     const result = await handleEntity({ entity_id: "person:Nobody" }, env, storage);
     const text = result.content[0]!.text;
-    // Cold-empty scan completes successfully → no partial note expected.
     expect(text).not.toContain("⚠ Partial result");
     expect(text).not.toContain("failed");
   });
@@ -1332,7 +1343,7 @@ describe("H11 — fanOutEntitySearch eager entity index", () => {
     mockGetOrBuildIndex.mockResolvedValue(idx);
 
     // Pre-seed the per-resource entity index in storage. Format matches what
-    // populateEntityIndexes writes: array of [entityId, ArticleRef[]] entries.
+    // warmEntityIndexesForResources writes: array of [entityId, ArticleRef[]] entries.
     const studyNotesSha = idx.repo_shas.get(STUDY_NOTES_ENTRY.resource_code)!;
     const entityIndexKey = `index/${STUDY_NOTES_ENTRY.resource_code}/${studyNotesSha}/entities.json`;
     const seededRefs: ArticleRef[] = [{
@@ -1364,12 +1375,11 @@ describe("H11 — fanOutEntitySearch eager entity index", () => {
     expect(mockFetchJson).not.toHaveBeenCalled();
   });
 
-  it("falls through to bootstrap when no per-resource entity index exists", async () => {
-    // Defensive fallback: if no per-resource entity index has been written to
-    // storage (e.g. index built pre-H11), fan-out returns empty and the
-    // bootstrap kicks in. This is the migration-safety path; once any
-    // bootstrap result is cached, fan-out will start finding it on next
-    // index rebuild.
+  it("(H11b) empty fan-out emits partial note and does NOT call bootstrap inline", async () => {
+    // H11b changed this path: missing per-resource entity indexes no longer
+    // trigger an inline bootstrap scan. Instead the user gets a partial
+    // result now with a disclosure note, and a background warm would run
+    // via ctx.waitUntil (not invoked in this test — no ctx passed).
     const env: Env = {
       AQUIFER_CACHE: createMockKV(),
       AQUIFER_CONTENT: {} as R2Bucket,
@@ -1378,17 +1388,24 @@ describe("H11 — fanOutEntitySearch eager entity index", () => {
       WORKER_ENV: "production",
     };
     const storage = createMockStorage();
-    mockGetOrBuildIndex.mockResolvedValue(buildMockIndex([STUDY_NOTES_ENTRY]));
-    // No entity index pre-seeded, mockFetchJson returns null for everything
-    // → bootstrap walks the empty corpus, returns complete=true with no matches.
-    mockFetchJson.mockResolvedValue(null);
+    const idx = buildMockIndex([STUDY_NOTES_ENTRY]);
+    idx.entity.clear();
+    mockGetOrBuildIndex.mockResolvedValue(idx);
+    // No per-resource entity index pre-seeded → fan-out returns empty with
+    // 1 missing resource. handleEntity must NOT invoke bootstrap inline.
+    mockFetchJson.mockImplementation(() => {
+      throw new Error("UNEXPECTED: bootstrap/metadata fetch ran inline; H11b forbids this");
+    });
 
     const result = await handleEntity({ entity_id: "person:Whoever" }, env, storage);
     const text = result.content[0]!.text;
     expect(text).toContain("No articles found");
-    // Bootstrap WAS invoked (because fan-out returned empty), and that's
-    // signaled by mockFetchJson being called at least once for the metadata.
-    expect(mockFetchJson).toHaveBeenCalled();
+    // Partial note IS present because fan-out saw the resource had no index
+    expect(text).toContain("⚠ Partial result");
+    expect(text).toContain("0/1 resources indexed");
+    // Bootstrap/metadata fetch MUST NOT have been called — the user response
+    // path is now purely fan-out; any corpus scan runs in the background.
+    expect(mockFetchJson).not.toHaveBeenCalled();
   });
 
   it("merges results from multiple per-resource entity indexes", async () => {
@@ -1461,5 +1478,143 @@ describe("H11 — fanOutEntitySearch eager entity index", () => {
     const text = result.content[0]!.text;
     expect(text).toContain("Found 1 article(s)");
     expect(text).toContain("Acts 7:58");
+  });
+});
+
+
+describe("H11b — partial data with transparency + background warm", () => {
+  // These tests verify the H11b contract explicitly:
+  //   (a) fanOutEntitySearch returns a structured FanOutEntityResult
+  //   (b) missing_resources drives both the partial note and the waitUntil warm
+  //   (c) passing a ctx triggers ctx.waitUntil with the warm; absence skips it
+  //   (d) repeat queries after warmed indexes return complete results
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockGetOrBuildIndex.mockReset();
+    mockFetchJson.mockReset();
+  });
+
+  it("kicks off ctx.waitUntil(warmEntityIndexesForResources) for missing resources", async () => {
+    const env: Env = {
+      AQUIFER_CACHE: createMockKV(),
+      AQUIFER_CONTENT: {} as R2Bucket,
+      AQUIFER_ORG: "BibleAquifer",
+      DOCS_REPO: "docs",
+      WORKER_ENV: "production",
+    };
+    const storage = createMockStorage();
+    const idx = buildMockIndex([STUDY_NOTES_ENTRY, FIA_MAPS_ENTRY]);
+    idx.entity.clear();
+    mockGetOrBuildIndex.mockResolvedValue(idx);
+
+    // Pre-seed ONE of the two indexes so only one is missing.
+    const sha1 = idx.repo_shas.get(STUDY_NOTES_ENTRY.resource_code)!;
+    await storage.putJSON(`index/${STUDY_NOTES_ENTRY.resource_code}/${sha1}/entities.json`, [
+      ["person:paul", [{
+        resource_code: STUDY_NOTES_ENTRY.resource_code, language: "eng",
+        content_id: "9640", title: "Acts 7:58", resource_type: "", index_reference: "ACT 7:58",
+      }]],
+    ]);
+    // FIA_MAPS_ENTRY has no entity index → fan-out will mark it missing.
+
+    // Track ctx.waitUntil invocations. We DON'T actually execute the warm
+    // promise — we just verify the handler invoked waitUntil with SOMETHING.
+    const waitUntilCalls: unknown[] = [];
+    const ctx: ExecutionContext = {
+      waitUntil: (p: Promise<unknown>) => { waitUntilCalls.push(p); },
+      passThroughOnException: () => {},
+    } as unknown as ExecutionContext;
+
+    // Mock fetchJson to reject, so if any warm promise WERE awaited inline,
+    // it would blow up loudly — we're asserting the path doesn't block.
+    mockFetchJson.mockImplementation(() => { throw new Error("should not be awaited in request path"); });
+
+    const result = await handleEntity({ entity_id: "person:Paul" }, env, storage, ctx);
+    const text = result.content[0]!.text;
+
+    // User got a result (from the one populated resource) PLUS a partial note
+    expect(text).toContain("Found 1 article(s)");
+    expect(text).toContain("Acts 7:58");
+    expect(text).toContain("⚠ Partial result");
+    expect(text).toContain("1/2 resources indexed");
+    // ctx.waitUntil was called exactly once with a Promise for the warm
+    expect(waitUntilCalls).toHaveLength(1);
+    expect(waitUntilCalls[0]).toBeInstanceOf(Promise);
+    // That promise represents the background warm — we don't await it here
+    // because we're only verifying the scheduling contract, not the work.
+  });
+
+  it("without ctx, emits partial note but skips the warm (self-healing via next query)", async () => {
+    // When ctx is not provided (legacy callers, tests), the H11b handler
+    // MUST NOT throw or block — it just skips the waitUntil. The partial
+    // note is still emitted so the user knows the result is incomplete.
+    const env: Env = {
+      AQUIFER_CACHE: createMockKV(),
+      AQUIFER_CONTENT: {} as R2Bucket,
+      AQUIFER_ORG: "BibleAquifer",
+      DOCS_REPO: "docs",
+      WORKER_ENV: "production",
+    };
+    const storage = createMockStorage();
+    const idx = buildMockIndex([STUDY_NOTES_ENTRY]);
+    idx.entity.clear();
+    mockGetOrBuildIndex.mockResolvedValue(idx);
+    mockFetchJson.mockImplementation(() => { throw new Error("should not be called"); });
+
+    // No ctx parameter passed — the optional-chain guards should handle it.
+    const result = await handleEntity({ entity_id: "person:Whoever" }, env, storage);
+    const text = result.content[0]!.text;
+    expect(text).toContain("No articles found");
+    expect(text).toContain("⚠ Partial result");
+    expect(text).toContain("0/1 resources indexed");
+    // No inline fetches — the whole point of H11b is that the user path
+    // does not scan content files.
+    expect(mockFetchJson).not.toHaveBeenCalled();
+  });
+
+  it("returns complete result without partial note when all indexes present", async () => {
+    // Post-warm state: every resource has a populated entity index.
+    // handleEntity must return complete matches with NO partial note and
+    // MUST NOT invoke waitUntil (nothing to warm).
+    const env: Env = {
+      AQUIFER_CACHE: createMockKV(),
+      AQUIFER_CONTENT: {} as R2Bucket,
+      AQUIFER_ORG: "BibleAquifer",
+      DOCS_REPO: "docs",
+      WORKER_ENV: "production",
+    };
+    const storage = createMockStorage();
+    const idx = buildMockIndex([STUDY_NOTES_ENTRY, FIA_MAPS_ENTRY]);
+    idx.entity.clear();
+    mockGetOrBuildIndex.mockResolvedValue(idx);
+    const sha1 = idx.repo_shas.get(STUDY_NOTES_ENTRY.resource_code)!;
+    const sha2 = idx.repo_shas.get(FIA_MAPS_ENTRY.resource_code)!;
+    await storage.putJSON(`index/${STUDY_NOTES_ENTRY.resource_code}/${sha1}/entities.json`, [
+      ["person:paul", [{
+        resource_code: STUDY_NOTES_ENTRY.resource_code, language: "eng",
+        content_id: "9640", title: "Acts 7:58", resource_type: "", index_reference: "ACT 7:58",
+      }]],
+    ]);
+    await storage.putJSON(`index/${FIA_MAPS_ENTRY.resource_code}/${sha2}/entities.json`, [
+      ["person:paul", [{
+        resource_code: FIA_MAPS_ENTRY.resource_code, language: "eng",
+        content_id: "500001", title: "Paul's Missionary Journeys", resource_type: "", index_reference: "",
+      }]],
+    ]);
+
+    const waitUntilCalls: unknown[] = [];
+    const ctx: ExecutionContext = {
+      waitUntil: (p: Promise<unknown>) => { waitUntilCalls.push(p); },
+      passThroughOnException: () => {},
+    } as unknown as ExecutionContext;
+
+    const result = await handleEntity({ entity_id: "person:Paul" }, env, storage, ctx);
+    const text = result.content[0]!.text;
+
+    expect(text).toContain("Found 2 article(s)");
+    expect(text).not.toContain("⚠ Partial result");
+    // No warms scheduled — every resource was already indexed.
+    expect(waitUntilCalls).toHaveLength(0);
   });
 });
