@@ -1695,4 +1695,19 @@ describe("image URL resolution (relative \u2192 absolute, server-side)", () => {
     const text = (await handleBrowse({ resource_code: "BiblicaOpenBibleMaps" }, env, storage)).content[0]!.text;
     expect(text).toContain(`Image: ${ABS}`);
   });
+
+  it("browse ignores stale unversioned catalogs that predate relative image resolution", async () => {
+    await storage.putJSON("catalog/BiblicaOpenBibleMaps/abc123test/eng/browse.json", [
+      {
+        content_id: "NT001",
+        title: REL_IMAGE_ARTICLE.title,
+        media_type: "Image",
+        image_url: null,
+        passages: [],
+      },
+    ]);
+
+    const text = (await handleBrowse({ resource_code: "BiblicaOpenBibleMaps" }, env, storage)).content[0]!.text;
+    expect(text).toContain(`Image: ${ABS}`);
+  });
 });
