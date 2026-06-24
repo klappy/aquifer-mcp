@@ -124,7 +124,7 @@ These define resource types, ordering schemes, association structures. They gove
 
 ### 2. Dynamic Resource Discovery
 
-Resources are **not hardcoded**. On each index build, the server calls the GitHub org API (`/orgs/BibleAquifer/repos`) to discover all repos dynamically. For each discovered repo, it fetches `eng/metadata.json` — repos with valid `resource_metadata` are included; repos without (infrastructure, docs, ACAI) are silently excluded. Ordering, type, and all other metadata come from the repo's own `metadata.json`, not from a static list.
+Resources are **not hardcoded**. On each index build, the server calls the GitHub org API (`/orgs/BibleAquifer/repos`) to discover all repos dynamically. For each discovered repo, it fetches metadata under the repo's **primary language** — resolved from `schemas/resource-manifest.json` (`primary_language`), defaulting to `eng` — so non-English resources (e.g. `AquiferFrenchBibleReferenceText` → `fra`) are indexed under their own language instead of being dropped by an eng-only probe. Repos with valid `resource_metadata` are included; repos without (infrastructure, docs, ACAI) are silently excluded. Ordering, type, and all other metadata come from the repo's own `metadata.json`, not from a static list.
 
 The org repo list is cached in KV with ETag-based conditional requests (304s don't consume GitHub rate limit). When Rick adds a new resource repo, it appears automatically — no code change or deploy required.
 
@@ -235,7 +235,7 @@ Every article can have:
 
 ### Aquifer Repos (dynamically discovered)
 
-Resources are **not listed here** — they are discovered at runtime from the `BibleAquifer` GitHub org. Any repo with a valid `eng/metadata.json` containing `resource_metadata` is automatically included.
+Resources are **not listed here** — they are discovered at runtime from the `BibleAquifer` GitHub org. Any repo with valid `resource_metadata` in its primary-language `metadata.json` (resolved from `schemas/resource-manifest.json`, defaulting to `eng`) is automatically included.
 
 For a point-in-time snapshot of available resources (titles, article counts, localizations), see `schemas/aquifer_full_inventory.md`. But treat the live `list` tool output as the source of truth — the inventory doc may lag behind what Rick has actually published.
 

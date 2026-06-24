@@ -131,8 +131,8 @@ function createServer(env: Env, ctx: ExecutionContext, tracer: RequestTracer) {
     "browse",
     "Browse the complete article catalog for a resource. Returns a paginated list of all articles with titles, content IDs, image URLs, and passage associations. Use this to discover what articles exist in a resource — especially useful for media/image resources where search may not cover them.",
     {
-      resource_code: z.string().describe("The resource repository name (e.g. FIAMaps, UbsImages)."),
-      language: z.string().optional().describe("Language code (default: eng)."),
+      resource_code: z.string().describe("The resource repository name (e.g. FIAMaps, UBSImages)."),
+      language: z.string().optional().describe("Language code. Defaults to the resource's primary language (eng for English resources, e.g. fra for a French-only resource)."),
       page: z.number().optional().describe("Page number, 1-indexed (default: 1)."),
       page_size: z.number().optional().describe("Articles per page, 1-100 (default: 50)."),
     },

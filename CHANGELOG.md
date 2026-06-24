@@ -4,13 +4,20 @@ All notable changes to aquifer-mcp will be documented in this file.
 
 ## [Unreleased]
 
-### Fixed
-
-- **Relative image paths in `get`/`browse` now resolved server-side**: Resources whose content embeds relative asset references (e.g. `BiblicaOpenBibleMaps` ships `<img src='images/NT001.png'>`) previously returned those paths verbatim, so every consuming app rendered a broken `<img>` and `browse` emitted no `Image:` line. The MCP server now absolutizes relative `src`/`href` values against the resource's content base (`raw.githubusercontent.com/{org}/{code}/main/{lang}/json/`, mirroring the `contentUrl` convention) before returning them. Callers no longer have to know the content base or special-case per-resource relative paths. Absolute URLs — `cdn.aquifer.bible` images on other media resources and the `drive.google.com` `Original:` links — pass through untouched. Applies to any resource/language, not just BiblicaOpenBibleMaps.
+## [1.6.0] - 2026-06-23
 
 ### Added
 
+- **Language-aware indexing for non-English resources**: `buildIndex` now probes each repo's metadata under its declared primary language (from `schemas/resource-manifest.json`) instead of a hardcoded `eng`, so resources with no English content (e.g. `AquiferFrenchBibleReferenceText` → `fra`) are indexed and surfaced in `list` under their own language rather than silently dropped. New exported `resolveResourceLanguage(code)` resolves the language (defaults to `eng`). This unlocks the multilingual Bible resources previously stranded by the eng-only probe.
 - **`contentImageBase(org, resourceCode, language)`** in `github.ts`: builds the raw-content base directory URL for resolving content-relative assets. `absolutizeContentUrls(html, base)` in `tools.ts` performs the rewrite; `extractImageUrl(html, base?)` now resolves relative `<img>` srcs to absolute (absolute srcs still returned as-is, so `cdn.aquifer.bible` parity is preserved).
+
+### Changed
+
+- **`browse` defaults to the resource's own language**: when no `language` argument is given, `browse` now uses the resolved resource's registered language (e.g. a French-only resource browses in `fra`) instead of literal `eng`. English-primary resources are unaffected. `warmEntityIndexesForResources` likewise uses the resource's language rather than a hardcoded `eng`.
+
+### Fixed
+
+- **Relative image paths in `get`/`browse` now resolved server-side**: Resources whose content embeds relative asset references (e.g. `BiblicaOpenBibleMaps` ships `<img src='images/NT001.png'>`) previously returned those paths verbatim, so every consuming app rendered a broken `<img>` and `browse` emitted no `Image:` line. The MCP server now absolutizes relative `src`/`href` values against the resource's content base (`raw.githubusercontent.com/{org}/{code}/main/{lang}/json/`, mirroring the `contentUrl` convention) before returning them. Callers no longer have to know the content base or special-case per-resource relative paths. Absolute URLs — `cdn.aquifer.bible` images on other media resources and the `drive.google.com` `Original:` links — pass through untouched. Applies to any resource/language, not just BiblicaOpenBibleMaps.
 
 ## [1.4.0] - 2026-03-31
 

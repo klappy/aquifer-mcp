@@ -1204,13 +1204,17 @@ export async function handleBrowse(
   const resourceCode = String(args.resource_code ?? "").trim();
   if (!resourceCode) return textResult("Missing required field: resource_code.");
 
-  const language = String(args.language ?? "eng").trim();
+  const requestedLanguage = args.language ? String(args.language).trim() : "";
   const page = Math.max(1, Number(args.page) || 1);
   const pageSize = Math.min(100, Math.max(1, Number(args.page_size) || 50));
 
   const index = await getOrBuildIndex(env, storage, ctx, tracer);
   const entry = index.registry.find((r) => r.resource_code === resourceCode);
   if (!entry) return textResult(`Resource "${resourceCode}" not found in the registry.`);
+
+  // When no language is requested, default to the resource's own primary
+  // language (e.g. a French-only resource browses in "fra"), not literal "eng".
+  const language = requestedLanguage || entry.language || "eng";
 
   const sha = index.repo_shas.get(resourceCode) ?? "";
   if (!sha) return textResult(`No SHA available for resource "${resourceCode}".`);
