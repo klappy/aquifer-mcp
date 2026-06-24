@@ -4,6 +4,12 @@ All notable changes to aquifer-mcp will be documented in this file.
 
 ## [Unreleased]
 
+## [1.6.2] - 2026-06-23
+
+### Fixed
+
+- **`get` and `related` no longer throw on association-less resources**: articles whose upstream content omits the `associations` object entirely (notably Bible-text resources such as `SBLGNT/grc`, `ReinaValera1909/spa`, and `AquiferFrenchBibleReferenceText/fra`) caused `get` and `related` to fail with `Cannot read properties of undefined (reading 'passage')`. `formatArticleContent` (the `get` formatter) and `handleRelated` read `article.associations.passage/.resource/.acai` directly; surfacing the multilingual Bibles in 1.6.0/1.6.1 made these resources reachable and exposed the latent assumption that `associations` is always present. `ArticleContent.associations` is now typed optional (reflecting the real upstream shape), and both readers normalize it to `{ passage: [], resource: [], acai: [] }` before access, so an association-less article renders its body with `**Passage**: none` and no link sections — identical to the existing behavior for articles with empty associations. `scripture` was unaffected (it already guarded via `article.associations?.passage ?? []`) and is not the bug despite earlier "broken scripture" framing.
+
 ## [1.6.1] - 2026-06-23
 
 ### Fixed

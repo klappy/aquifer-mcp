@@ -129,6 +129,37 @@ const BIBLE_ARTICLE: ArticleContent = {
   },
 };
 
+// Association-less Bible text (mirrors real SBLGNT/grc upstream, which omits the
+// `associations` object entirely). Regression fixture for 1.6.2: get/related must
+// not throw "Cannot read properties of undefined (reading 'passage')" on these.
+// `satisfies` (not a cast) ensures this stays valid only while associations is
+// optional — reverting the type change would fail this fixture at compile time.
+const SBLGNT_ENTRY: ResourceEntry = {
+  resource_code: "SBLGNT",
+  aquifer_type: "Bible",
+  resource_type: "Bible",
+  title: "The SBL Greek New Testament",
+  short_name: "SBLGNT",
+  order: "canonical",
+  language: "grc",
+  localizations: [],
+  article_count: 7939,
+  version: "1.0.0",
+};
+
+const ASSOCIATIONLESS_ARTICLE = {
+  content_id: "10040001001",
+  reference_id: 40001001,
+  version: "1.0.0",
+  title: "Matthew 1:1",
+  media_type: "Text",
+  index_reference: "40001001-40001001",
+  language: "grc",
+  review_level: "None",
+  content: "<p>Βίβλος γενέσεως Ἰησοῦ Χριστοῦ υἱοῦ Δαυὶδ υἱοῦ Ἀβραάμ.</p>",
+  // associations intentionally omitted — do not add it; that is the bug under test.
+} satisfies ArticleContent;
+
 const ROMANS_ARTICLE_REF: ArticleRef = {
   resource_code: "BiblicaStudyNotes",
   language: "eng",
@@ -434,6 +465,56 @@ describe("handleRelated", () => {
     const text = result.content[0]!.text;
     expect(text).toContain("Passage overlap");
     expect(text).toContain("Romans 1:1-17 (Open)");
+  });
+});
+
+describe("association-less resources (1.6.2 regression)", () => {
+  let env: Env;
+  let storage: AquiferStorage;
+
+  beforeEach(() => {
+    env = { AQUIFER_CACHE: createMockKV(), AQUIFER_CONTENT: {} as R2Bucket, AQUIFER_ORG: "BibleAquifer", DOCS_REPO: "docs", WORKER_ENV: "production" };
+    storage = createMockStorage();
+    mockGetOrBuildIndex.mockResolvedValue(buildMockIndex([SBLGNT_ENTRY]));
+    mockFetchJson.mockImplementation(async (url: string) => {
+      if (url.includes("metadata.json")) {
+        return {
+          resource_metadata: SBLGNT_ENTRY,
+          scripture_burrito: { ingredients: { "json/40.content.json": {} } },
+          article_metadata: {
+            "10040001001": { content_id: "10040001001", reference_id: 40001001, index_reference: "40001001-40001001" },
+          },
+        } as unknown as ResourceMetadata;
+      }
+      if (url.includes("content.json")) return [ASSOCIATIONLESS_ARTICLE];
+      return null;
+    });
+  });
+
+  it("get renders the article (Passage: none, no link sections) instead of throwing", async () => {
+    const result = await handleGet({ resource_code: "SBLGNT", language: "grc", content_id: "10040001001" }, env, storage);
+    const text = result.content[0]!.text;
+    expect(text).toContain("Matthew 1:1");
+    expect(text).toContain("Βίβλος γενέσεως");
+    expect(text).toContain("**Passage**: none");
+    expect(text).not.toContain("## Resource Links");
+    expect(text).not.toContain("## ACAI Entities");
+    // The 1.6.1 symptom string must not appear.
+    expect(text).not.toContain("Cannot read properties of undefined");
+  });
+
+  it("related reports no related articles instead of throwing", async () => {
+    const result = await handleRelated({ resource_code: "SBLGNT", language: "grc", content_id: "10040001001" }, env, storage);
+    const text = result.content[0]!.text;
+    expect(text).toContain("No related articles found for SBLGNT/10040001001");
+    expect(text).not.toContain("Cannot read properties of undefined");
+  });
+
+  it("scripture still returns text for an association-less Bible (non-regression guard)", async () => {
+    const result = await handleScripture({ reference: "Matthew 1:1", language: "grc", resource_code: "SBLGNT" }, env, storage);
+    const text = result.content[0]!.text;
+    expect(text).toContain("Βίβλος γενέσεως");
+    expect(text).not.toContain("Cannot read properties of undefined");
   });
 });
 
