@@ -157,7 +157,7 @@ export function metadataKey(resourceCode: string, sha: string, language: string)
 }
 
 export function catalogKey(resourceCode: string, sha: string, language: string): string {
-  return `catalog/${resourceCode}/${sha}/${language}/browse.json`;
+  return `catalog/v2/${resourceCode}/${sha}/${language}/browse.json`;
 }
 
 export function entityKey(compositeSha: string, entityId: string): string {

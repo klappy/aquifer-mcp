@@ -1,6 +1,6 @@
 import type { Env, ArticleRef, ArticleContent, NavigabilityIndex, ResourceEntry, ResourceMetadata } from "./types.js";
 import { parseReference, rangesOverlap, rangeToReadable, isValidIndexReference, bbcccvvvToReadable } from "./references.js";
-import { contentUrl, metadataUrl, fetchJson, GC_TTL } from "./github.js";
+import { contentUrl, contentImageBase, metadataUrl, fetchJson, GC_TTL } from "./github.js";
 import { getOrBuildIndex, fanOutPassageSearch, fanOutTitleSearch, fanOutEntitySearch, warmEntityIndexesForResources, loadArticleLookup, type ArticleLookupEntry } from "./registry.js";
 import { getPublicTelemetrySnapshot } from "./telemetry.js";
 import { AquiferStorage, contentKey, metadataKey, catalogKey, entityKey } from "./storage.js";
@@ -504,7 +504,7 @@ export async function handleGet(
     );
   }
 
-  return textResult(formatArticleContent(article, entry));
+  return textResult(formatArticleContent(article, entry, contentImageBase(env.AQUIFER_ORG, resourceCode, language)));
 }
 
 export async function handleRelated(
@@ -1025,14 +1025,15 @@ function formatArticleRef(ref: ArticleRef): string {
   return `- **${ref.title}**\n  ${ref.resource_type} | ${ref.resource_code}/${ref.language}/${ref.content_id}${passage}`;
 }
 
-function formatArticleContent(article: ArticleContent, entry: { title: string; resource_code: string }): string {
+function formatArticleContent(article: ArticleContent, entry: { title: string; resource_code: string }, imageBase?: string): string {
+  const content = imageBase ? absolutizeContentUrls(article.content, imageBase) : article.content;
   const parts: string[] = [
     `# ${article.title}`,
     `**Source**: ${entry.title} (${entry.resource_code}/${article.language}/${article.content_id})`,
     `**Passage**: ${article.associations.passage?.map((p) => `${p.start_ref_usfm}-${p.end_ref_usfm}`).join(", ") ?? "none"}`,
     `**Version**: ${article.version} | **Review**: ${article.review_level}`,
     "",
-    article.content,
+    content,
   ];
 
   if (article.associations.resource?.length) {
@@ -1062,9 +1063,47 @@ interface BrowseCatalogEntry {
   passages: Array<{ start_usfm: string; end_usfm: string }>;
 }
 
-function extractImageUrl(html: string): string | null {
-  const match = html.match(/src=['"]?(https:\/\/cdn\.aquifer\.bible\/[^'">\s]+)/);
-  return match?.[1] ?? null;
+// Matches a src=/href= attribute whose value is a *relative* reference: no URI
+// scheme, not protocol-relative (//), not a data:/mailto:/tel: URI, not a bare
+// fragment. Absolute references (cdn.aquifer.bible images, drive.google.com
+// originals, etc.) are deliberately excluded so they pass through untouched.
+const RELATIVE_ASSET_ATTR = /(\b(?:src|href)\s*=\s*)(["'])(?!(?:https?:|\/\/|data:|mailto:|tel:|#))([^"']*)\2/gi;
+
+/**
+ * Rewrite relative src/href values in article HTML to absolute raw-content URLs,
+ * resolved against the resource's content base. Absolute URLs are left intact.
+ * This keeps the resolution server-side so MCP callers never have to know the
+ * content base or special-case per-resource relative paths.
+ */
+function absolutizeContentUrls(html: string, base: string): string {
+  if (!html) return html;
+  return html.replace(RELATIVE_ASSET_ATTR, (whole, pre, quote, value) => {
+    if (!value) return whole;
+    try {
+      return `${pre}${quote}${new URL(value, base).href}${quote}`;
+    } catch {
+      return whole;
+    }
+  });
+}
+
+/**
+ * Extract the first <img> src from article HTML as an absolute URL. Already-
+ * absolute srcs (e.g. cdn.aquifer.bible) are returned as-is; relative srcs are
+ * resolved against `base` when provided. Returns null when no <img> is present
+ * or a relative src cannot be resolved without a base.
+ */
+function extractImageUrl(html: string, base?: string): string | null {
+  const match = html.match(/<img\b[^>]*?\bsrc\s*=\s*["']?([^"'\s>]+)/i);
+  if (!match) return null;
+  const src = match[1]!;
+  if (/^https?:\/\//i.test(src)) return src;
+  if (!base) return null;
+  try {
+    return new URL(src, base).href;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -1140,7 +1179,7 @@ async function buildCatalog(
         content_id: String(article.content_id),
         title: article.title || `Article ${article.content_id}`,
         media_type: article.media_type || "",
-        image_url: extractImageUrl(article.content || ""),
+        image_url: extractImageUrl(article.content || "", contentImageBase(env.AQUIFER_ORG, resourceCode, language)),
         passages: (article.associations?.passage ?? []).map((p) => ({
           start_usfm: p.start_ref_usfm,
           end_usfm: p.end_ref_usfm,

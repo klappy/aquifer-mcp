@@ -23,6 +23,19 @@ export function contentUrl(org: string, resourceCode: string, language: string, 
 }
 
 /**
+ * Base URL for content-relative assets (images, links) referenced inside an
+ * article's HTML. Content files live at `<language>/json/<file>`, so a relative
+ * reference like `images/NT001.png` resolves against this base to
+ * `<language>/json/images/NT001.png`. Mirrors the `/main/` convention used by
+ * contentUrl(); if immutable asset URLs become desirable, pin to a SHA here.
+ * Trailing slash is required so `new URL(rel, base)` resolves against the
+ * directory rather than replacing the last path segment.
+ */
+export function contentImageBase(org: string, resourceCode: string, language: string): string {
+  return rawUrl(org, resourceCode, `${language}/json/`);
+}
+
+/**
  * Discover all repos in a GitHub organization.
  * Uses ETag-based conditional requests so 304s don't consume rate limit.
  * Returns repo names exactly as GitHub reports them.

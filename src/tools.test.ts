@@ -230,6 +230,7 @@ vi.mock("./registry.js", async (importOriginal) => {
 vi.mock("./github.js", () => ({
   metadataUrl: vi.fn((org: string, code: string, lang: string) => `https://raw.githubusercontent.com/${org}/${code}/main/${lang}/metadata.json`),
   contentUrl: vi.fn((org: string, code: string, lang: string, file: string) => `https://raw.githubusercontent.com/${org}/${code}/main/${lang}/json/${file}`),
+  contentImageBase: vi.fn((org: string, code: string, lang: string) => `https://raw.githubusercontent.com/${org}/${code}/main/${lang}/json/`),
   fetchJson: vi.fn(),
   GC_TTL: 2592000,
 }));
@@ -1616,5 +1617,97 @@ describe("H11b — partial data with transparency + background warm", () => {
     expect(text).not.toContain("⚠ Partial result");
     // No warms scheduled — every resource was already indexed.
     expect(waitUntilCalls).toHaveLength(0);
+  });
+});
+
+// --- Image URL resolution (relative content paths → absolute raw URLs) ---
+
+const BOBM_ENTRY: ResourceEntry = {
+  resource_code: "BiblicaOpenBibleMaps",
+  aquifer_type: "Images",
+  resource_type: "Images, Maps, Videos",
+  title: "Biblica Open Bible Maps",
+  short_name: "BiblicaOpenBibleMaps",
+  order: "monograph",
+  language: "eng",
+  localizations: [],
+  article_count: 542,
+  version: "1.0.2",
+};
+
+// Mirrors real eng/json/000001.content.json for NT001: relative <img>/<a> plus
+// an absolute drive.google.com "Original:" link that must survive untouched.
+const REL_IMAGE_ARTICLE: ArticleContent = {
+  content_id: "NT001",
+  reference_id: 0,
+  version: "1.0.2",
+  title: "The Life of Jesus: The Roman Empire in the Time of Jesus",
+  media_type: "Image",
+  index_reference: "the roman empire in the time of jesus",
+  language: "eng",
+  review_level: "None",
+  content:
+    "<h3>Image Content</h3><block><p><img src='images/NT001.png' alt='Image' width='480' /></p>" +
+    "<p><a href='images/NT001.png'>link</a></p>" +
+    "<p>Original: <a href='https://drive.google.com/open?id=15B3fAwXXmTHsLQbD6SM3QmWUixqEeASO&usp=drive_copy'>Original</a></p></block>",
+  associations: { passage: [], resource: [], acai: [] },
+};
+
+describe("image URL resolution (relative \u2192 absolute, server-side)", () => {
+  let env: Env;
+  let storage: AquiferStorage;
+  const ABS = "https://raw.githubusercontent.com/BibleAquifer/BiblicaOpenBibleMaps/main/eng/json/images/NT001.png";
+
+  beforeEach(() => {
+    env = { AQUIFER_CACHE: createMockKV(), AQUIFER_CONTENT: {} as R2Bucket, AQUIFER_ORG: "BibleAquifer", DOCS_REPO: "docs", WORKER_ENV: "production" };
+    storage = createMockStorage();
+    mockGetOrBuildIndex.mockResolvedValue(buildMockIndex([BOBM_ENTRY]));
+    mockFetchJson.mockImplementation(async (url: string) => {
+      if (url.includes("metadata.json")) {
+        return {
+          resource_metadata: BOBM_ENTRY,
+          scripture_burrito: { ingredients: { "json/000001.content.json": {} } },
+          article_metadata: {},
+        } as ResourceMetadata;
+      }
+      if (url.includes("000001.content.json")) return [REL_IMAGE_ARTICLE];
+      return null;
+    });
+  });
+
+  it("get rewrites a relative <img src> to an absolute raw URL", async () => {
+    const text = (await handleGet({ resource_code: "BiblicaOpenBibleMaps", language: "eng", content_id: "NT001" }, env, storage)).content[0]!.text;
+    expect(text).toContain(`src='${ABS}'`);
+    expect(text).not.toMatch(/src=['"]images\//);
+  });
+
+  it("get leaves the absolute drive.google.com Original link intact", async () => {
+    const text = (await handleGet({ resource_code: "BiblicaOpenBibleMaps", language: "eng", content_id: "NT001" }, env, storage)).content[0]!.text;
+    expect(text).toContain("https://drive.google.com/open?id=15B3fAwXXmTHsLQbD6SM3QmWUixqEeASO");
+  });
+
+  it("get rewrites the relative download <a href> as well", async () => {
+    const text = (await handleGet({ resource_code: "BiblicaOpenBibleMaps", language: "eng", content_id: "NT001" }, env, storage)).content[0]!.text;
+    expect(text).toContain(`href='${ABS}'`);
+  });
+
+  it("browse emits an absolute Image: line for a relative-image resource", async () => {
+    const text = (await handleBrowse({ resource_code: "BiblicaOpenBibleMaps" }, env, storage)).content[0]!.text;
+    expect(text).toContain(`Image: ${ABS}`);
+  });
+
+  it("browse ignores stale unversioned catalogs that predate relative image resolution", async () => {
+    await storage.putJSON("catalog/BiblicaOpenBibleMaps/abc123test/eng/browse.json", [
+      {
+        content_id: "NT001",
+        title: REL_IMAGE_ARTICLE.title,
+        media_type: "Image",
+        image_url: null,
+        passages: [],
+      },
+    ]);
+
+    const text = (await handleBrowse({ resource_code: "BiblicaOpenBibleMaps" }, env, storage)).content[0]!.text;
+    expect(text).toContain(`Image: ${ABS}`);
   });
 });
