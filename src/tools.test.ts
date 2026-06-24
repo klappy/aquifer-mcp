@@ -1618,3 +1618,63 @@ describe("H11b — partial data with transparency + background warm", () => {
     expect(waitUntilCalls).toHaveLength(0);
   });
 });
+
+// --- Browse language defaulting: non-English-primary resources ---
+
+const FRENCH_BIBLE_ENTRY: ResourceEntry = {
+  resource_code: "AquiferFrenchBibleReferenceText",
+  aquifer_type: "Bible",
+  resource_type: "Bible",
+  title: "Aquifer French Bible Reference Text",
+  short_name: "AquiferFrenchBibleReferenceText",
+  order: "canonical",
+  language: "fra",
+  localizations: [],
+  article_count: 66,
+  version: "1.0.0",
+};
+
+const FRENCH_ARTICLE: ArticleContent = {
+  content_id: "GEN001",
+  reference_id: 1,
+  version: "1.0.0",
+  title: "Genèse",
+  media_type: "",
+  index_reference: "01001001",
+  language: "fra",
+  review_level: "None",
+  content: "<p>Au commencement, Dieu créa les cieux et la terre.</p>",
+  associations: { passage: [], resource: [], acai: [] },
+};
+
+describe("handleBrowse language defaulting", () => {
+  let env: Env;
+  let storage: AquiferStorage;
+
+  beforeEach(() => {
+    env = { AQUIFER_CACHE: createMockKV(), AQUIFER_CONTENT: {} as R2Bucket, AQUIFER_ORG: "BibleAquifer", DOCS_REPO: "docs", WORKER_ENV: "production" };
+    storage = createMockStorage();
+    mockGetOrBuildIndex.mockResolvedValue(buildMockIndex([FRENCH_BIBLE_ENTRY]));
+    // Mock only resolves fra/ paths — if browse defaulted to eng, these would miss
+    // and the catalog would be empty.
+    mockFetchJson.mockImplementation(async (url: string) => {
+      if (url.includes("/fra/metadata.json")) {
+        return {
+          resource_metadata: FRENCH_BIBLE_ENTRY,
+          scripture_burrito: { ingredients: { "json/01.content.json": {} } },
+          article_metadata: {},
+        } as ResourceMetadata;
+      }
+      if (url.includes("/fra/json/01.content.json")) return [FRENCH_ARTICLE];
+      return null;
+    });
+  });
+
+  it("defaults to the resource's own language (fra) when no language is given", async () => {
+    const result = await handleBrowse({ resource_code: "AquiferFrenchBibleReferenceText" }, env, storage);
+    const text = result.content[0]!.text;
+    expect(text).toContain("AquiferFrenchBibleReferenceText/fra");
+    expect(text).toContain("AquiferFrenchBibleReferenceText/fra/GEN001");
+    expect(text).not.toContain("/eng/");
+  });
+});

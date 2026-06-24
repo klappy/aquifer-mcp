@@ -8,6 +8,28 @@ import type {
 import { metadataUrl, fetchJson, fetchRepoSha, fetchOrgRepos } from "./github.js";
 import { isValidIndexReference, rangesOverlap } from "./references.js";
 import { AquiferStorage, indexKey, metadataKey, passageIndexKey, titleIndexKey, articleIndexKey, entityIndexKey, contentKey } from "./storage.js";
+import resourceManifest from "../schemas/resource-manifest.json";
+
+/**
+ * Per-resource primary language, sourced from the coverage manifest
+ * (`schemas/resource-manifest.json`). The indexer probes
+ * `<language>/metadata.json`, so resources whose content is not in English —
+ * e.g. `AquiferFrenchBibleReferenceText` → "fra" — are indexed under their own
+ * language instead of being silently dropped by a hardcoded "eng" probe.
+ * Falls back to "eng" for any repo not yet in the manifest; the coverage
+ * ratchet (`coverage.test.ts`) keeps the manifest complete.
+ */
+const MANIFEST_PRIMARY_LANGUAGE: Record<string, string> = Object.fromEntries(
+  Object.entries(
+    (resourceManifest as { repos: Record<string, { primary_language?: string }> }).repos,
+  )
+    .filter(([, entry]) => typeof entry.primary_language === "string")
+    .map(([code, entry]) => [code, entry.primary_language as string]),
+);
+
+export function resolveResourceLanguage(code: string): string {
+  return MANIFEST_PRIMARY_LANGUAGE[code] ?? "eng";
+}
 
 /** Per-resource article lookup: content_id → file location + minimal metadata. */
 export interface ArticleLookupEntry {
@@ -230,8 +252,9 @@ async function buildIndex(
     repoCodes.map(async (code) => {
       const repoSha = repoShas.get(code);
       if (!repoSha) return null;
-      const url = metadataUrl(env.AQUIFER_ORG, code, "eng");
-      const key = metadataKey(code, repoSha, "eng");
+      const language = resolveResourceLanguage(code);
+      const url = metadataUrl(env.AQUIFER_ORG, code, language);
+      const key = metadataKey(code, repoSha, language);
       const metadata = await fetchJson<ResourceMetadata>(url, storage, key);
       if (!metadata?.resource_metadata) return null;
       return { code, metadata };
@@ -516,8 +539,8 @@ export async function warmEntityIndexesForResources(
   for (const entry of resources) {
     const sha = repoShas.get(entry.resource_code);
     if (!sha) continue;
-    const url = metadataUrl(env.AQUIFER_ORG, entry.resource_code, "eng");
-    const key = metadataKey(entry.resource_code, sha, "eng");
+    const url = metadataUrl(env.AQUIFER_ORG, entry.resource_code, entry.language);
+    const key = metadataKey(entry.resource_code, sha, entry.language);
     let metadata: ResourceMetadata | null = null;
     try {
       metadata = await fetchJson<ResourceMetadata>(url, storage, key);

@@ -2,6 +2,16 @@
 
 All notable changes to aquifer-mcp will be documented in this file.
 
+## [Unreleased]
+
+### Added
+
+- **Language-aware indexing for non-English resources**: `buildIndex` now probes each repo's metadata under its declared primary language (from `schemas/resource-manifest.json`) instead of a hardcoded `eng`, so resources with no English content (e.g. `AquiferFrenchBibleReferenceText` → `fra`) are indexed and surfaced in `list` under their own language rather than silently dropped. New exported `resolveResourceLanguage(code)` resolves the language (defaults to `eng`). This unlocks the multilingual Bible resources previously stranded by the eng-only probe.
+
+### Changed
+
+- **`browse` defaults to the resource's own language**: when no `language` argument is given, `browse` now uses the resolved resource's registered language (e.g. a French-only resource browses in `fra`) instead of literal `eng`. English-primary resources are unaffected. `warmEntityIndexesForResources` likewise uses the resource's language rather than a hardcoded `eng`.
+
 ## [1.4.0] - 2026-03-31
 
 ### Changed
