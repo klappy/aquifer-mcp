@@ -2,6 +2,16 @@
 
 All notable changes to aquifer-mcp will be documented in this file.
 
+## [Unreleased]
+
+### Fixed
+
+- **Relative image paths in `get`/`browse` now resolved server-side**: Resources whose content embeds relative asset references (e.g. `BiblicaOpenBibleMaps` ships `<img src='images/NT001.png'>`) previously returned those paths verbatim, so every consuming app rendered a broken `<img>` and `browse` emitted no `Image:` line. The MCP server now absolutizes relative `src`/`href` values against the resource's content base (`raw.githubusercontent.com/{org}/{code}/main/{lang}/json/`, mirroring the `contentUrl` convention) before returning them. Callers no longer have to know the content base or special-case per-resource relative paths. Absolute URLs — `cdn.aquifer.bible` images on other media resources and the `drive.google.com` `Original:` links — pass through untouched. Applies to any resource/language, not just BiblicaOpenBibleMaps.
+
+### Added
+
+- **`contentImageBase(org, resourceCode, language)`** in `github.ts`: builds the raw-content base directory URL for resolving content-relative assets. `absolutizeContentUrls(html, base)` in `tools.ts` performs the rewrite; `extractImageUrl(html, base?)` now resolves relative `<img>` srcs to absolute (absolute srcs still returned as-is, so `cdn.aquifer.bible` parity is preserved).
+
 ## [1.4.0] - 2026-03-31
 
 ### Changed
