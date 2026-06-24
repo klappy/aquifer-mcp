@@ -16,7 +16,7 @@ Klappy gave one clear direction: do not build a heavy platform, build a thin nav
 
 Oddkit provides epistemic posture, prior MCP work provides implementation shape, and Rick Brannan's Aquifer docs and repos provide source truth. The server is a Cloudflare Worker that indexes metadata, retrieves content on demand, and exposes predictable MCP tools for agents and apps.
 
-Capabilities include: explicit catalog browsing via `browse`, content-addressed SHA-keyed caching where freshness comes from observed repo state instead of TTL assumptions, in-band README access through the `readme` tool, dynamic resource discovery from the BibleAquifer GitHub org so new resources appear automatically with zero code changes, deterministic Bible verse retrieval via the `scripture` tool, and named entity profiling via the `entity` tool.
+Capabilities include: explicit catalog browsing via `browse`, content-addressed SHA-keyed caching where freshness comes from observed repo state instead of TTL assumptions, in-band README access through the `readme` tool, dynamic resource discovery from the BibleAquifer GitHub org so new resources appear automatically with zero code changes, multilingual coverage where each resource is indexed and served in its own primary language (resolved from the coverage manifest) rather than English-only, server-side resolution of relative content image paths into absolute CORS-open URLs so consuming apps render images without per-resource handling, deterministic Bible verse retrieval via the `scripture` tool, and named entity profiling via the `entity` tool.
 
 The Aquifer Window uses this server as its content backend. The Window and agent clients are two interfaces over the same corpus and the same MCP endpoint.
 
@@ -45,7 +45,7 @@ Aquifer MCP provides ten tools:
 - `search` - search by passage, ACAI entity, or title keyword
 - `get` - fetch full article content by compound key
 - `related` - follow passage/resource/entity associations
-- `browse` - paginate through full article catalogs for a resource
+- `browse` - paginate through full article catalogs for a resource (defaults to the resource's own language)
 - `scripture` - fetch Bible verse text by reference (e.g. "Rom 3:23-25") across all translations
 - `entity` - profile a named entity by ACAI ID (e.g. "person:David") showing all associated articles
 
