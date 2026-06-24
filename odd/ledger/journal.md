@@ -5,7 +5,7 @@ scope: aquifer-mcp
 type: epistemic-ledger
 derives_from: "docs/aquifer-mcp-oldc.md"
 date_created: 2026-03-16
-last_updated: 2026-03-31
+last_updated: 2026-06-23
 ---
 
 # aquifer-mcp — Project Journal
@@ -1475,3 +1475,24 @@ The H11→H11b arc is itself a lesson in distinguishing "the corpus scan is the 
 - **H16 unblocked** — delete `bootstrapEntityMatches`, `BootstrapEntityResult`, `formatPartialBootstrapNote` (and their tests that still route through them directly) in a standalone PR after 24 hours of clean production observation. They are confirmed dead code from the user path. The direct tests that exercise `bootstrapEntityMatches` via a direct call should be deleted alongside the function itself — they test an internal function that's about to be removed.
 - **H19 promoted from J-005's H17** — the disclosure note text is static ("retry in a few seconds"). Observed behavior: 20-second wait produced 28/33 warmed, so "a few seconds" understates the realistic warm time for full corpus coverage. Consider dynamic wording based on `missing_resources.length` and an estimated seconds-per-resource, or a simpler "retry in N seconds" where N = missing_resources.length. Low-priority UX tuning; not a correctness issue.
 - **H14 promoted** — encode "type contract + adversarial review" as a paired pattern in canon. Three recurrences documented: J-003 (BootstrapEntityResult contract + Bugbot catching implementation drift); J-005 (H11b FanOutEntityResult contract + Bugbot catching the undeclared `ctx` crash); and the generalized form observed across both — when the type system is present at author time but bypassed in the build pipeline (esbuild transpile-only), adversarial review is the sole defense between compile and runtime. Candidate canon path: `klappy://canon/principles/type-contract-plus-adversarial-review`.
+
+---
+
+### J-007 — Coverage ratchet caught upstream org drift; manifest re-categorized, live-in-CI test deferred
+
+**Observation:** While shipping the relative-image-URL fix (PR #22), CI `build-test` failed. Initial sandbox runs showed two `coverage.test.ts` cases throwing `GitHub API returned 403` — but that was an unauthenticated rate-limit artifact of the build sandbox (no `GITHUB_TOKEN`, shared IP), not the CI failure. Re-running the suite *with* a token (as `ci.yml` does via `secrets.GITHUB_TOKEN`) collapsed the 403s and surfaced the real, deterministic failure: the `every org repo is categorized in manifest` ratchet reported three uncategorized `BibleAquifer` repos — `AquiferFrenchBibleReferenceText`, `BDBHebrewLexicon`, `BDBAramaicLexicon`. The org had grown to 65 repos; the manifest (last audited 2026-04-13) listed 62. The failure was pre-existing on `main` and unrelated to PR #22 — it reds every open PR until the manifest catches up.
+
+Verified each repo against reality before categorizing: `BDBHebrewLexicon` and `BDBAramaicLexicon` each ship `eng/metadata.json` (`aquifer_type: Dictionary`, resource_type "Semantic Lexicon") and are already present in the live MCP `list` → `served`. `AquiferFrenchBibleReferenceText` ships only `fra/metadata.json` (no `eng/`) and is absent from live `list` → `pending`, with the same reason as its Portuguese/Spanish siblings ("No eng/metadata.json — buildIndex only probes eng language"). `_served_floor` ratcheted 21 → 23 to reflect the two verified-served lexicons.
+
+**Learning:** The ratchet did exactly its job — it is a *content-drift detector*, and the drift it detected was real, not noise. The instinct to "make the failing tests pass by slowing them down" would have been a category error: the failure was neither a timing nor a rate-limit problem in CI (CI is authenticated); it was the guard truthfully reporting that upstream gained resources the manifest hadn't accounted for. The only place a rate limit appears is the unauthenticated sandbox, which is not the CI environment. Diagnosing against the *actual* CI environment (token present) rather than the sandbox was what separated the symptom from the cause.
+
+A second-order observation worth recording but not acting on yet: the manifest's `served` count (23) still understates live coverage — many entries marked `pending` ("not yet appearing in live MCP index — under investigation") are now serving live (~35 resources in `list`). That broader `served`/`pending` drift is the domain of the scheduled `coverage-live.yml` job, not this targeted completeness fix; `_audited` is intentionally left at `2026-04-13` because a full served/pending re-audit was not performed here.
+
+**Decision:** Land the manifest re-categorization as a standalone PR (separate from the image-URL fix in #22), so it is a trivially-reviewable data change that unblocks CI for all open PRs once merged.
+
+**Deferred (documented, not actioned):** Move the two *live, non-hermetic* coverage assertions — `every org repo is categorized in manifest` and `no phantom entries in manifest` — out of per-PR `build-test` and into the already-scheduled `coverage-live.yml` job (or gate them behind an env flag). Rationale: as written, per-PR CI calls the live GitHub org API, so any upstream org change (a new repo, a renamed repo) reds the CI of every unrelated open PR until a human updates the manifest. That couples PR velocity to upstream content drift, which is the failure mode observed here. The two pure-data assertions (`valid JSON structure`, `served count >= floor`) are hermetic and should remain in per-PR CI. Deferred by operator decision on 2026-06-23; not blocking. Candidate follow-up when picked up: split `coverage.test.ts` into a hermetic suite (per-PR) and a live suite (scheduled), keeping the ratchet semantics intact.
+
+**Handoff:**
+- **Manifest PR** — `chore/categorize-bibleaquifer-coverage`: adds the 3 repos, bumps `_served_floor` to 23. Verified `coverage.test.ts` passes 4/4 with a token. Hold for Bugbot before merge per the release-validation gate.
+- **Hermetic-CI split** — open follow-up, deferred above. Pick up when per-PR CI flakiness on upstream drift becomes a recurring tax.
+- **Broader served/pending re-audit** — the manifest under-reports live coverage; a full reconcile against live `list` (and a `_audited` bump) is owed but out of scope here.
