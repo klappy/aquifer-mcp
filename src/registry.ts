@@ -9,6 +9,7 @@ import { metadataUrl, fetchJson, fetchRepoSha, fetchOrgRepos } from "./github.js
 import { isValidIndexReference, rangesOverlap } from "./references.js";
 import { AquiferStorage, indexKey, metadataKey, passageIndexKey, titleIndexKey, articleIndexKey, entityIndexKey, contentKey } from "./storage.js";
 import resourceManifest from "../schemas/resource-manifest.json";
+import { VERSION } from "./version.js";
 
 /**
  * Per-resource primary language, sourced from the coverage manifest
@@ -231,11 +232,29 @@ async function fetchAllRepoShas(repoCodes: string[], env: Env): Promise<Map<stri
   return map;
 }
 
-async function computeCompositeHash(repoShas: Map<string, string>): Promise<string> {
-  const parts = [...repoShas.entries()]
+/**
+ * Composite hash over the discovered repo SHAs, namespaced by a schema token.
+ *
+ * The token defaults to the app `VERSION`, so every release produces a distinct
+ * composite hash. This makes the persisted R2 navigability index self-invalidate
+ * on deploy: `refreshAndUpdateCurrentIndex` and the cold-build path both key off
+ * this hash, so an indexing-logic change (which alters no repo SHA) still forces
+ * a rebuild rather than serving a stale index built by the previous version.
+ * Without this, code-only releases — e.g. the 1.6.0 language-aware indexer — never
+ * rebuilt, and resources newly surfaced by that logic never appeared.
+ *
+ * `schemaToken` is a parameter (not read inline) so the version-sensitivity is
+ * unit-testable without mocking the version module.
+ */
+export async function computeCompositeHash(
+  repoShas: Map<string, string>,
+  schemaToken: string = `v${VERSION}`,
+): Promise<string> {
+  const repoParts = [...repoShas.entries()]
     .sort((a, b) => a[0].localeCompare(b[0]))
     .map(([code, sha]) => `${code}:${sha}`)
     .join(",");
+  const parts = `schema:${schemaToken}|${repoParts}`;
   const buffer = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(parts));
   return [...new Uint8Array(buffer)].map((b) => b.toString(16).padStart(2, "0")).join("").slice(0, 16);
 }
