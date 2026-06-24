@@ -63,7 +63,10 @@ export interface ArticleContent {
   language: string;
   review_level: string;
   content: string;
-  associations: {
+  // Optional: some upstream resources (notably association-less Bible texts such
+  // as SBLGNT/grc and ReinaValera1909/spa) omit this object entirely. Readers must
+  // not assume it is present — normalize before access. See CHANGELOG 1.6.2.
+  associations?: {
     passage: PassageAssociation[];
     resource: ResourceAssociation[];
     acai: AcaiAssociation[];

@@ -531,11 +531,16 @@ export async function handleRelated(
   const article = await findArticle(resourceCode, language, contentId, entry, env, storage, sha, index, tracer);
   if (!article) return textResult(`Article ${contentId} not found.`);
 
+  // Some resources (association-less Bible texts such as SBLGNT/grc) omit the
+  // associations object entirely; normalize before access so related does not
+  // throw "Cannot read properties of undefined (reading 'passage')". See CHANGELOG 1.6.2.
+  const associations = article.associations ?? { passage: [], resource: [], acai: [] };
+
   const related: Array<{ type: string; refs: ArticleRef[] }> = [];
 
-  if (article.associations.passage?.length) {
+  if (associations.passage?.length) {
     const passageRefs: ArticleRef[] = [];
-    for (const assoc of article.associations.passage) {
+    for (const assoc of associations.passage) {
       const range = `${assoc.start_ref}-${assoc.end_ref}`;
       const overlapping = await fanOutPassageSearch(range, index, storage, tracer);
       passageRefs.push(...overlapping.filter(
@@ -547,8 +552,8 @@ export async function handleRelated(
     }
   }
 
-  if (article.associations.resource?.length) {
-    const resourceRefs: ArticleRef[] = article.associations.resource.map((a) => ({
+  if (associations.resource?.length) {
+    const resourceRefs: ArticleRef[] = associations.resource.map((a) => ({
       resource_code: a.resource_code,
       language: a.language,
       content_id: String(a.content_id),
@@ -558,9 +563,9 @@ export async function handleRelated(
     related.push({ type: "Resource links", refs: resourceRefs });
   }
 
-  if (article.associations.acai?.length) {
+  if (associations.acai?.length) {
     const entityRefs: ArticleRef[] = [];
-    for (const acai of article.associations.acai) {
+    for (const acai of associations.acai) {
       const refs = index.entity.get(String(acai.id).toLowerCase());
       if (refs) {
         entityRefs.push(...refs.filter(
@@ -1027,25 +1032,28 @@ function formatArticleRef(ref: ArticleRef): string {
 
 function formatArticleContent(article: ArticleContent, entry: { title: string; resource_code: string }, imageBase?: string): string {
   const content = imageBase ? absolutizeContentUrls(article.content, imageBase) : article.content;
+  // Association-less Bible texts (e.g. SBLGNT/grc) omit this object entirely;
+  // normalize so get does not throw on the passage/resource/acai reads below. See CHANGELOG 1.6.2.
+  const associations = article.associations ?? { passage: [], resource: [], acai: [] };
   const parts: string[] = [
     `# ${article.title}`,
     `**Source**: ${entry.title} (${entry.resource_code}/${article.language}/${article.content_id})`,
-    `**Passage**: ${article.associations.passage?.map((p) => `${p.start_ref_usfm}-${p.end_ref_usfm}`).join(", ") ?? "none"}`,
+    `**Passage**: ${associations.passage?.length ? associations.passage.map((p) => `${p.start_ref_usfm}-${p.end_ref_usfm}`).join(", ") : "none"}`,
     `**Version**: ${article.version} | **Review**: ${article.review_level}`,
     "",
     content,
   ];
 
-  if (article.associations.resource?.length) {
+  if (associations.resource?.length) {
     parts.push("", "## Resource Links");
-    for (const r of article.associations.resource) {
+    for (const r of associations.resource) {
       parts.push(`- ${r.label} (${r.resource_code}/${r.language}/${r.content_id})`);
     }
   }
 
-  if (article.associations.acai?.length) {
+  if (associations.acai?.length) {
     parts.push("", "## ACAI Entities");
-    for (const a of article.associations.acai) {
+    for (const a of associations.acai) {
       parts.push(`- ${a.preferred_label} (${a.id}, ${a.type}, confidence: ${a.confidence})`);
     }
   }

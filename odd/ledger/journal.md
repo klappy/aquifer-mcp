@@ -1496,3 +1496,61 @@ A second-order observation worth recording but not acting on yet: the manifest's
 - **Manifest PR** — `chore/categorize-bibleaquifer-coverage`: adds the 3 repos, bumps `_served_floor` to 23. Verified `coverage.test.ts` passes 4/4 with a token. Hold for Bugbot before merge per the release-validation gate.
 - **Hermetic-CI split** — open follow-up, deferred above. Pick up when per-PR CI flakiness on upstream drift becomes a recurring tax.
 - **Broader served/pending re-audit** — the manifest under-reports live coverage; a full reconcile against live `list` (and a `_audited` bump) is owed but out of scope here.
+
+---
+
+### J-008 — Multilingual release arc (1.6.0 / 1.6.1) and the broken-`get` discovery [prior session, persisted retroactively]
+
+> This is the prior session's project journal as embedded (DOLCHEO TSV) in its fresh-session handoff. That session shipped PRs #22–#25 (image resolution, manifest categorization, language-aware indexing → 1.6.0, index self-invalidation → 1.6.1) and discovered the association-less `get`/`related` throw, but lacked write tools and could not persist this block. Committed here verbatim by the J-009 session for the durable record. Note: its H ("Ship 1.6.2 … to fix broken scripture") and O-open **P1** are **closed/corrected by J-009** — scripture was never the bug.
+
+```tsv
+D	Manifest-driven primary language for indexing	buildIndex probes each repo's metadata under primary_language from resource-manifest.json instead of hardcoded eng; resolveResourceLanguage resolves it.	Deterministic, no extra GitHub probes, manifest is already the coverage source of truth.	Probe eng then fall back to other languages	reversible
+D	Version-stamp the composite index hash	computeCompositeHash folds schema:v${VERSION} so code-only deploys produce a new composite and force an index rebuild.	A SHA-only key never changed on code-only deploys, leaving the 1.6.0 language feature inert in prod.	Manual R2 bust; dedicated INDEX_SCHEMA_VERSION; refresh endpoint	reversible
+D	Release split: 1.6.0 minor, 1.6.1 patch	Shipped language-aware indexing + image resolution as 1.6.0 (feature); index self-invalidation as 1.6.1 (fix).	Semver: feature vs bugfix keeps release history legible.	Bundle everything into one version	permanent
+O	PR #22 merged: server-side relative image resolution	get/browse absolutize relative src/href against contentImageBase; browse emits absolute Image: lines; absolute cdn.aquifer.bible and drive.google.com links untouched.	GitHub PR #22 merged to main	verified
+O	PR #23 merged: coverage manifest categorization	BDB Hebrew/Aramaic lexicons to served; AquiferFrenchBibleReferenceText to pending (fra); served floor 21 to 23; recorded J-007.	GitHub PR #23	verified
+O	PR #24 merged: language-aware indexing, released 1.6.0	resolveResourceLanguage + manifest primary_language; browse defaults to resource language; doc corrections (UbsImages casing, CLAUDE.md eng-only to manifest-driven).	GitHub PR #24; release 1.6.0	verified
+O	PR #25 merged: index self-invalidation, released 1.6.1	Version-stamped composite hash; registry/tools tests added.	GitHub PR #25; release 1.6.1	verified
+O	1.6.0 multilingual was inert in production	Live list stayed 35 eng resources with French absent until the 1.6.1 deploy triggered a background index rebuild.	live curl polls of /mcp list	verified
+O	Post-1.6.1 multilingual is live	list grew 35 to 57 resources across 14 languages (eng35,hin4,ind3,arb2,nep2,spa2,fra2,swh,zht,rus,bis,por,grc,guj); browse of the French text defaults to /fra/.	live curl of /mcp	verified
+O	Image absolutization live at 1.6.1	get NT001 returns absolute raw URLs with the drive Original link intact and no relative images/ paths; browse shows 50 absolute Image: lines.	live curl of /mcp	verified
+O	get/related throw on association-less Bible texts	Cannot read properties of undefined (reading 'passage') on SBLGNT/grc, ReinaValera1909/spa, AquiferFrenchBibleReferenceText/fra; LouisSegond1910/fra and BiblicaStudyNotes/eng return content.	live curl of /mcp	verified
+O	Unguarded associations access located	tools.ts reads article.associations.passage/.resource/.acai at lines 536/550/561 and 1033/1039/1046; the safe associations?. pattern is already used at 729/889/1183.	code read of origin/main	verified
+L	SHA-keyed caches never invalidate on code-only change	A cache keyed only by upstream content SHA serves stale results forever when the build logic changes; the key must carry a version or schema token.	O: 1.6.0 multilingual inert until the composite hash was version-stamped	general
+L	Reaching new resources exposes latent shape assumptions	Formatters assuming associations is always present threw once association-less resources became reachable; default missing structures defensively.	O: get throws on association-less Bibles	general
+C	Article formatters must not assume associations is present	Must default associations to an empty {passage,resource,acai} object before access.	L: associations bug	permanent
+C	Index and cache keys must carry a schema/version token	Persisted build artifacts must invalidate when the logic that builds them changes.	D: version-stamp the composite hash	permanent
+H	Ship 1.6.2: guard associations to fix broken scripture	Guard article.associations at the named lines; add an association-less Bible fixture covering get and scripture; build+test; PR; release 1.6.2; verify live; drop section 4 from the Window handoff.	dev shell/git tooling available in-session	next session
+O	open	P1	1.6.2 associations guard (broken scripture)	Fix and release; closes when scripture and get on SBLGNT/ReinaValera/French return content in production.
+O	open	P2	Flip French manifest pending to served	AquiferFrenchBibleReferenceText is served live; update its manifest status and bump the served floor via a small PR.
+O	open	P3	Move live coverage assertions to coverage-live.yml	Two non-hermetic assertions belong in the scheduled workflow rather than per-PR CI (J-007); closes via a CI change.
+O	open	P3	scripture/entity language scope	Decide whether scripture returns non-English translations and how the translation is chosen; closes via a design decision.
+E	Session journal encoded via oddkit_encode	Encoded this session as DOLCHEO TSV; persist_required is true and encode does not persist, so this block must be committed into odd/ledger by a session with write tools.
+```
+
+---
+
+### J-009 — 1.6.2: guard undefined `associations` in `get`/`related` (scripture was never broken)
+
+> Reproduced the throw live on prod 1.6.1, confirmed the cause in code on `main@cabba94`, and shipped the type-honest fix (PR #26, merge held pending Rule-2 fresh-context validation because merge auto-deploys prod). Corrected three claims carried in the J-008 handoff: scripture is not broken (already guarded at line 1326); there is no single "shared formatter" (two functions); and merge-to-main is itself the prod promotion. Verified on the branch preview deploy at version 1.6.2.
+
+```tsv
+D	Option B type-honest fix over minimal site-guards	Made ArticleContent.associations optional so tsc flags every unguarded reader; fixed each by normalizing `const associations = article.associations ?? {passage:[],resource:[],acai:[]}` at function top.	Compiler-enforces the defensive default and prevents the whole bug class; blast radius verified confined to tools.ts.	Minimal per-site guards keeping the type lying	reversible
+D	Preserve "none" for empty/missing passage	Switched the Passage line from `?? "none"` to `associations.passage?.length ? ... : "none"`.	Normalizing undefined->empty-array yields "" which is not nullish, silently defeating the author's `?? "none"` intent.	Leave empty string; assert empty output in the test	reversible
+D	Hold the merge of PR #26	Left the PR Rule-1-green and preview-verified; did not merge.	Cloudflare Git integration auto-deploys main to prod, so merge==promotion; release-validation-gate Rule 2 requires independent fresh-context validation pre-merge, which this session cannot dispatch (no managed-agents skill).	Merge after CI+Bugbot as the handoff said — rejected per Rule 3 canon-wins	reversible
+O	scripture is not broken (handoff headline corrected)	get/related throw on association-less Bibles but scripture returns text incl SBLGNT/grc; closes the prior session's J-008 "broken scripture" H and O-open P1 framing.	live curl of prod 1.6.1 + code read (handleScripture line 1326 guards associations?.passage ?? [])	verified
+O	Fault confined to two functions, not one shared formatter	Unguarded reads in handleRelated (536/550/561) and formatArticleContent (1033/1039/1046); ingestArticleEntities (~739) unguarded but compiler-proven safe via its guarded early-return at ~729; registry.ts:599 already guarded; index.ts only doc-strings.	code read of main@cabba94 + tsc --noEmit flagged exactly those sites and did not flag 739	verified
+O	associations type lied about the data	ArticleContent.associations was declared required at types.ts:66 but real upstream (SBLGNT/grc etc.) omits it entirely; now typed optional.	code read + live throw reproduction	verified
+O	Merge to main is a prod deploy	Cloudflare dashboard Git integration builds and deploys on push: main->prod, branches->preview. GitHub Actions runs tests only, not deploy.	README line 5 + Workers Builds check present on PR #26	verified
+O	PR #26 green and preview-verified	CI build-test=success, Cursor Bugbot=success with zero findings, Workers Builds preview=success; preview /health=1.6.2; get and related on SBLGNT/grc return content instead of throwing.	GitHub check-runs/reviews API + preview curl of fix-guard-undefined-associations-aquifer-mcp.klappy.workers.dev	verified
+O	Fix is regression-safe for healthy resources	Full vitest suite 184 passed incl a new association-less get+related+scripture regression block; no existing test output changed (empty==undefined equivalence held).	vitest run with GITHUB_TOKEN set	verified
+L	Make data-shape assumptions compiler-enforced	Optional-typing a field that real data omits converts silent runtime throws into compile-time errors that enumerate every reader and prove the safe ones safe.	tsc flagged exactly the unguarded sites and cleared line 739 via control-flow narrowing	general
+L	Normalizing undefined to empty can defeat downstream sentinels	An upstream `?? default` stops firing once the source is normalized to a non-nullish empty value; preserve display intent explicitly.	The Passage "none" regression was caught only because the fixture asserts positive output, not merely absence of a throw	general
+L	Verify deploy topology before scoping a merge step	Auto-deploy-on-merge turns the merge into a prod promotion and pulls the validation gate forward in time; a plan that says "merge to main" must first confirm whether main==prod.	README + Workers Builds integration corrected this session's initial "merge to main" scope	general
+C	aquifer-mcp prod-deploying merges require Rule-2 validation first	Because a merge to main auto-deploys prod, the independent fresh-context validation must precede the merge, not the deploy.	D: hold the merge of PR #26	permanent
+H	Validate, merge, verify, then trim the Window handoff	Run fresh-context validation against the branch preview; merge PR #26 (auto-deploys prod); live-verify prod /health=1.6.2 and get/related on SBLGNT return content; then drop section 4 from the Window parity handoff.	fresh-context validator dispatch (no managed-agents skill this session)	next session / captain
+O	open	P2	Flip French manifest pending to served	AquiferFrenchBibleReferenceText is served live; update its manifest status and bump the served floor (carried from J-008).
+O	open	P3	scripture/entity language scope	Decide whether scripture returns non-English translations and how the translation is chosen (carried from J-008).
+O	open	P3	Move live coverage assertions to coverage-live.yml	Two non-hermetic assertions belong in the scheduled workflow rather than per-PR CI (carried from J-007/J-008).
+E	Session encoded via oddkit_encode	Encoded as DOLCHEO; persist_required=true and encode echoes the blob per type (known limitation, J-002 H7), so atomic entries authored by hand against the J-001 precedent. This commit persists J-008 (prior session, previously only in the handoff) and J-009 (this session).
+```
