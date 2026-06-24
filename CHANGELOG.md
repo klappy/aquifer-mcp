@@ -4,6 +4,12 @@ All notable changes to aquifer-mcp will be documented in this file.
 
 ## [Unreleased]
 
+## [1.6.1] - 2026-06-23
+
+### Fixed
+
+- **Persisted index now self-invalidates on deploy**: the R2 navigability index is keyed by a composite hash of the discovered repo SHAs, and the background refresh only rebuilds when that hash changes — so a code-only release (no repo content change) kept serving the index built by the previous version. The 1.6.0 language-aware indexer shipped but stayed inert: non-English resources never surfaced in `list` because the eng-only index persisted. `computeCompositeHash` now folds the app `VERSION` into the hash (`schema:v{VERSION}|...`), so every release produces a distinct composite and forces a rebuild on next request after deploy (within the 15-minute staleness window), no manual cache busting. Indexing-logic changes can no longer be masked by a stale persisted index.
+
 ## [1.6.0] - 2026-06-23
 
 ### Added
