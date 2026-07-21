@@ -4,6 +4,10 @@ All notable changes to aquifer-mcp will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- **Coverage manifest reconciled against live server**: 34 resources that went live with the 1.6.1 multilingual index rebuild (verified via live `list` on 2026-07-07: 57 resources across 14 languages, zero regressions) were still marked `pending` with stale eng-only-probe reasons — all promoted to `served`, closing the journal's carried P2 (French reference text) and the J-007 "manifest under-reports live coverage" debt in one pass. Served floor ratchets 23 → 57; `_audited` bumped to 2026-07-07. New org repo `text-align` (alignment tooling, not a content resource) categorized `excluded`, which un-breaks the org-completeness coverage test that had been failing since the repo appeared 2026-06-30.
+
 ## [1.6.2] - 2026-06-23
 
 ### Fixed
