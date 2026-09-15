@@ -145,15 +145,15 @@ export class AquiferStorage {
 // --- Key builders: provenance-encoding key patterns ---
 
 export function indexKey(compositeSha: string): string {
-  return `index/${compositeSha}/navigability.json`;
+  return `index/pinned-v2/${compositeSha}/navigability.json`;
 }
 
 export function contentKey(resourceCode: string, sha: string, language: string, file: string): string {
-  return `content/${resourceCode}/${sha}/${language}/${file}`;
+  return `content/pinned-v2/${resourceCode}/${sha}/${language}/${file}`;
 }
 
 export function metadataKey(resourceCode: string, sha: string, language: string): string {
-  return `metadata/${resourceCode}/${sha}/${language}/metadata.json`;
+  return `metadata/pinned-v2/${resourceCode}/${sha}/${language}/metadata.json`;
 }
 
 export function catalogKey(resourceCode: string, sha: string, language: string): string {
@@ -161,19 +161,19 @@ export function catalogKey(resourceCode: string, sha: string, language: string):
 }
 
 export function entityKey(compositeSha: string, entityId: string): string {
-  return `entity/${compositeSha}/${entityId}.json`;
+  return `entity/pinned-v2/${compositeSha}/${entityId}.json`;
 }
 
 export function passageIndexKey(resourceCode: string, sha: string): string {
-  return `index/${resourceCode}/${sha}/passages.json`;
+  return `index/pinned-v2/${resourceCode}/${sha}/passages.json`;
 }
 
 export function titleIndexKey(resourceCode: string, sha: string): string {
-  return `index/${resourceCode}/${sha}/titles.json`;
+  return `index/pinned-v2/${resourceCode}/${sha}/titles.json`;
 }
 
 export function articleIndexKey(resourceCode: string, sha: string): string {
-  return `index/${resourceCode}/${sha}/articles.json`;
+  return `index/pinned-v2/${resourceCode}/${sha}/articles.json`;
 }
 
 /**
@@ -190,5 +190,5 @@ export function articleIndexKey(resourceCode: string, sha: string): string {
  * behavior of scanning every content file on every cold entity lookup.
  */
 export function entityIndexKey(resourceCode: string, sha: string): string {
-  return `index/${resourceCode}/${sha}/entities.json`;
+  return `index/pinned-v2/${resourceCode}/${sha}/entities.json`;
 }

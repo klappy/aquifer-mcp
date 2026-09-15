@@ -112,6 +112,8 @@ function createServer(env: Env, ctx: ExecutionContext, tracer: RequestTracer) {
       resource_code: z.string().describe("The resource repository name (e.g. BiblicaStudyNotes)."),
       language: z.string().describe("Language code (e.g. eng)."),
       content_id: z.string().describe("The article content ID."),
+      include_media: z.boolean().optional().describe("Include source-bound media descriptors; bounded scans may require continuation."),
+      scan_cursor: z.string().optional().describe("Opaque server-owned continuation from prior result."),
     },
     async (args) => handleGet(args, env, storage, ctx, tracer),
   );
@@ -135,6 +137,8 @@ function createServer(env: Env, ctx: ExecutionContext, tracer: RequestTracer) {
       language: z.string().optional().describe("Language code. Defaults to the resource's primary language (eng for English resources, e.g. fra for a French-only resource)."),
       page: z.number().optional().describe("Page number, 1-indexed (default: 1)."),
       page_size: z.number().optional().describe("Articles per page, 1-100 (default: 50)."),
+      modality: z.enum(['audio','video','image','text']).optional().describe("Article modality, separate from collection type."),
+      scan_cursor: z.string().optional().describe("Opaque server-owned scan continuation; omit to restart failed discovery."),
     },
     async (args) => handleBrowse(args, env, storage, ctx, tracer),
   );

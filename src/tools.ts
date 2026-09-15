@@ -1,3 +1,4 @@
+import { sourceCatalog } from './catalog-server.js';
 import type { Env, ArticleRef, ArticleContent, NavigabilityIndex, ResourceEntry, ResourceMetadata } from "./types.js";
 import { parseReference, rangesOverlap, rangeToReadable, isValidIndexReference, bbcccvvvToReadable } from "./references.js";
 import { contentUrl, contentImageBase, metadataUrl, fetchJson, GC_TTL } from "./github.js";
@@ -497,6 +498,11 @@ export async function handleGet(
 
   const sha = index.repo_shas.get(resourceCode) ?? "";
   if (!sha) return textResult(`No SHA available for resource "${resourceCode}".`);
+  if(args.include_media){
+    const catalog=await sourceCatalog({organization:env.AQUIFER_ORG,resourceCode,language,revision:sha},env,storage,args.scan_cursor?String(args.scan_cursor):undefined);
+    const found=catalog.entries.find(a=>a.contentId===contentId);
+    return {...textResult(found?formatArticleContent({content_id:found.contentId,title:found.title,content:found.content,media_type:found.mediaType,associations:found.associations} as ArticleContent,entry,contentImageBase(env.AQUIFER_ORG,resourceCode,language,sha)):catalog.complete?'Article not found in verified source.':'Article not yet found; source scan is incomplete.'),structuredContent:{article:found??null,complete:catalog.complete,nextCursor:catalog.nextCursor,failedFiles:catalog.failedFiles}};
+  }
   const article = await findArticle(resourceCode, language, contentId, entry, env, storage, sha, index, tracer);
   if (!article) {
     return textResult(
@@ -504,7 +510,7 @@ export async function handleGet(
     );
   }
 
-  return textResult(formatArticleContent(article, entry, contentImageBase(env.AQUIFER_ORG, resourceCode, language)));
+  return textResult(formatArticleContent(article, entry, contentImageBase(env.AQUIFER_ORG, resourceCode, language, sha)));
 }
 
 export async function handleRelated(
@@ -661,7 +667,7 @@ async function fetchContentFile(
   sha: string,
   tracer?: RequestTracer,
 ): Promise<ArticleContent[] | null> {
-  const url = contentUrl(env.AQUIFER_ORG, resourceCode, language, file);
+  const url = contentUrl(env.AQUIFER_ORG, resourceCode, language, file, sha);
   const key = contentKey(resourceCode, sha, language, file);
   return fetchJson<ArticleContent[]>(url, storage, key, tracer);
 }
@@ -697,7 +703,7 @@ async function getResourceMetadata(
   sha: string,
   tracer?: RequestTracer,
 ): Promise<ResourceMetadata | null> {
-  const url = metadataUrl(env.AQUIFER_ORG, resourceCode, language);
+  const url = metadataUrl(env.AQUIFER_ORG, resourceCode, language, sha);
   const key = metadataKey(resourceCode, sha, language);
   return fetchJson<ResourceMetadata>(url, storage, key, tracer);
 }
@@ -1114,94 +1120,6 @@ function extractImageUrl(html: string, base?: string): string | null {
   }
 }
 
-/**
- * Fast catalog build: tries R2-cached catalog first, then article lookup index,
- * then falls back to full content file scanning for media resources needing image URLs.
- */
-async function buildCatalogFast(
-  resourceCode: string,
-  language: string,
-  entry: ResourceEntry,
-  env: Env,
-  storage: AquiferStorage,
-  sha: string,
-  tracer?: RequestTracer,
-): Promise<BrowseCatalogEntry[]> {
-  // Check R2 for cached catalog first
-  const key = catalogKey(resourceCode, sha, language);
-  const { data: cached } = await storage.getJSON<BrowseCatalogEntry[]>(key, tracer);
-  if (cached) return cached;
-
-  // Try article lookup index — no content file fetches needed
-  const lookup = await loadArticleLookup(resourceCode, sha, storage, tracer);
-  const isMedia = entry.aquifer_type.toLowerCase() === "images" || entry.aquifer_type.toLowerCase() === "videos";
-
-  if (lookup && !isMedia) {
-    // For non-media resources, the article index has everything browse needs
-    const catalog: BrowseCatalogEntry[] = Object.entries(lookup).map(([contentId, loc]) => ({
-      content_id: contentId,
-      title: loc.title,
-      media_type: "",
-      image_url: null,
-      passages: loc.ref && isValidIndexReference(loc.ref)
-        ? [{ start_usfm: bbcccvvvToReadable(loc.ref.includes("-") ? loc.ref.split("-")[0]! : loc.ref), end_usfm: bbcccvvvToReadable(loc.ref.includes("-") ? loc.ref.split("-")[1]! : loc.ref) }]
-        : [],
-    }));
-
-    if (catalog.length > 0) {
-      await storage.putJSON(key, catalog);
-    }
-    return catalog;
-  }
-
-  // Media resources or no lookup index — fall back to full content file scanning
-  return buildCatalog(resourceCode, language, entry, env, storage, sha, true, tracer);
-}
-
-async function buildCatalog(
-  resourceCode: string,
-  language: string,
-  entry: ResourceEntry,
-  env: Env,
-  storage: AquiferStorage,
-  sha: string,
-  skipCacheCheck = false,
-  tracer?: RequestTracer,
-): Promise<BrowseCatalogEntry[]> {
-  const key = catalogKey(resourceCode, sha, language);
-  if (!skipCacheCheck) {
-    const { data: cached } = await storage.getJSON<BrowseCatalogEntry[]>(key, tracer);
-    if (cached) return cached;
-  }
-
-  const files = await listContentFiles(resourceCode, language, entry.order, env, storage, sha, tracer);
-  const results = await Promise.allSettled(
-    files.map((file) => fetchContentFile(resourceCode, language, file, env, storage, sha, tracer)),
-  );
-
-  const catalog: BrowseCatalogEntry[] = [];
-  for (const result of results) {
-    if (result.status !== "fulfilled" || !result.value) continue;
-    for (const article of result.value) {
-      catalog.push({
-        content_id: String(article.content_id),
-        title: article.title || `Article ${article.content_id}`,
-        media_type: article.media_type || "",
-        image_url: extractImageUrl(article.content || "", contentImageBase(env.AQUIFER_ORG, resourceCode, language)),
-        passages: (article.associations?.passage ?? []).map((p) => ({
-          start_usfm: p.start_ref_usfm,
-          end_usfm: p.end_ref_usfm,
-        })),
-      });
-    }
-  }
-
-  if (catalog.length > 0) {
-    await storage.putJSON(key, catalog);
-  }
-  return catalog;
-}
-
 export async function handleBrowse(
   args: Record<string, unknown>,
   env: Env,
@@ -1226,32 +1144,16 @@ export async function handleBrowse(
 
   const sha = index.repo_shas.get(resourceCode) ?? "";
   if (!sha) return textResult(`No SHA available for resource "${resourceCode}".`);
-  const catalog = await buildCatalogFast(resourceCode, language, entry, env, storage, sha, tracer);
-  if (catalog.length === 0) return textResult(`No articles found in ${resourceCode}/${language}.`);
+  const result = await sourceCatalog({organization:env.AQUIFER_ORG,resourceCode,language,revision:sha},env,storage,args.scan_cursor ? String(args.scan_cursor):undefined);
+  const modality=args.modality ? String(args.modality):null;
+  if(modality&&!['audio','video','image','text'].includes(modality))return textResult('Invalid modality.');
+  const filtered=result.entries.filter(a=>!modality||(modality==='text'?a.mediaType.toLowerCase()==='text':a.media.some(m=>m.kind===modality)));
+  const slice=filtered.slice((page-1)*pageSize,page*pageSize);
+  if(!slice.length&&filtered.length)return {...textResult(result.complete?`Page ${page} is out of range. ${filtered.length} verified articles.`:`Page ${page} is beyond currently verified entries; source scan is incomplete.`),structuredContent:{...result,entries:[],knownMatchingEntries:filtered.length,page,pageSize}};
+  const totalPages=Math.max(1,Math.ceil(filtered.length/pageSize));
+  const lines=slice.map(a=>`- **${a.title}**\n  ${resourceCode}/${language}/${a.contentId}${((a.associations as ArticleContent["associations"])?.passage??[]).map(p=>` | Passages: ${p.start_ref_usfm}–${p.end_ref_usfm}`).join('')}${a.image_url?`\n  Image: ${a.image_url}`:''}${a.media.map(m=>`\n  ${m.kind}: ${m.url}`).join('')}`);
+  return {...textResult(`**${entry.title}** (${resourceCode}/${language}) — ${filtered.length} articles${result.complete?' total':' so far (partial scan)'}, page ${page}/${totalPages}\n\n${lines.join('\n\n')}${page<totalPages?`\n\nUse page=${page+1} to see more.`:''}${result.nextCursor?'\n\nContinue with scan_cursor from structuredContent.':result.complete?'':'\n\nDiscovery incomplete; restart without cursor to retry failed sources.'}`),structuredContent:{...result,entries:slice.map(({content,...summary})=>summary),knownMatchingEntries:filtered.length,page,pageSize}};
 
-  const totalPages = Math.ceil(catalog.length / pageSize);
-  const start = (page - 1) * pageSize;
-  const slice = catalog.slice(start, start + pageSize);
-
-  if (slice.length === 0) {
-    return textResult(`Page ${page} is out of range. ${catalog.length} articles, ${totalPages} pages.`);
-  }
-
-  const lines = slice.map((a) => {
-    const parts = [`- **${a.title}**`];
-    const meta = [`${resourceCode}/${language}/${a.content_id}`];
-    if (a.passages.length) {
-      meta.push(`Passages: ${a.passages.map((p) => `${p.start_usfm}\u2013${p.end_usfm}`).join(", ")}`);
-    }
-    parts.push(`  ${meta.join(" | ")}`);
-    if (a.image_url) parts.push(`  Image: ${a.image_url}`);
-    return parts.join("\n");
-  });
-
-  const header = `**${entry.title}** (${resourceCode}/${language}) \u2014 ${catalog.length} articles total, page ${page}/${totalPages}`;
-  const footer = page < totalPages ? `\n\n*Page ${page} of ${totalPages}. Use page=${page + 1} to see more.*` : "";
-
-  return textResult(`${header}\n\n${lines.join("\n\n")}${footer}`);
 }
 
 // --- Scripture tool ---

@@ -1,0 +1,42 @@
+import { buildLanguageCatalog, pinnedCatalogUrl, type CatalogEnvelope, type CatalogIdentity, type Discovery } from './language-catalog.js';
+import { extractMediaReferences, type CollectionRights } from './media.js';
+import type { AquiferStorage } from './storage.js';
+import type { Env } from './types.js';
+// Continuations reference immutable server-owned snapshots, never client-supplied state.
+async function boundedText(response:Response,limit:number){
+ const reader=response.body?.getReader();if(!reader)throw Error('Source body missing');let size=0;const chunks:Uint8Array[]=[];
+ for(;;){const part=await reader.read();if(part.done)break;size+=part.value.byteLength;if(size>limit){await reader.cancel();throw Error('Source response exceeds byte budget');}chunks.push(part.value);}
+ const all=new Uint8Array(size);let offset=0;for(const part of chunks){all.set(part,offset);offset+=part.length;}return new TextDecoder('utf-8',{fatal:true,ignoreBOM:true}).decode(all);
+}
+export async function sourceCatalog(identity:CatalogIdentity, env:Env, storage:AquiferStorage, cursor?:string){
+ pinnedCatalogUrl(identity,`${identity.language}/metadata.json`);
+ const headers:Record<string,string>={'User-Agent':'aquifer-mcp','Accept':'application/vnd.github+json'};
+ if(env.GITHUB_TOKEN)headers.Authorization=`Bearer ${env.GITHUB_TOKEN}`;
+ const treeKey=`tree/pinned-v2/${identity.organization}/${identity.resourceCode}/${identity.revision}`;
+ let {data:discovery}=await storage.getJSON<Discovery>(treeKey+'/'+identity.language);
+ if(!discovery){
+  const response=await fetch(`https://api.github.com/repos/${identity.organization}/${identity.resourceCode}/git/trees/${identity.revision}?recursive=1`,{headers});
+  if(!response.ok)throw Error(`Source discovery failed (${response.status})`);
+  const tree=JSON.parse(await boundedText(response,8_000_000)) as {sha:string;truncated:boolean;tree:Array<{path:string;type:string}>};
+  if(!/^[a-f0-9]{40}$/.test(tree.sha)||!Array.isArray(tree.tree)||typeof tree.truncated!=='boolean')throw Error('Invalid tree response');
+  discovery={revision:identity.revision,language:identity.language,method:'git-tree',exhaustive:!tree.truncated,truncated:tree.truncated,paths:tree.tree.filter(x=>x.type==='blob'&&x.path.startsWith(`${identity.language}/json/`)&&x.path.endsWith('.content.json')).map(x=>x.path)};
+  await storage.putJSON(treeKey+'/'+identity.language,discovery);
+ }
+ let previous:CatalogEnvelope|undefined;
+ if(cursor){if(cursor.length>4096||!/^[\w-]+$/.test(cursor))throw Error('Invalid scan cursor');const saved=await storage.getJSON<CatalogEnvelope>(`catalog-state/v2/${cursor}`);if(!saved.data)throw Error('Scan snapshot unavailable; restart without cursor');previous=saved.data;}
+ const envelope=await buildLanguageCatalog({identity,discovery,previous,cursor,read:async({path,revision,maxBytes})=>{
+  const key=`raw/pinned-v2/${identity.organization}/${identity.resourceCode}/${revision}/${path}`;
+  const cached=await storage.getJSON<string>(key);let content=cached.data;
+  if(content===null){const r=await fetch(pinnedCatalogUrl(identity,path),{headers:{'User-Agent':'aquifer-mcp'}});if(!r.ok)return{status:r.status===404?'missing':'error',code:`HTTP-${r.status}`};
+   const reader=r.body?.getReader();if(!reader)return{status:'error',code:'empty-body'};const chunks:Uint8Array[]=[];let size=0;for(;;){const part=await reader.read();if(part.done)break;size+=part.value.byteLength;if(size>maxBytes){await reader.cancel();return{status:'error',code:'byte-budget'};}chunks.push(part.value);}const all=new Uint8Array(size);let offset=0;for(const c of chunks){all.set(c,offset);offset+=c.length;}content=new TextDecoder('utf-8',{fatal:true,ignoreBOM:true}).decode(all);await storage.putJSON(key,content);}
+  return{status:'found',path,revision,content};
+ }});
+ if(envelope.nextCursor)await storage.putJSON(`catalog-state/v2/${envelope.nextCursor}`,envelope);
+ let rights:CollectionRights|undefined;
+ const metadataPath=`${identity.language}/metadata.json`,metadataKey=`raw/pinned-v2/${identity.organization}/${identity.resourceCode}/${identity.revision}/${metadataPath}`;
+ try{let {data:metadataText}=await storage.getJSON<string>(metadataKey);if(metadataText===null){const response=await fetch(pinnedCatalogUrl(identity,metadataPath),{headers:{'User-Agent':'aquifer-mcp'}});if(response.ok){metadataText=await boundedText(response,2_000_000);await storage.putJSON(metadataKey,metadataText);}}
+ if(metadataText){const metadata=JSON.parse(metadataText);const rm=metadata.resource_metadata;if(rm?.language===identity.language&&rm.license_info)rights={scope:'collection',statement:JSON.stringify(rm.license_info),metadataUrl:pinnedCatalogUrl(identity,metadataPath)};}
+ }catch{/* Optional collection rights remain unknown; never infer asset rights. */}
+ const entries=await Promise.all(envelope.entries.map(async entry=>({...entry,...await extractMediaReferences({html:entry.content,rights,source:{...identity,contentId:entry.contentId,contentPath:entry.contentPath,contentFileSha256:entry.contentFileSha256,articleHtmlSha256:entry.articleHtmlSha256}})})));
+ return {...envelope,entries};
+}

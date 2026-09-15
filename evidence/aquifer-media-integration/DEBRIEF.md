@@ -1,0 +1,11 @@
+# Media integration candidate
+
+Accepted pure modules are preserved. The server now discovers requested-language content using a commit-pinned Git tree, reads bounded original UTF-8 content, and binds media descriptors to original file and HTML hashes. Continuation state is stored server-side; client cursors cannot supply previous envelopes. Browse retains passage and pagination text, distinguishes provisional counts, and separates modality from collection type. Get opt-in media preserves the original formatter and attribution. Matching-language pinned collection license metadata remains collection-scoped; asset rights stay unverified. No media asset is fetched.
+
+All production content and metadata fetch call sites now supply immutable revisions. Content/metadata/index/entity cache namespaces invalidate historical main-fetched objects. Git-tree responses are bounded to 8 MB before JSON parsing; metadata to 2 MB, content scan to 2 MB/four files. Tree response SHA is a tree identity, not misrepresented as the requested commit SHA.
+
+Validation: 50 targeted tests passed including actual pinned FIAKeyTerms English Abraham get/browse. Full suite: 232 passed, one opt-in live test skipped, one independently established baseline failure (five upstream repositories absent from the coverage manifest). Initial integration failed 18 additional old transport/cache fixtures; these were retained in the initial log and repaired at their actual transport/key boundary, preserving behavior assertions. Failed content now explicitly asserts partial rather than false empty. Worker build is dry-run only. Existing repository-wide type errors remain in baseline tests; production integration files have no reported errors.
+
+The integration does not claim official FIA download contents, complete publisher audio coverage, playable media, human narration, or asset-specific licensing. No provider, audio-generation, asset-download or deployment action occurred. Catalog lookup does not invent aliases from primary IDs; source-proven aliases remain supported by the accepted pure helper, while server get currently resolves exact requested-language IDs only.
+
+Budget: conservative author upper bound 9/9 minutes across original4 plus named5 continuation; prior module/discovery budgets unchanged. Independent review and release gates pending.

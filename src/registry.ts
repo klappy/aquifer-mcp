@@ -41,7 +41,7 @@ export interface ArticleLookupEntry {
 import type { RequestTracer } from "./tracing.js";
 
 /** Well-known R2 key for the current index — eliminates KV pointer read from hot path. */
-const CURRENT_INDEX_KEY = "index/current/navigability.json";
+const CURRENT_INDEX_KEY = "index/pinned-v2/current/navigability.json";
 const SHA_STALE_MS = 15 * 60 * 1000; // 15 minutes
 const INDEX_MEMORY_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
@@ -272,7 +272,7 @@ async function buildIndex(
       const repoSha = repoShas.get(code);
       if (!repoSha) return null;
       const language = resolveResourceLanguage(code);
-      const url = metadataUrl(env.AQUIFER_ORG, code, language);
+      const url = metadataUrl(env.AQUIFER_ORG, code, language, repoSha);
       const key = metadataKey(code, repoSha, language);
       const metadata = await fetchJson<ResourceMetadata>(url, storage, key);
       if (!metadata?.resource_metadata) return null;
@@ -558,7 +558,7 @@ export async function warmEntityIndexesForResources(
   for (const entry of resources) {
     const sha = repoShas.get(entry.resource_code);
     if (!sha) continue;
-    const url = metadataUrl(env.AQUIFER_ORG, entry.resource_code, entry.language);
+    const url = metadataUrl(env.AQUIFER_ORG, entry.resource_code, entry.language, sha);
     const key = metadataKey(entry.resource_code, sha, entry.language);
     let metadata: ResourceMetadata | null = null;
     try {

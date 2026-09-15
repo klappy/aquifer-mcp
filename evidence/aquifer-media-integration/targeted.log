@@ -1,0 +1,18 @@
+
+> aquifer-mcp@1.7.0 test
+> vitest run --run src/catalog-live.test.ts src/catalog-server.test.ts src/media.test.ts src/language-catalog.test.ts
+
+
+ RUN  v3.2.4 /private/tmp/aquifer-media-integration
+
+ ✓ src/catalog-server.test.ts (6 tests) 23ms
+ ✓ src/media.test.ts (25 tests) 31ms
+ ✓ src/language-catalog.test.ts (18 tests) 20ms
+ ✓ src/catalog-live.test.ts (1 test) 768ms
+   ✓ reads actual pinned JSON through browse/get without asset fetch  767ms
+
+ Test Files  4 passed (4)
+      Tests  50 passed (50)
+   Start at  11:07:07
+   Duration  1.20s (transform 243ms, setup 0ms, collect 362ms, tests 842ms, environment 1ms, prepare 374ms)
+

@@ -511,3 +511,9 @@ Recommended self-report headers (honor-system unless verified):
 - Passage range matching uses `start-end` BBCCCVVV strings
 - Metadata source is `/{language}/metadata.json`
 - Content source is `/{language}/json/*.content.json`
+
+### Source-bound media and localized catalogs (1.7.0)
+
+Browse accepts an optional `modality` (`audio`, `video`, `image`, `text`), independent of collection type. Results include structured source identity, original-file and HTML hashes, explicit completeness, and a `scan_cursor` when further bounded scanning is needed. Counts are provisional until complete. Page numbers select among verified entries; `scan_cursor` advances source scanning. Omit the cursor to restart failed scans.
+
+Get accepts `include_media: true` and the same scan cursor while retaining formatted article text. Media URLs are references, not proof of playback, narrator identity or asset licensing. Matching-language collection rights are reported separately when known. No audio/video asset is downloaded by these tools.
