@@ -1,5 +1,5 @@
 {
-  "observed": "2026-09-15T15:10:13.351Z",
+  "observed": "2026-09-15T15:20:13.182Z",
   "browse": {
     "complete": false,
     "scannedFiles": 4,
@@ -493,7 +493,7 @@
       "issues": []
     },
     "complete": false,
-    "nextCursor": "eyJzY2hlbWEiOjIsImlkZW50aXR5Ijoie1wib3JnYW5pemF0aW9uXCI6XCJCaWJsZUFxdWlmZXJcIixcInJlc291cmNlQ29kZVwiOlwiRklBS2V5VGVybXNcIixcImxhbmd1YWdlXCI6XCJlbmdcIixcInJldmlzaW9uXCI6XCJkZTZjNjllNmU1YjEwNTY5MTRjZjJlOWU5Mzc4NGQ1MTM1MTVjMDJhXCJ9IiwicXVlcnkiOiIiLCJkaXNjb3ZlcnkiOiJlY2UwODZjYWI3OGQ4YjQ5NDhjZmRjNzcwZDQwYjNmZTI5ZTU2ODAwMDk5ZjhkZWE0ZjFhMTU5YmQwYzI5MmNkIiwic3RhdGUiOiIwMGZmNTMzNWYwZjg2MDEwMzM3OTY4N2Q0M2VkZTBkNWY0MzQ4MDAyNWMwYjczYTFmMTExYmJmODFlZTgwYzZlIn0",
+    "nextCursor": "eyJzY2hlbWEiOjIsImlkZW50aXR5Ijoie1wib3JnYW5pemF0aW9uXCI6XCJCaWJsZUFxdWlmZXJcIixcInJlc291cmNlQ29kZVwiOlwiRklBS2V5VGVybXNcIixcImxhbmd1YWdlXCI6XCJlbmdcIixcInJldmlzaW9uXCI6XCJkZTZjNjllNmU1YjEwNTY5MTRjZjJlOWU5Mzc4NGQ1MTM1MTVjMDJhXCJ9IiwicXVlcnkiOiIiLCJkaXNjb3ZlcnkiOiI2NmJlODdhNjM2MjE1MTYxNjZkZmQ0MGZmYmNkZDExYjU2NTc4MDBmM2NiMmIxNjNmZGJjMDc3OGEzYThhMmZiIiwic3RhdGUiOiIwYTRiNzE1MmFhZjU4OTgzZGM0NDNjNTQ0OTM1YTk5YjI1ZDI5MGM1OTFmMzIzNjcxYTdjYWJiMmY4MGZlMGMwIn0",
     "failedFiles": []
   }
 }
