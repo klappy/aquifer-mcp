@@ -5,9 +5,10 @@
 
  RUN  v3.2.4 /private/tmp/aquifer-media-integration
 
-No test files found, exiting with code 1
+ ✓ tests/catalog-live.test.ts (1 test) 615ms
+   ✓ reads actual pinned JSON through browse/get without asset fetch  614ms
 
-filter: tests/catalog-live.test.ts
-include: src/**/*.test.ts
-exclude:  **/node_modules/**, **/dist/**, **/cypress/**, **/.{idea,git,cache,output,temp}/**, **/{karma,rollup,webpack,vite,vitest,jest,ava,babel,nyc,cypress,tsup,build,eslint,prettier}.config.*
-
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  11:08:25
+   Duration  972ms (transform 111ms, setup 0ms, collect 126ms, tests 615ms, environment 0ms, prepare 45ms)

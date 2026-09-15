@@ -301,7 +301,7 @@ AssertionError: expected 'No articles found for entity "person:…' to contain '
 
  ❯ src/tools.test.ts:1450:18
     1448|     const text = result.content[0]!.text;
-    1449| 
+    1449|
     1450|     expect(text).toContain("Found 1 article(s)");
        |                  ^
     1451|     expect(text).toContain("Acts 7:58");
@@ -363,7 +363,7 @@ AssertionError: expected 'No articles found for entity "person:…' to contain '
 + _⚠ Partial result: 0/2 resources indexed, 2 still warming in the background. Retry in a few seconds for the complete result._
 
  ❯ src/tools.test.ts:1619:18
-    1617| 
+    1617|
     1618|     // User got a result (from the one populated resource) PLUS a part…
     1619|     expect(text).toContain("Found 1 article(s)");
        |                  ^
@@ -385,7 +385,7 @@ AssertionError: expected 'No articles found for entity "person:…' to contain '
 
  ❯ src/tools.test.ts:1697:18
     1695|     const text = result.content[0]!.text;
-    1696| 
+    1696|
     1697|     expect(text).toContain("Found 2 article(s)");
        |                  ^
     1698|     expect(text).not.toContain("⚠ Partial result");
@@ -440,4 +440,3 @@ Error: Source discovery failed (404)
       Tests  19 failed | 211 passed (230)
    Start at  11:05:00
    Duration  1.67s (transform 495ms, setup 0ms, collect 978ms, tests 2.39s, environment 1ms, prepare 873ms)
-

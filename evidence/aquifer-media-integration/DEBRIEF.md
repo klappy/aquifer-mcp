@@ -9,3 +9,6 @@ Validation: 50 targeted tests passed including actual pinned FIAKeyTerms English
 The integration does not claim official FIA download contents, complete publisher audio coverage, playable media, human narration, or asset-specific licensing. No provider, audio-generation, asset-download or deployment action occurred. Catalog lookup does not invent aliases from primary IDs; source-proven aliases remain supported by the accepted pure helper, while server get currently resolves exact requested-language IDs only.
 
 Budget: conservative author upper bound 9/9 minutes across original4 plus named5 continuation; prior module/discovery budgets unchanged. Independent review and release gates pending.
+
+## Harness correction
+The relocated live fixture initially fell outside Vitest's configured include glob; historical-no-tests.log preserves that failure. The configuration now explicitly includes tests/**/*.test.ts, while production tsconfig retains its existing source scope. Actual pinned get/browse and partial out-of-range continuation were rerun. Rendered logs have whitespace normalized; original command logs remain in /tmp. No production code changed in this correction. Additive author1 consumed; prior author9 retained.

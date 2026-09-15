@@ -46,4 +46,3 @@ AssertionError: Uncategorized repos found in BibleAquifer org: AFBRTTranslationN
       Tests  1 failed | 232 passed | 1 skipped (234)
    Start at  11:07:11
    Duration  695ms (transform 596ms, setup 0ms, collect 1.09s, tests 513ms, environment 1ms, prepare 806ms)
-

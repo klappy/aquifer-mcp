@@ -15,4 +15,3 @@
       Tests  50 passed (50)
    Start at  11:07:07
    Duration  1.20s (transform 243ms, setup 0ms, collect 362ms, tests 842ms, environment 1ms, prepare 374ms)
-
