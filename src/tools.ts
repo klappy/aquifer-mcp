@@ -501,7 +501,7 @@ export async function handleGet(
   if(args.include_media){
     const catalog=await sourceCatalog({organization:env.AQUIFER_ORG,resourceCode,language,revision:sha},env,storage,args.scan_cursor?String(args.scan_cursor):undefined);
     const found=catalog.entries.find(a=>a.contentId===contentId);
-    return {...textResult(found?formatArticleContent({content_id:found.contentId,title:found.title,content:found.content,media_type:found.mediaType,associations:found.associations} as ArticleContent,entry,contentImageBase(env.AQUIFER_ORG,resourceCode,language,sha)):catalog.complete?'Article not found in verified source.':'Article not yet found; source scan is incomplete.'),structuredContent:{article:found??null,complete:catalog.complete,nextCursor:catalog.nextCursor,failedFiles:catalog.failedFiles}};
+    return {...textResult(found?formatArticleContent({content_id:found.contentId,language:found.language,version:found.version??'not specified',review_level:found.reviewLevel??'not specified',title:found.title,content:found.content,media_type:found.mediaType,associations:found.associations} as ArticleContent,entry,contentImageBase(env.AQUIFER_ORG,resourceCode,language,sha)):catalog.complete?'Article not found in verified source.':catalog.nextCursor?'Article not yet found; source scan is incomplete. Continue with scan_cursor.':'Article not found in scanned sources; source scan failed or is incomplete. Restart without scan_cursor to retry.'),structuredContent:{article:found??null,complete:catalog.complete,nextCursor:catalog.nextCursor,failedFiles:catalog.failedFiles}};
   }
   const article = await findArticle(resourceCode, language, contentId, entry, env, storage, sha, index, tracer);
   if (!article) {

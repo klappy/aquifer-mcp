@@ -5,7 +5,7 @@ export interface Discovery { revision:string; language:string; paths:string[]; e
 export type FileRead = {status:'found';path:string;revision:string;content:string|Uint8Array}|{status:'missing'|'error';code?:string};
 export type ContentReader = (request:{path:string;revision:string;maxBytes:number})=>Promise<FileRead>;
 export interface CatalogEntry {
- contentId:string; language:string; languageBasis:'declared'|'source-path'; title:string; content:string; mediaType:string;
+ contentId:string; version?:string; reviewLevel?:string; language:string; languageBasis:'declared'|'source-path'; title:string; content:string; mediaType:string;
  associations:unknown; contentPath:string; contentFileSha256:string; articleHtmlSha256:string; revision:string;
  articleSha256:string; aliases:Array<{id:string;metadataPath:string;metadataSha256:string;revision:string}>;
 }
@@ -61,7 +61,7 @@ export async function buildLanguageCatalog(input:{
    const contentId=String(row.content_id);if(e.conflicts.includes(contentId))continue;
    const articleSha256=await hash(JSON.stringify(row));const existing=e.entries.find(x=>x.contentId===contentId);
    if(existing){if(existing.articleSha256!==articleSha256){e.entries=e.entries.filter(x=>x.contentId!==contentId);e.conflicts.push(contentId);failed(path,'conflicting-article-id');}continue;}
-   e.entries.push({contentId,language:id.language,languageBasis:row.language===undefined?'source-path':'declared',title:typeof row.title==='string'?row.title:`Article ${contentId}`,content:row.content,mediaType:typeof row.media_type==='string'?row.media_type:'',associations:row.associations??null,contentPath:path,contentFileSha256,articleHtmlSha256:await hash(row.content),revision:id.revision,articleSha256,aliases:[]});
+   e.entries.push({contentId,version:typeof row.version==='string'?row.version:undefined,reviewLevel:typeof row.review_level==='string'?row.review_level:undefined,language:id.language,languageBasis:row.language===undefined?'source-path':'declared',title:typeof row.title==='string'?row.title:`Article ${contentId}`,content:row.content,mediaType:typeof row.media_type==='string'?row.media_type:'',associations:row.associations??null,contentPath:path,contentFileSha256,articleHtmlSha256:await hash(row.content),revision:id.revision,articleSha256,aliases:[]});
   }
  }
  if(input.localizationMetadata){
