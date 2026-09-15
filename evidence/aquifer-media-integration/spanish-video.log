@@ -1,0 +1,16 @@
+
+> aquifer-mcp@1.7.0 test
+> vitest run --run tests/catalog-live.test.ts src/tools.test.ts
+
+
+ RUN  v3.2.4 /private/tmp/aquifer-media-integration
+
+ ✓ src/tools.test.ts (77 tests) 54ms
+ ✓ tests/catalog-live.test.ts (2 tests) 6100ms
+   ✓ reads actual pinned JSON through browse/get without asset fetch  778ms
+   ✓ Spanish handler returns actual source identities and never invents primary audio ID  5321ms
+
+ Test Files  2 passed (2)
+      Tests  79 passed (79)
+   Start at  11:10:12
+   Duration  6.49s (transform 176ms, setup 0ms, collect 342ms, tests 6.15s, environment 0ms, prepare 94ms)

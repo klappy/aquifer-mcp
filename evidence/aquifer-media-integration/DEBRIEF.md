@@ -12,3 +12,6 @@ Budget: conservative author upper bound 9/9 minutes across original4 plus named5
 
 ## Harness correction
 The relocated live fixture initially fell outside Vitest's configured include glob; historical-no-tests.log preserves that failure. The configuration now explicitly includes tests/**/*.test.ts, while production tsconfig retains its existing source scope. Actual pinned get/browse and partial out-of-range continuation were rerun. Rendered logs have whitespace normalized; original command logs remain in /tmp. No production code changed in this correction. Additive author1 consumed; prior author9 retained.
+
+## Spanish and media compatibility proof
+Actual pinned Spanish get/browse completed all source files and returned actual Spanish IDs; an English primary audio ID was definitively absent. The source-only network calls used mocked registry/storage, not a deployed MCP. A handler fixture verifies MP4 descriptors, pinned relative images, and original formatted text. These 79 handler/live checks passed. CI runs npm ci, dry-run build, then npm test; known coverage failure is not waived. Additive author2 allocated, prior author10 retained.

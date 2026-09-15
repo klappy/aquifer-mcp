@@ -14,3 +14,12 @@ it.runIf(process.env.AQUIFER_LIVE_PROOF==='1')('reads actual pinned JSON through
  expect(get.structuredContent.article.media[0].kind).toBe('audio');expect(get.content[0].text).toContain('Abraham');expect(get.content[0].text).toContain('FIA');
  writeFileSync('evidence/aquifer-media-integration/pinned-live-readback.json',JSON.stringify({observed:new Date().toISOString(),browse:{complete:result.structuredContent.complete,scannedFiles:result.structuredContent.scannedFiles,expectedFiles:result.structuredContent.expectedFiles,entries:result.structuredContent.entries.filter((entry:any)=>entry.contentId==='eng-t1-v1-audio')},get:{...get.structuredContent,article:{...get.structuredContent.article,content:undefined}}},null,2));
 },30000);
+it.runIf(process.env.AQUIFER_LIVE_PROOF==='1')('Spanish handler returns actual source identities and never invents primary audio ID',async()=>{
+ const values=new Map();const storage={getJSON:async(k:string)=>({data:values.get(k)??null}),putJSON:async(k:string,v:unknown)=>{values.set(k,v);return true;}} as unknown as AquiferStorage;const env={AQUIFER_ORG:'BibleAquifer'} as Env;
+ let cursor: string|undefined;let result:any;let scans=0;
+ do{result=await handleBrowse({resource_code:'FIAKeyTerms',language:'spa',scan_cursor:cursor,page_size:100},env,storage);cursor=result.structuredContent.nextCursor;scans++;expect(scans).toBeLessThan(100);}while(cursor);
+ expect(result.structuredContent.complete).toBe(true);expect(result.structuredContent.entries.length).toBeGreaterThan(0);expect(result.structuredContent.entries.every((a:any)=>a.language==='spa')).toBe(true);expect(result.structuredContent.entries.some((a:any)=>a.contentId==='eng-t1-v1-audio')).toBe(false);
+ let get:any;let next:string|undefined;do{get=await handleGet({resource_code:'FIAKeyTerms',language:'spa',content_id:'eng-t1-v1-audio',include_media:true,scan_cursor:next},env,storage);next=get.structuredContent.nextCursor;}while(next);
+ expect(get.structuredContent.complete).toBe(true);expect(get.structuredContent.article).toBeNull();expect(get.content[0].text).toContain('not found');
+ writeFileSync('evidence/aquifer-media-integration/spanish-live-readback.json',JSON.stringify({observed:new Date().toISOString(),scans,complete:result.structuredContent.complete,scannedFiles:result.structuredContent.scannedFiles,expectedFiles:result.structuredContent.expectedFiles,actualIds:result.structuredContent.entries.map((a:any)=>a.contentId),falsePrimaryGet:get.structuredContent},null,2));
+},60000);

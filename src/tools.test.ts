@@ -1863,3 +1863,13 @@ describe("image URL resolution (relative \u2192 absolute, server-side)", () => {
     expect(text).toContain(`Image: ${ABS}`);
   });
 });
+
+describe('source media handler compatibility',()=>{
+ it('returns MP4 descriptors and pinned relative image while retaining formatted get text',async()=>{
+  const env={AQUIFER_CACHE:createMockKV(),AQUIFER_ORG:'BibleAquifer'} as Env;const storage=createMockStorage();mockGetOrBuildIndex.mockResolvedValue(buildMockIndex([FIA_MAPS_ENTRY]));
+  const article={...MAP_ARTICLE,content:'<p>Original video description</p><video src="https://example.org/clip.mp4"></video><img src="images/map.png">'};
+  mockFetchJson.mockImplementation(async(url:string)=>url.endsWith('metadata.json')?{resource_metadata:FIA_MAPS_ENTRY,scripture_burrito:{ingredients:{'json/1.content.json':{}}}}:url.endsWith('1.content.json')?[article]:null);
+  const browse=await handleBrowse({resource_code:'FIAMaps',modality:'video'},env,storage) as any;expect(browse.structuredContent.entries).toHaveLength(1);expect(browse.structuredContent.entries[0].media.some((m:any)=>m.kind==='video'&&m.url==='https://example.org/clip.mp4')).toBe(true);expect(browse.content[0].text).toContain(`/`+'a'.repeat(40)+'/eng/json/images/map.png');
+  const get=await handleGet({resource_code:'FIAMaps',language:'eng',content_id:String(article.content_id),include_media:true},env,storage) as any;expect(get.content[0].text).toContain(article.title);expect(get.content[0].text).toContain('Original video description');expect(get.structuredContent.article.image_url).toContain('/'+'a'.repeat(40)+'/eng/json/images/map.png');
+ });
+});
