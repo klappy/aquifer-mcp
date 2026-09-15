@@ -1,4 +1,4 @@
-import { buildLanguageCatalog, pinnedCatalogUrl, type CatalogEnvelope, type CatalogIdentity, type Discovery } from './language-catalog.js';
+import { buildLanguageCatalog, pinnedCatalogUrl, validPath, type CatalogEnvelope, type CatalogIdentity, type Discovery } from './language-catalog.js';
 import { extractMediaReferences, type CollectionRights } from './media.js';
 import type { AquiferStorage } from './storage.js';
 import type { Env } from './types.js';
@@ -35,16 +35,14 @@ export async function sourceCatalog(identity:CatalogIdentity, env:Env, storage:A
  }catch{/* Invalid or empty metadata never establishes absence; use independently authoritative tree. */}}
  const treeKey=`tree/pinned-v2/${identity.organization}/${identity.resourceCode}/${identity.revision}`;
  if(!discovery){const cached=(await storage.getJSON<Discovery>(treeKey+'/'+identity.language)).data;
-  if(cached){try{for(const path of cached.paths)pinnedCatalogUrl(identity,path);discovery=cached;}catch{/* Ignore historical invalid snapshots; do not reuse poisoned discovery. */}}
+  if(cached)discovery={...cached,paths:cached.paths.filter(p=>validPath(p,identity.language))};
  }
  if(!discovery){
   const response=await fetch(`https://api.github.com/repos/${identity.organization}/${identity.resourceCode}/git/trees/${identity.revision}?recursive=1`,{headers});
   if(!response.ok){const diagnostics=['x-ratelimit-remaining','x-ratelimit-reset','retry-after'].flatMap(name=>{const value=response.headers.get(name);return value&&/^[0-9]{1,16}$/.test(value)?[`${name}=${value}`]:[];});throw Error(`Source discovery failed (${response.status})${diagnostics.length?' '+diagnostics.join(' '):''}`);}
   const tree=JSON.parse(await boundedText(response,8_000_000)) as {sha:string;truncated:boolean;tree:Array<{path:string;type:string}>};
   if(!/^[a-f0-9]{40}$/.test(tree.sha)||!Array.isArray(tree.tree)||typeof tree.truncated!=='boolean')throw Error('Invalid tree response');
-  discovery={revision:identity.revision,language:identity.language,method:'git-tree',exhaustive:!tree.truncated,truncated:tree.truncated,paths:tree.tree.filter(x=>x.type==='blob'&&x.path.startsWith(`${identity.language}/json/`)&&x.path.endsWith('.content.json')).map(x=>x.path)};
-  // Reject every selected content path before persisting discovery.
-  for(const path of discovery.paths)pinnedCatalogUrl(identity,path);
+  discovery={revision:identity.revision,language:identity.language,method:'git-tree',exhaustive:!tree.truncated,truncated:tree.truncated,paths:tree.tree.filter(x=>x.type==='blob'&&validPath(x.path,identity.language)).map(x=>x.path)};
   await storage.putJSON(treeKey+'/'+identity.language,discovery);
  }
  let previous:CatalogEnvelope|undefined;

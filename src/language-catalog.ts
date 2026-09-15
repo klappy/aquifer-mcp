@@ -18,7 +18,7 @@ export interface CatalogEnvelope {
 const bytes=(s:string|Uint8Array)=>typeof s==='string'?new TextEncoder().encode(s):new Uint8Array(s);
 const hash=async(s:string|Uint8Array)=>Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',bytes(s))),b=>b.toString(16).padStart(2,'0')).join('');
 function validateIdentity(id:CatalogIdentity){for(const s of[id.organization,id.resourceCode,id.language])if(!/^[\w.-]+$/.test(s)||s==='.'||s==='..')throw Error('Invalid catalog identity');if(!/^[a-f\d]{40}$/.test(id.revision))throw Error('Immutable revision required');}
-function validPath(path:string,language:string,contentOnly=true){const parts=path.split('/');return parts[0]===language&&(!contentOnly||parts[1]==='json'&&path.endsWith('.content.json'))&&parts.every(p=>!!p&&p!=='.'&&p!=='..'&&/^[\w.-]+$/.test(p));}
+export function validPath(path:string,language:string,contentOnly=true){const parts=path.split('/');return parts[0]===language&&(!contentOnly||parts[1]==='json'&&path.endsWith('.content.json'))&&parts.every(p=>!!p&&p!=='.'&&p!=='..'&&/^[\w.-]+$/.test(p));}
 export function pinnedCatalogUrl(id:CatalogIdentity,path:string):string{validateIdentity(id);if(!validPath(path,id.language,false))throw Error('Invalid pinned source path');return`https://raw.githubusercontent.com/${id.organization}/${id.resourceCode}/${id.revision}/${path}`;}
 export function pinnedCatalogCacheKey(kind:'catalog'|'content'|'metadata',id:CatalogIdentity,path=''):string{validateIdentity(id);if(path&&!validPath(path,id.language,false))throw Error('Invalid cache path');return`pinned-${kind}:v${LANGUAGE_CATALOG_SCHEMA}:${id.organization}:${id.resourceCode}:${id.revision}:${id.language}:${path}`;}
 const stateForCursor=(e:CatalogEnvelope)=>JSON.stringify({...e,nextCursor:null});

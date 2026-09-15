@@ -28,4 +28,18 @@ it.each([{}, {'../escape.content.json':{}}, {'json/a.content.json':null}])('inva
  vi.stubGlobal('fetch',async(url:string)=>url.endsWith('metadata.json')?new Response(JSON.stringify({resource_metadata:{language:'eng'},scripture_burrito:{format:'scripture burrito',ingredients}})):new Response('SECRET BODY',{status:403,headers:{'x-ratelimit-remaining':'0','x-ratelimit-reset':'123','retry-after':'unsafe text'}}));await expect(sourceCatalog(identity,{} as Env,storage())).rejects.toThrow('Source discovery failed (403) x-ratelimit-remaining=0 x-ratelimit-reset=123');
 });
 it('missing listed manifest file keeps coverage partial',async()=>{vi.stubGlobal('fetch',async(url:string)=>url.endsWith('metadata.json')?new Response(JSON.stringify({resource_metadata:{language:'eng'},scripture_burrito:{format:'scripture burrito',ingredients:{'json/1.content.json':{mimeType:'text/json'}}}})):new Response('',{status:404}));const result=await sourceCatalog(identity,{} as Env,storage());expect(result.complete).toBe(false);expect(result.failedFiles).toHaveLength(1);expect(result.expectedFiles).toBe(1);});
-it('invalid tree path is never persisted and a later valid tree can recover',async()=>{const store=storage();let invalid=true;vi.stubGlobal('fetch',async(url:string)=>url.endsWith('metadata.json')?new Response('',{status:404}):url.includes('/git/trees/')?new Response(JSON.stringify({sha:'b'.repeat(40),truncated:false,tree:[{type:'blob',path:invalid?'eng/json/../bad.content.json':'eng/json/good.content.json'}]})):new Response('[]'));await expect(sourceCatalog(identity,{} as Env,store)).rejects.toThrow();expect((await store.getJSON(`tree/pinned-v2/BibleAquifer/FIAKeyTerms/${revision}/eng`)).data).toBeNull();invalid=false;expect((await sourceCatalog(identity,{} as Env,store)).complete).toBe(true);});
+it('drops invalid git-tree paths before caching so a mixed tree can complete',async()=>{
+ const store=storage();let trees=0;vi.stubGlobal('fetch',async(url:string)=>{
+  if(url.includes('/git/trees/')){trees++;return new Response(JSON.stringify({sha:'b'.repeat(40),truncated:false,tree:[{type:'blob',path:'eng/json/map (1).content.json'},{type:'blob',path:'eng/json/1.content.json'}]}));}
+  if(url.endsWith('metadata.json'))return new Response('',{status:404});
+  if(url.includes('map'))throw Error('invalid path must not be fetched');
+  return new Response(JSON.stringify([{content_id:'one',language:'eng',content:'text'}]));
+ });
+ const first=await sourceCatalog(identity,{} as Env,store);expect(first.complete).toBe(true);expect(first.entries.map(e=>e.contentId)).toEqual(['one']);
+ const second=await sourceCatalog(identity,{} as Env,store);expect(second.complete).toBe(true);expect(trees).toBe(1);
+});
+it('heals a previously cached invalid tree path without refetching',async()=>{
+ const store=storage();await store.putJSON(`tree/pinned-v2/BibleAquifer/FIAKeyTerms/${revision}/eng`,{revision,language:'eng',method:'git-tree',exhaustive:true,truncated:false,paths:['eng/json/map (1).content.json','eng/json/1.content.json']});
+ vi.stubGlobal('fetch',async(url:string)=>{if(url.includes('/git/trees/'))throw Error('must not refetch poisoned tree');if(url.endsWith('metadata.json'))return new Response('',{status:404});if(url.includes('map'))throw Error('invalid path must not be fetched');return new Response(JSON.stringify([{content_id:'one',content:'text'}]));});
+ const result=await sourceCatalog(identity,{} as Env,store);expect(result.complete).toBe(true);expect(result.entries[0]?.contentId).toBe('one');
+});
