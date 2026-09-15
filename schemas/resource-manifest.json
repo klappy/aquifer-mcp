@@ -352,6 +352,36 @@
     "text-align": {
       "status": "excluded",
       "reason": "Alignment tooling (Python code to create/improve Bible text alignments), not a content resource"
+    },
+    "AFBRTTranslationNotes": {
+      "status": "pending",
+      "primary_language": "fra",
+      "aquifer_type": "Guide",
+      "reason": "Pinned source metadata verified 2026-09-15; deployed registry coverage and resource-specific integration have not been verified."
+    },
+    "TokPisinBible2008": {
+      "status": "pending",
+      "primary_language": "tpi",
+      "aquifer_type": "Bible",
+      "reason": "Pinned source metadata verified 2026-09-15; deployed registry coverage and resource-specific integration have not been verified."
+    },
+    "BiblicaOpenIndonesianContemporaryNewTestament2025": {
+      "status": "pending",
+      "primary_language": "ind",
+      "aquifer_type": "Bible",
+      "reason": "Pinned source metadata verified 2026-09-15; deployed registry coverage and resource-specific integration have not been verified."
+    },
+    "BiblicaOpenChineseContemporary2023Simplified": {
+      "status": "pending",
+      "primary_language": "zhs",
+      "aquifer_type": "Bible",
+      "reason": "Pinned source metadata verified 2026-09-15; deployed registry coverage and resource-specific integration have not been verified."
+    },
+    "BiblicaOpenChineseContemporary2023Traditional": {
+      "status": "pending",
+      "primary_language": "zht",
+      "aquifer_type": "Bible",
+      "reason": "Pinned source metadata verified 2026-09-15; deployed registry coverage and resource-specific integration have not been verified."
     }
   }
 }
