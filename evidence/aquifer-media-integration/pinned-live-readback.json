@@ -1,0 +1,499 @@
+{
+  "observed": "2026-09-15T15:20:13.182Z",
+  "browse": {
+    "complete": false,
+    "scannedFiles": 4,
+    "expectedFiles": 23,
+    "entries": [
+      {
+        "contentId": "eng-t1-v1-audio",
+        "language": "eng",
+        "languageBasis": "declared",
+        "title": "Abraham",
+        "mediaType": "Audio",
+        "associations": {
+          "passage": [
+            {
+              "start_ref": "01017001",
+              "start_ref_usfm": "GEN 17:1",
+              "end_ref": "01017027",
+              "end_ref_usfm": "GEN 17:27"
+            },
+            {
+              "start_ref": "01022001",
+              "start_ref_usfm": "GEN 22:1",
+              "end_ref": "01022019",
+              "end_ref_usfm": "GEN 22:19"
+            },
+            {
+              "start_ref": "02002011",
+              "start_ref_usfm": "EXO 2:11",
+              "end_ref": "02002015",
+              "end_ref_usfm": "EXO 2:15"
+            },
+            {
+              "start_ref": "02004001",
+              "start_ref_usfm": "EXO 4:1",
+              "end_ref": "02004017",
+              "end_ref_usfm": "EXO 4:17"
+            },
+            {
+              "start_ref": "02005022",
+              "start_ref_usfm": "EXO 5:22",
+              "end_ref": "02006013",
+              "end_ref_usfm": "EXO 6:13"
+            },
+            {
+              "start_ref": "02012014",
+              "start_ref_usfm": "EXO 12:14",
+              "end_ref": "02012028",
+              "end_ref_usfm": "EXO 12:28"
+            },
+            {
+              "start_ref": "02012043",
+              "start_ref_usfm": "EXO 12:43",
+              "end_ref": "02012051",
+              "end_ref_usfm": "EXO 12:51"
+            },
+            {
+              "start_ref": "02013001",
+              "start_ref_usfm": "EXO 13:1",
+              "end_ref": "02013016",
+              "end_ref_usfm": "EXO 13:16"
+            },
+            {
+              "start_ref": "02013017",
+              "start_ref_usfm": "EXO 13:17",
+              "end_ref": "02013022",
+              "end_ref_usfm": "EXO 13:22"
+            },
+            {
+              "start_ref": "02018001",
+              "start_ref_usfm": "EXO 18:1",
+              "end_ref": "02018012",
+              "end_ref_usfm": "EXO 18:12"
+            },
+            {
+              "start_ref": "02032001",
+              "start_ref_usfm": "EXO 32:1",
+              "end_ref": "02032014",
+              "end_ref_usfm": "EXO 32:14"
+            },
+            {
+              "start_ref": "02034018",
+              "start_ref_usfm": "EXO 34:18",
+              "end_ref": "02034028",
+              "end_ref_usfm": "EXO 34:28"
+            },
+            {
+              "start_ref": "02035030",
+              "start_ref_usfm": "EXO 35:30",
+              "end_ref": "02036007",
+              "end_ref_usfm": "EXO 36:7"
+            },
+            {
+              "start_ref": "03026010",
+              "start_ref_usfm": "LEV 26:10",
+              "end_ref": "03026046",
+              "end_ref_usfm": "LEV 26:46"
+            },
+            {
+              "start_ref": "05029009",
+              "start_ref_usfm": "DEU 29:9",
+              "end_ref": "05029015",
+              "end_ref_usfm": "DEU 29:15"
+            },
+            {
+              "start_ref": "05030011",
+              "start_ref_usfm": "DEU 30:11",
+              "end_ref": "05030020",
+              "end_ref_usfm": "DEU 30:20"
+            },
+            {
+              "start_ref": "11018030",
+              "start_ref_usfm": "1KI 18:30",
+              "end_ref": "11018040",
+              "end_ref_usfm": "1KI 18:40"
+            },
+            {
+              "start_ref": "13001028",
+              "start_ref_usfm": "1CH 1:28",
+              "end_ref": "13001033",
+              "end_ref_usfm": "1CH 1:33"
+            },
+            {
+              "start_ref": "13001034",
+              "start_ref_usfm": "1CH 1:34",
+              "end_ref": "13001037",
+              "end_ref_usfm": "1CH 1:37"
+            },
+            {
+              "start_ref": "14020001",
+              "start_ref_usfm": "2CH 20:1",
+              "end_ref": "14020012",
+              "end_ref_usfm": "2CH 20:12"
+            },
+            {
+              "start_ref": "40001001",
+              "start_ref_usfm": "MAT 1:1",
+              "end_ref": "40001017",
+              "end_ref_usfm": "MAT 1:17"
+            },
+            {
+              "start_ref": "42001057",
+              "start_ref_usfm": "LUK 1:57",
+              "end_ref": "42001080",
+              "end_ref_usfm": "LUK 1:80"
+            },
+            {
+              "start_ref": "42003001",
+              "start_ref_usfm": "LUK 3:1",
+              "end_ref": "42003014",
+              "end_ref_usfm": "LUK 3:14"
+            },
+            {
+              "start_ref": "42013010",
+              "start_ref_usfm": "LUK 13:10",
+              "end_ref": "42013017",
+              "end_ref_usfm": "LUK 13:17"
+            },
+            {
+              "start_ref": "42016019",
+              "start_ref_usfm": "LUK 16:19",
+              "end_ref": "42016031",
+              "end_ref_usfm": "LUK 16:31"
+            },
+            {
+              "start_ref": "42018035",
+              "start_ref_usfm": "LUK 18:35",
+              "end_ref": "42019010",
+              "end_ref_usfm": "LUK 19:10"
+            },
+            {
+              "start_ref": "42023026",
+              "start_ref_usfm": "LUK 23:26",
+              "end_ref": "42023043",
+              "end_ref_usfm": "LUK 23:43"
+            },
+            {
+              "start_ref": "43008031",
+              "start_ref_usfm": "JHN 8:31",
+              "end_ref": "43008047",
+              "end_ref_usfm": "JHN 8:47"
+            },
+            {
+              "start_ref": "44007020",
+              "start_ref_usfm": "ACT 7:20",
+              "end_ref": "44007034",
+              "end_ref_usfm": "ACT 7:34"
+            },
+            {
+              "start_ref": "44014001",
+              "start_ref_usfm": "ACT 14:1",
+              "end_ref": "44014007",
+              "end_ref_usfm": "ACT 14:7"
+            },
+            {
+              "start_ref": "59002014",
+              "start_ref_usfm": "JAS 2:14",
+              "end_ref": "59002026",
+              "end_ref_usfm": "JAS 2:26"
+            }
+          ],
+          "resource": []
+        },
+        "contentPath": "eng/json/001.content.json",
+        "contentFileSha256": "d6732cec1882e3ad851f435b71dd2de13f1e3231b22991d2f2aaa5f41b9342cf",
+        "articleHtmlSha256": "15d5ca3dd1419c6a2235af8824832980498cd3fa84d3b7fb177aabcda1b38f8c",
+        "revision": "de6c69e6e5b1056914cf2e9e93784d513515c02a",
+        "articleSha256": "017ca8250481c9f6a94ece041e1267d38cbf2d00db4736e7347c5bc6413e7107",
+        "aliases": [],
+        "media": [
+          {
+            "kind": "audio",
+            "url": "https://s3.amazonaws.com/cbbt-er.public/terms/audio/eng/t1/v1/vbr4.mp3",
+            "references": [
+              {
+                "tag": "a",
+                "attribute": "href",
+                "original": "https://s3.amazonaws.com/cbbt-er.public/terms/audio/eng/t1/v1/vbr4.mp3",
+                "decoded": "https://s3.amazonaws.com/cbbt-er.public/terms/audio/eng/t1/v1/vbr4.mp3"
+              }
+            ],
+            "source": {
+              "organization": "BibleAquifer",
+              "resourceCode": "FIAKeyTerms",
+              "language": "eng",
+              "revision": "de6c69e6e5b1056914cf2e9e93784d513515c02a",
+              "contentId": "eng-t1-v1-audio",
+              "contentPath": "eng/json/001.content.json",
+              "contentFileSha256": "d6732cec1882e3ad851f435b71dd2de13f1e3231b22991d2f2aaa5f41b9342cf",
+              "articleHtmlSha256": "15d5ca3dd1419c6a2235af8824832980498cd3fa84d3b7fb177aabcda1b38f8c"
+            },
+            "rights": {
+              "scope": "collection",
+              "statement": "{\"title\":\"Familiarization, Internalization, Articulation (Fia) Terms\",\"copyright\":{\"dates\":\"2025\",\"holder\":{\"name\":\"Word Collective\",\"url\":\"https://wordcollective.com\"}},\"licenses\":[{\"eng\":{\"name\":\"CC BY-SA 4.0 license\",\"url\":\"https://creativecommons.org/licenses/by-sa/4.0/legalcode.en\"}}],\"showAdaptationNoticeForEnglish\":false,\"showAdaptationNoticeForNonEnglish\":true}",
+              "metadataUrl": "https://raw.githubusercontent.com/BibleAquifer/FIAKeyTerms/de6c69e6e5b1056914cf2e9e93784d513515c02a/eng/metadata.json"
+            },
+            "assetRights": "unverified",
+            "bytes": null,
+            "durationSeconds": null,
+            "assetSha256": null,
+            "playable": "unverified",
+            "narrator": "unknown"
+          }
+        ],
+        "image_url": null,
+        "status": "complete",
+        "issues": []
+      }
+    ]
+  },
+  "get": {
+    "article": {
+      "contentId": "eng-t1-v1-audio",
+      "language": "eng",
+      "languageBasis": "declared",
+      "title": "Abraham",
+      "mediaType": "Audio",
+      "associations": {
+        "passage": [
+          {
+            "start_ref": "01017001",
+            "start_ref_usfm": "GEN 17:1",
+            "end_ref": "01017027",
+            "end_ref_usfm": "GEN 17:27"
+          },
+          {
+            "start_ref": "01022001",
+            "start_ref_usfm": "GEN 22:1",
+            "end_ref": "01022019",
+            "end_ref_usfm": "GEN 22:19"
+          },
+          {
+            "start_ref": "02002011",
+            "start_ref_usfm": "EXO 2:11",
+            "end_ref": "02002015",
+            "end_ref_usfm": "EXO 2:15"
+          },
+          {
+            "start_ref": "02004001",
+            "start_ref_usfm": "EXO 4:1",
+            "end_ref": "02004017",
+            "end_ref_usfm": "EXO 4:17"
+          },
+          {
+            "start_ref": "02005022",
+            "start_ref_usfm": "EXO 5:22",
+            "end_ref": "02006013",
+            "end_ref_usfm": "EXO 6:13"
+          },
+          {
+            "start_ref": "02012014",
+            "start_ref_usfm": "EXO 12:14",
+            "end_ref": "02012028",
+            "end_ref_usfm": "EXO 12:28"
+          },
+          {
+            "start_ref": "02012043",
+            "start_ref_usfm": "EXO 12:43",
+            "end_ref": "02012051",
+            "end_ref_usfm": "EXO 12:51"
+          },
+          {
+            "start_ref": "02013001",
+            "start_ref_usfm": "EXO 13:1",
+            "end_ref": "02013016",
+            "end_ref_usfm": "EXO 13:16"
+          },
+          {
+            "start_ref": "02013017",
+            "start_ref_usfm": "EXO 13:17",
+            "end_ref": "02013022",
+            "end_ref_usfm": "EXO 13:22"
+          },
+          {
+            "start_ref": "02018001",
+            "start_ref_usfm": "EXO 18:1",
+            "end_ref": "02018012",
+            "end_ref_usfm": "EXO 18:12"
+          },
+          {
+            "start_ref": "02032001",
+            "start_ref_usfm": "EXO 32:1",
+            "end_ref": "02032014",
+            "end_ref_usfm": "EXO 32:14"
+          },
+          {
+            "start_ref": "02034018",
+            "start_ref_usfm": "EXO 34:18",
+            "end_ref": "02034028",
+            "end_ref_usfm": "EXO 34:28"
+          },
+          {
+            "start_ref": "02035030",
+            "start_ref_usfm": "EXO 35:30",
+            "end_ref": "02036007",
+            "end_ref_usfm": "EXO 36:7"
+          },
+          {
+            "start_ref": "03026010",
+            "start_ref_usfm": "LEV 26:10",
+            "end_ref": "03026046",
+            "end_ref_usfm": "LEV 26:46"
+          },
+          {
+            "start_ref": "05029009",
+            "start_ref_usfm": "DEU 29:9",
+            "end_ref": "05029015",
+            "end_ref_usfm": "DEU 29:15"
+          },
+          {
+            "start_ref": "05030011",
+            "start_ref_usfm": "DEU 30:11",
+            "end_ref": "05030020",
+            "end_ref_usfm": "DEU 30:20"
+          },
+          {
+            "start_ref": "11018030",
+            "start_ref_usfm": "1KI 18:30",
+            "end_ref": "11018040",
+            "end_ref_usfm": "1KI 18:40"
+          },
+          {
+            "start_ref": "13001028",
+            "start_ref_usfm": "1CH 1:28",
+            "end_ref": "13001033",
+            "end_ref_usfm": "1CH 1:33"
+          },
+          {
+            "start_ref": "13001034",
+            "start_ref_usfm": "1CH 1:34",
+            "end_ref": "13001037",
+            "end_ref_usfm": "1CH 1:37"
+          },
+          {
+            "start_ref": "14020001",
+            "start_ref_usfm": "2CH 20:1",
+            "end_ref": "14020012",
+            "end_ref_usfm": "2CH 20:12"
+          },
+          {
+            "start_ref": "40001001",
+            "start_ref_usfm": "MAT 1:1",
+            "end_ref": "40001017",
+            "end_ref_usfm": "MAT 1:17"
+          },
+          {
+            "start_ref": "42001057",
+            "start_ref_usfm": "LUK 1:57",
+            "end_ref": "42001080",
+            "end_ref_usfm": "LUK 1:80"
+          },
+          {
+            "start_ref": "42003001",
+            "start_ref_usfm": "LUK 3:1",
+            "end_ref": "42003014",
+            "end_ref_usfm": "LUK 3:14"
+          },
+          {
+            "start_ref": "42013010",
+            "start_ref_usfm": "LUK 13:10",
+            "end_ref": "42013017",
+            "end_ref_usfm": "LUK 13:17"
+          },
+          {
+            "start_ref": "42016019",
+            "start_ref_usfm": "LUK 16:19",
+            "end_ref": "42016031",
+            "end_ref_usfm": "LUK 16:31"
+          },
+          {
+            "start_ref": "42018035",
+            "start_ref_usfm": "LUK 18:35",
+            "end_ref": "42019010",
+            "end_ref_usfm": "LUK 19:10"
+          },
+          {
+            "start_ref": "42023026",
+            "start_ref_usfm": "LUK 23:26",
+            "end_ref": "42023043",
+            "end_ref_usfm": "LUK 23:43"
+          },
+          {
+            "start_ref": "43008031",
+            "start_ref_usfm": "JHN 8:31",
+            "end_ref": "43008047",
+            "end_ref_usfm": "JHN 8:47"
+          },
+          {
+            "start_ref": "44007020",
+            "start_ref_usfm": "ACT 7:20",
+            "end_ref": "44007034",
+            "end_ref_usfm": "ACT 7:34"
+          },
+          {
+            "start_ref": "44014001",
+            "start_ref_usfm": "ACT 14:1",
+            "end_ref": "44014007",
+            "end_ref_usfm": "ACT 14:7"
+          },
+          {
+            "start_ref": "59002014",
+            "start_ref_usfm": "JAS 2:14",
+            "end_ref": "59002026",
+            "end_ref_usfm": "JAS 2:26"
+          }
+        ],
+        "resource": []
+      },
+      "contentPath": "eng/json/001.content.json",
+      "contentFileSha256": "d6732cec1882e3ad851f435b71dd2de13f1e3231b22991d2f2aaa5f41b9342cf",
+      "articleHtmlSha256": "15d5ca3dd1419c6a2235af8824832980498cd3fa84d3b7fb177aabcda1b38f8c",
+      "revision": "de6c69e6e5b1056914cf2e9e93784d513515c02a",
+      "articleSha256": "017ca8250481c9f6a94ece041e1267d38cbf2d00db4736e7347c5bc6413e7107",
+      "aliases": [],
+      "media": [
+        {
+          "kind": "audio",
+          "url": "https://s3.amazonaws.com/cbbt-er.public/terms/audio/eng/t1/v1/vbr4.mp3",
+          "references": [
+            {
+              "tag": "a",
+              "attribute": "href",
+              "original": "https://s3.amazonaws.com/cbbt-er.public/terms/audio/eng/t1/v1/vbr4.mp3",
+              "decoded": "https://s3.amazonaws.com/cbbt-er.public/terms/audio/eng/t1/v1/vbr4.mp3"
+            }
+          ],
+          "source": {
+            "organization": "BibleAquifer",
+            "resourceCode": "FIAKeyTerms",
+            "language": "eng",
+            "revision": "de6c69e6e5b1056914cf2e9e93784d513515c02a",
+            "contentId": "eng-t1-v1-audio",
+            "contentPath": "eng/json/001.content.json",
+            "contentFileSha256": "d6732cec1882e3ad851f435b71dd2de13f1e3231b22991d2f2aaa5f41b9342cf",
+            "articleHtmlSha256": "15d5ca3dd1419c6a2235af8824832980498cd3fa84d3b7fb177aabcda1b38f8c"
+          },
+          "rights": {
+            "scope": "collection",
+            "statement": "{\"title\":\"Familiarization, Internalization, Articulation (Fia) Terms\",\"copyright\":{\"dates\":\"2025\",\"holder\":{\"name\":\"Word Collective\",\"url\":\"https://wordcollective.com\"}},\"licenses\":[{\"eng\":{\"name\":\"CC BY-SA 4.0 license\",\"url\":\"https://creativecommons.org/licenses/by-sa/4.0/legalcode.en\"}}],\"showAdaptationNoticeForEnglish\":false,\"showAdaptationNoticeForNonEnglish\":true}",
+            "metadataUrl": "https://raw.githubusercontent.com/BibleAquifer/FIAKeyTerms/de6c69e6e5b1056914cf2e9e93784d513515c02a/eng/metadata.json"
+          },
+          "assetRights": "unverified",
+          "bytes": null,
+          "durationSeconds": null,
+          "assetSha256": null,
+          "playable": "unverified",
+          "narrator": "unknown"
+        }
+      ],
+      "image_url": null,
+      "status": "complete",
+      "issues": []
+    },
+    "complete": false,
+    "nextCursor": "eyJzY2hlbWEiOjIsImlkZW50aXR5Ijoie1wib3JnYW5pemF0aW9uXCI6XCJCaWJsZUFxdWlmZXJcIixcInJlc291cmNlQ29kZVwiOlwiRklBS2V5VGVybXNcIixcImxhbmd1YWdlXCI6XCJlbmdcIixcInJldmlzaW9uXCI6XCJkZTZjNjllNmU1YjEwNTY5MTRjZjJlOWU5Mzc4NGQ1MTM1MTVjMDJhXCJ9IiwicXVlcnkiOiIiLCJkaXNjb3ZlcnkiOiI2NmJlODdhNjM2MjE1MTYxNjZkZmQ0MGZmYmNkZDExYjU2NTc4MDBmM2NiMmIxNjNmZGJjMDc3OGEzYThhMmZiIiwic3RhdGUiOiIwYTRiNzE1MmFhZjU4OTgzZGM0NDNjNTQ0OTM1YTk5YjI1ZDI5MGM1OTFmMzIzNjcxYTdjYWJiMmY4MGZlMGMwIn0",
+    "failedFiles": []
+  }
+}

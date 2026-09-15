@@ -1,0 +1,11 @@
+# Pure media descriptor delivery
+
+Base: aquifer-mcp 0bf087a73cb6b8fcadba27ce197f38ce54fe8478. Scope is src/media.ts, its tests and documentation. No tools.ts, catalog, transport, source content, dependency, or deployment changes. No asset requests or paid provider calls from the extractor.
+
+Commands: `npm ci --ignore-scripts`; `npm test -- --run src/media.test.ts` (25/25 pass); scoped strict tsc on src/media.ts (pass). Full `npm test`:208 pass/1 existing live-org-coverage failure. The exact detached baseline independently returns183 pass/1 same coverage failure (five uncategorized upstream repositories). Full `npm run typecheck` fails existing test typings; exact baseline output is byte-identical. No typecheck failure originates in the new module. Failed checks are preserved, not described as passing.
+
+Source-content binding distinguishes caller-verified whole JSON contentFileSha256 from exact articleHtmlSha256 recomputed here. Revision/path/language are explicit; references resolving outside a pinned revision are rejected. Collection rights never become verified asset rights. Media is declared reference information, not playable or human-narration proof. Compatibility image_url uses first img and existing content-file-relative semantics. Text inputs remain untouched. Empty supported-syntax scans differ from partial malformed/limited scans; catalog completeness belongs to the future integration layer.
+
+Prior coordinator preflight/challenge/FIRE accepted ticket c8170821. Actual author oddkit orientation returned execution mode September15. An initial orient argument used goal instead of required input and failed schema validation; corrected call succeeded. Repo CLAUDE and deploy setup inspected; no push/deployment performed. Existing reference paths named in CLAUDE are absent in this checkout; no fabricated read receipt. Existing local URL/image implementation was directly inspected.
+
+Learning: collection classification is not media modality, and localized catalog labels are not evidence that the localized file exists. This pure module cannot resolve the independent locale-catalog issue or the external FIA distribution route. Their separate tickets retain those obligations.

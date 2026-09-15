@@ -1,0 +1,14 @@
+
+> aquifer-mcp@1.6.2 test
+> vitest run --run src/language-catalog.test.ts
+
+
+ RUN  v3.2.4 /private/tmp/aquifer-language-catalog
+
+ ✓ src/language-catalog.test.ts (18 tests) 15ms
+
+ Test Files  1 passed (1)
+      Tests  18 passed (18)
+   Start at  11:00:24
+   Duration  281ms (transform 54ms, setup 0ms, collect 42ms, tests 15ms, environment 0ms, prepare 48ms)
+

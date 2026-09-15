@@ -1,0 +1,22 @@
+
+> aquifer-mcp@1.7.0 test
+> vitest run
+
+
+ RUN  v3.2.4 /private/tmp/aquifer-media-integration
+
+ ✓ src/media.test.ts (25 tests) 22ms
+ ✓ src/language-catalog.test.ts (18 tests) 27ms
+ ✓ src/catalog-server.test.ts (12 tests) 34ms
+ ✓ src/telemetry.test.ts (17 tests) 22ms
+ ↓ tests/catalog-live.test.ts (2 tests | 2 skipped)
+ ✓ src/tools.test.ts (78 tests) 100ms
+ ✓ src/registry.test.ts (7 tests) 11ms
+ ✓ src/references.test.ts (80 tests) 12ms
+ ✓ src/coverage.test.ts (4 tests) 984ms
+   ✓ resource coverage manifest > every org repo is categorized in manifest  980ms
+
+ Test Files  8 passed | 1 skipped (9)
+      Tests  241 passed | 2 skipped (243)
+   Start at  11:21:25
+   Duration  1.37s (transform 695ms, setup 0ms, collect 1.09s, tests 1.21s, environment 1ms, prepare 859ms)

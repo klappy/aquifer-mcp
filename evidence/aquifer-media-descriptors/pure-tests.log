@@ -1,0 +1,14 @@
+
+> aquifer-mcp@1.6.2 test
+> vitest run --run src/media.test.ts
+
+
+ RUN  v3.2.4 /private/tmp/aquifer-media-descriptors
+
+ ✓ src/media.test.ts (25 tests) 15ms
+
+ Test Files  1 passed (1)
+      Tests  25 passed (25)
+   Start at  10:53:22
+   Duration  251ms (transform 29ms, setup 0ms, collect 32ms, tests 15ms, environment 0ms, prepare 38ms)
+

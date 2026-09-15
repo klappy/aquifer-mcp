@@ -1,0 +1,68 @@
+build-test	Run npm run test	﻿2026-09-15T15:11:01.5005877Z ##[group]Run npm run test
+build-test	Run npm run test	2026-09-15T15:11:01.5006180Z npm run test
+build-test	Run npm run test	2026-09-15T15:11:01.5045192Z shell: /usr/bin/bash -e {0}
+build-test	Run npm run test	2026-09-15T15:11:01.5045469Z env:
+build-test	Run npm run test	2026-09-15T15:11:01.5048185Z   GITHUB_TOKEN: ***
+build-test	Run npm run test	2026-09-15T15:11:01.5048431Z ##[endgroup]
+build-test	Run npm run test	2026-09-15T15:11:01.6153156Z
+build-test	Run npm run test	2026-09-15T15:11:01.6153852Z > aquifer-mcp@1.7.0 test
+build-test	Run npm run test	2026-09-15T15:11:01.6154371Z > vitest run
+build-test	Run npm run test	2026-09-15T15:11:01.6154847Z
+build-test	Run npm run test	2026-09-15T15:11:01.9333545Z
+build-test	Run npm run test	2026-09-15T15:11:01.9335713Z  RUN  v3.2.4 /home/runner/work/aquifer-mcp/aquifer-mcp
+build-test	Run npm run test	2026-09-15T15:11:01.9336217Z
+build-test	Run npm run test	2026-09-15T15:11:02.4518162Z  ✓ src/language-catalog.test.ts (18 tests) 44ms
+build-test	Run npm run test	2026-09-15T15:11:02.5805539Z  ✓ src/telemetry.test.ts (17 tests) 76ms
+build-test	Run npm run test	2026-09-15T15:11:02.7677141Z  ✓ src/references.test.ts (80 tests) 34ms
+build-test	Run npm run test	2026-09-15T15:11:02.8192022Z  ✓ src/tools.test.ts (77 tests) 241ms
+build-test	Run npm run test	2026-09-15T15:11:02.9340987Z  ✓ src/media.test.ts (25 tests) 47ms
+build-test	Run npm run test	2026-09-15T15:11:03.1517248Z  ✓ src/catalog-server.test.ts (6 tests) 78ms
+build-test	Run npm run test	2026-09-15T15:11:03.2166538Z  ↓ tests/catalog-live.test.ts (2 tests | 2 skipped)
+build-test	Run npm run test	2026-09-15T15:11:03.4039124Z  ✓ src/registry.test.ts (7 tests) 15ms
+build-test	Run npm run test	2026-09-15T15:11:04.0183053Z  ❯ src/coverage.test.ts (4 tests | 1 failed) 982ms
+build-test	Run npm run test	2026-09-15T15:11:04.0185071Z    ✓ resource coverage manifest > is valid JSON with required structure 6ms
+build-test	Run npm run test	2026-09-15T15:11:04.0186867Z    ✓ resource coverage manifest > served count meets or exceeds floor (ratchet) 0ms
+build-test	Run npm run test	2026-09-15T15:11:04.0188647Z    × resource coverage manifest > every org repo is categorized in manifest 973ms
+build-test	Run npm run test	2026-09-15T15:11:04.0193551Z      → Uncategorized repos found in BibleAquifer org: AFBRTTranslationNotes, TokPisinBible2008, BiblicaOpenIndonesianContemporaryNewTestament2025, BiblicaOpenChineseContemporary2023Simplified, BiblicaOpenChineseContemporary2023Traditional. Add each to schemas/resource-manifest.json as "served", "pending", or "excluded".: expected [ 'AFBRTTranslationNotes', …(4) ] to have a length of +0 but got 5
+build-test	Run npm run test	2026-09-15T15:11:04.0197283Z    ✓ resource coverage manifest > no phantom entries in manifest 1ms
+build-test	Run npm run test	2026-09-15T15:11:04.0302919Z
+build-test	Run npm run test	2026-09-15T15:11:04.0304926Z ⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+build-test	Run npm run test	2026-09-15T15:11:04.0305360Z
+build-test	Run npm run test	2026-09-15T15:11:04.0307244Z  FAIL  src/coverage.test.ts > resource coverage manifest > every org repo is categorized in manifest
+build-test	Run npm run test	2026-09-15T15:11:04.0327003Z AssertionError: Uncategorized repos found in BibleAquifer org: AFBRTTranslationNotes, TokPisinBible2008, BiblicaOpenIndonesianContemporaryNewTestament2025, BiblicaOpenChineseContemporary2023Simplified, BiblicaOpenChineseContemporary2023Traditional. Add each to schemas/resource-manifest.json as "served", "pending", or "excluded".: expected [ 'AFBRTTranslationNotes', …(4) ] to have a length of +0 but got 5
+build-test	Run npm run test	2026-09-15T15:11:04.0328850Z
+build-test	Run npm run test	2026-09-15T15:11:04.0329026Z - Expected
+build-test	Run npm run test	2026-09-15T15:11:04.0329313Z + Received
+build-test	Run npm run test	2026-09-15T15:11:04.0329633Z
+build-test	Run npm run test	2026-09-15T15:11:04.0329752Z - 0
+build-test	Run npm run test	2026-09-15T15:11:04.0329981Z + 5
+build-test	Run npm run test	2026-09-15T15:11:04.0330092Z
+build-test	Run npm run test	2026-09-15T15:11:04.0330391Z  ❯ src/coverage.test.ts:116:9
+build-test	Run npm run test	2026-09-15T15:11:04.0377941Z     114|         `Uncategorized repos found in BibleAquifer org: ${uncategorize…
+build-test	Run npm run test	2026-09-15T15:11:04.0379475Z     115|           `Add each to schemas/resource-manifest.json as "served", "pe…
+build-test	Run npm run test	2026-09-15T15:11:04.0380751Z     116|       ).toHaveLength(0);
+build-test	Run npm run test	2026-09-15T15:11:04.0381448Z        |         ^
+build-test	Run npm run test	2026-09-15T15:11:04.0381948Z     117|     },
+build-test	Run npm run test	2026-09-15T15:11:04.0382675Z     118|     15_000,
+build-test	Run npm run test	2026-09-15T15:11:04.0383034Z
+build-test	Run npm run test	2026-09-15T15:11:04.0383434Z ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+build-test	Run npm run test	2026-09-15T15:11:04.0383748Z
+build-test	Run npm run test	2026-09-15T15:11:04.0383789Z
+build-test	Run npm run test	2026-09-15T15:11:04.0386506Z  Test Files  1 failed | 7 passed | 1 skipped (9)
+build-test	Run npm run test	2026-09-15T15:11:04.0388444Z       Tests  1 failed | 233 passed | 2 skipped (236)
+build-test	Run npm run test	2026-09-15T15:11:04.0406047Z    Start at  15:11:01
+build-test	Run npm run test	2026-09-15T15:11:04.0407554Z    Duration  2.10s (transform 683ms, setup 0ms, collect 1.16s, tests 1.52s, environment 2ms, prepare 771ms)
+build-test	Run npm run test	2026-09-15T15:11:04.0408279Z
+build-test	Run npm run test	2026-09-15T15:11:04.0408290Z
+build-test	Run npm run test	2026-09-15T15:11:04.0444156Z ##[error]AssertionError: Uncategorized repos found in BibleAquifer org: AFBRTTranslationNotes, TokPisinBible2008, BiblicaOpenIndonesianContemporaryNewTestament2025, BiblicaOpenChineseContemporary2023Simplified, BiblicaOpenChineseContemporary2023Traditional. Add each to schemas/resource-manifest.json as "served", "pending", or "excluded".: expected [ 'AFBRTTranslationNotes', …(4) ] to have a length of +0 but got 5
+build-test	Run npm run test
+build-test	Run npm run test	- Expected
+build-test	Run npm run test	+ Received
+build-test	Run npm run test
+build-test	Run npm run test	- 0
+build-test	Run npm run test	+ 5
+build-test	Run npm run test
+build-test	Run npm run test	 ❯ src/coverage.test.ts:116:9
+build-test	Run npm run test
+build-test	Run npm run test
+build-test	Run npm run test	2026-09-15T15:11:04.1409831Z ##[error]Process completed with exit code 1.

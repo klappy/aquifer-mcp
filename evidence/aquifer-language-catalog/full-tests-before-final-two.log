@@ -1,0 +1,46 @@
+
+> aquifer-mcp@1.6.2 test
+> vitest run
+
+
+ RUN  v3.2.4 /private/tmp/aquifer-language-catalog
+
+ ✓ src/references.test.ts (80 tests) 10ms
+ ✓ src/language-catalog.test.ts (15 tests) 13ms
+ ✓ src/telemetry.test.ts (17 tests) 17ms
+ ✓ src/registry.test.ts (7 tests) 14ms
+ ✓ src/tools.test.ts (76 tests) 55ms
+ ❯ src/coverage.test.ts (4 tests | 1 failed) 1069ms
+   ✓ resource coverage manifest > is valid JSON with required structure 3ms
+   ✓ resource coverage manifest > served count meets or exceeds floor (ratchet) 0ms
+   × resource coverage manifest > every org repo is categorized in manifest 1064ms
+     → Uncategorized repos found in BibleAquifer org: AFBRTTranslationNotes, TokPisinBible2008, BiblicaOpenIndonesianContemporaryNewTestament2025, BiblicaOpenChineseContemporary2023Simplified, BiblicaOpenChineseContemporary2023Traditional. Add each to schemas/resource-manifest.json as "served", "pending", or "excluded".: expected [ 'AFBRTTranslationNotes', …(4) ] to have a length of +0 but got 5
+   ✓ resource coverage manifest > no phantom entries in manifest 0ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/coverage.test.ts > resource coverage manifest > every org repo is categorized in manifest
+AssertionError: Uncategorized repos found in BibleAquifer org: AFBRTTranslationNotes, TokPisinBible2008, BiblicaOpenIndonesianContemporaryNewTestament2025, BiblicaOpenChineseContemporary2023Simplified, BiblicaOpenChineseContemporary2023Traditional. Add each to schemas/resource-manifest.json as "served", "pending", or "excluded".: expected [ 'AFBRTTranslationNotes', …(4) ] to have a length of +0 but got 5
+
+- Expected
++ Received
+
+- 0
++ 5
+
+ ❯ src/coverage.test.ts:116:9
+    114|         `Uncategorized repos found in BibleAquifer org: ${uncategorize…
+    115|           `Add each to schemas/resource-manifest.json as "served", "pe…
+    116|       ).toHaveLength(0);
+       |         ^
+    117|     },
+    118|     15_000,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed | 5 passed (6)
+      Tests  1 failed | 198 passed (199)
+   Start at  10:57:47
+   Duration  1.40s (transform 413ms, setup 0ms, collect 705ms, tests 1.18s, environment 1ms, prepare 624ms)
+

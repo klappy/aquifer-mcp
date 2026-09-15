@@ -10,29 +10,29 @@ const GITHUB_API = "https://api.github.com";
 // Correctness comes from the SHA check on every request.
 export const GC_TTL = 2592000;
 
-function rawUrl(org: string, repo: string, path: string): string {
-  return `${GITHUB_RAW}/${org}/${repo}/main/${path}`;
+function rawUrl(org: string, repo: string, path: string, revision = "main"): string {
+  return `${GITHUB_RAW}/${org}/${repo}/${revision}/${path}`;
 }
 
-export function metadataUrl(org: string, resourceCode: string, language: string): string {
-  return rawUrl(org, resourceCode, `${language}/metadata.json`);
+export function metadataUrl(org: string, resourceCode: string, language: string, revision = "main"): string {
+  return rawUrl(org, resourceCode, `${language}/metadata.json`, revision);
 }
 
-export function contentUrl(org: string, resourceCode: string, language: string, file: string): string {
-  return rawUrl(org, resourceCode, `${language}/json/${file}`);
+export function contentUrl(org: string, resourceCode: string, language: string, file: string, revision = "main"): string {
+  return rawUrl(org, resourceCode, `${language}/json/${file}`, revision);
 }
 
 /**
  * Base URL for content-relative assets (images, links) referenced inside an
  * article's HTML. Content files live at `<language>/json/<file>`, so a relative
  * reference like `images/NT001.png` resolves against this base to
- * `<language>/json/images/NT001.png`. Mirrors the `/main/` convention used by
- * contentUrl(); if immutable asset URLs become desirable, pin to a SHA here.
+ * `<language>/json/images/NT001.png`. Production callers supply the same immutable revision used by contentUrl().
+ * The default remains for older callers outside the production fetch path.
  * Trailing slash is required so `new URL(rel, base)` resolves against the
  * directory rather than replacing the last path segment.
  */
-export function contentImageBase(org: string, resourceCode: string, language: string): string {
-  return rawUrl(org, resourceCode, `${language}/json/`);
+export function contentImageBase(org: string, resourceCode: string, language: string, revision = "main"): string {
+  return rawUrl(org, resourceCode, `${language}/json/`, revision);
 }
 
 /**

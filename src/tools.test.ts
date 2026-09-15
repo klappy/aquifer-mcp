@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import {
   handleList,
   handleSearch,
@@ -232,7 +232,7 @@ const MAP_ARTICLE_2: ArticleContent = {
 
 function buildMockIndex(entries: ResourceEntry[], passageEntries?: [string, ArticleRef[]][]): NavigabilityIndex {
   const repoShas = new Map<string, string>();
-  for (const e of entries) repoShas.set(e.resource_code, "abc123test");
+  for (const e of entries) repoShas.set(e.resource_code, "a".repeat(40));
   return {
     registry: entries,
     passage: new Map(passageEntries ?? [["45001001-45001017", [ROMANS_ARTICLE_REF]]]),
@@ -259,9 +259,9 @@ vi.mock("./registry.js", async (importOriginal) => {
 });
 
 vi.mock("./github.js", () => ({
-  metadataUrl: vi.fn((org: string, code: string, lang: string) => `https://raw.githubusercontent.com/${org}/${code}/main/${lang}/metadata.json`),
-  contentUrl: vi.fn((org: string, code: string, lang: string, file: string) => `https://raw.githubusercontent.com/${org}/${code}/main/${lang}/json/${file}`),
-  contentImageBase: vi.fn((org: string, code: string, lang: string) => `https://raw.githubusercontent.com/${org}/${code}/main/${lang}/json/`),
+  metadataUrl: vi.fn((org: string, code: string, lang: string, revision = "main") => `https://raw.githubusercontent.com/${org}/${code}/${revision}/${lang}/metadata.json`),
+  contentUrl: vi.fn((org: string, code: string, lang: string, file: string, revision = "main") => `https://raw.githubusercontent.com/${org}/${code}/${revision}/${lang}/json/${file}`),
+  contentImageBase: vi.fn((org: string, code: string, lang: string, revision = "main") => `https://raw.githubusercontent.com/${org}/${code}/${revision}/${lang}/json/`),
   fetchJson: vi.fn(),
   GC_TTL: 2592000,
 }));
@@ -271,6 +271,16 @@ import { fetchJson } from "./github.js";
 
 const mockGetOrBuildIndex = vi.mocked(getOrBuildIndex);
 const mockFetchJson = vi.mocked(fetchJson);
+
+// Adapt existing article fixtures to the actual tree/raw transport boundary.
+// Real sourceCatalog executes; no fabricated catalog responses.
+beforeEach(()=>{vi.stubGlobal('fetch',vi.fn(async(input:string|URL|Request)=>{
+ const url=String(input);const tree=url.match(/repos\/([^/]+)\/([^/]+)\/git\/trees\/([^?]+)/);
+ if(tree){const index=await mockGetOrBuildIndex();const language=index.registry.find(r=>r.resource_code===tree[2])?.language??'eng';const metadata=await mockFetchJson(`https://raw.githubusercontent.com/${tree[1]}/${tree[2]}/${tree[3]}/${language}/metadata.json`) as ResourceMetadata|null;
+ return new Response(JSON.stringify({sha:'b'.repeat(40),truncated:false,tree:Object.keys(metadata?.scripture_burrito?.ingredients??{}).map(path=>({type:'blob',path:`${language}/${path}`}))}));}
+ const data=await mockFetchJson(url);return data===null?new Response('',{status:404}):new Response(JSON.stringify(data));
+}));});
+afterEach(()=>vi.unstubAllGlobals());
 
 // --- Tests ---
 
@@ -678,7 +688,8 @@ describe("handleBrowse", () => {
     });
 
     const result = await handleBrowse({ resource_code: "FIAMaps" }, env, storage);
-    expect(result.content[0]!.text).toContain("No articles found");
+    expect(result.content[0]!.text).toContain("partial scan");
+    expect((result as any).structuredContent.complete).toBe(false);
   });
 
   it("clamps page_size to 1-100", async () => {
@@ -1045,8 +1056,8 @@ describe("BootstrapEntityResult transparency", () => {
     // Pre-seed per-resource entity indexes with no matching entity.
     const sha1 = idx.repo_shas.get(STUDY_NOTES_ENTRY.resource_code)!;
     const sha2 = idx.repo_shas.get(FIA_MAPS_ENTRY.resource_code)!;
-    await storage.putJSON(`index/${STUDY_NOTES_ENTRY.resource_code}/${sha1}/entities.json`, []);
-    await storage.putJSON(`index/${FIA_MAPS_ENTRY.resource_code}/${sha2}/entities.json`, []);
+    await storage.putJSON(`index/pinned-v2/${STUDY_NOTES_ENTRY.resource_code}/${sha1}/entities.json`, []);
+    await storage.putJSON(`index/pinned-v2/${FIA_MAPS_ENTRY.resource_code}/${sha2}/entities.json`, []);
 
     const result = await handleEntity({ entity_id: "person:DefinitelyAbsent" }, env, storage);
     const text = result.content[0]!.text;
@@ -1385,7 +1396,7 @@ describe("formatPartialBootstrapNote — output text invariants", () => {
     // completes without a partial note. We pre-seed empty indexes to hit that.
     const idx = await mockGetOrBuildIndex(env, storage);
     const sha = idx.repo_shas.get(STUDY_NOTES_ENTRY.resource_code)!;
-    await storage.putJSON(`index/${STUDY_NOTES_ENTRY.resource_code}/${sha}/entities.json`, []);
+    await storage.putJSON(`index/pinned-v2/${STUDY_NOTES_ENTRY.resource_code}/${sha}/entities.json`, []);
     const result = await handleEntity({ entity_id: "person:Nobody" }, env, storage);
     const text = result.content[0]!.text;
     expect(text).not.toContain("⚠ Partial result");
@@ -1427,7 +1438,7 @@ describe("H11 — fanOutEntitySearch eager entity index", () => {
     // Pre-seed the per-resource entity index in storage. Format matches what
     // warmEntityIndexesForResources writes: array of [entityId, ArticleRef[]] entries.
     const studyNotesSha = idx.repo_shas.get(STUDY_NOTES_ENTRY.resource_code)!;
-    const entityIndexKey = `index/${STUDY_NOTES_ENTRY.resource_code}/${studyNotesSha}/entities.json`;
+    const entityIndexKey = `index/pinned-v2/${STUDY_NOTES_ENTRY.resource_code}/${studyNotesSha}/entities.json`;
     const seededRefs: ArticleRef[] = [{
       resource_code: STUDY_NOTES_ENTRY.resource_code,
       language: "eng",
@@ -1507,13 +1518,13 @@ describe("H11 — fanOutEntitySearch eager entity index", () => {
 
     const sha1 = idx.repo_shas.get(STUDY_NOTES_ENTRY.resource_code)!;
     const sha2 = idx.repo_shas.get(FIA_MAPS_ENTRY.resource_code)!;
-    await storage.putJSON(`index/${STUDY_NOTES_ENTRY.resource_code}/${sha1}/entities.json`, [
+    await storage.putJSON(`index/pinned-v2/${STUDY_NOTES_ENTRY.resource_code}/${sha1}/entities.json`, [
       ["person:paul", [{
         resource_code: STUDY_NOTES_ENTRY.resource_code, language: "eng",
         content_id: "9640", title: "Acts 7:58", resource_type: "", index_reference: "ACT 7:58",
       }]],
     ]);
-    await storage.putJSON(`index/${FIA_MAPS_ENTRY.resource_code}/${sha2}/entities.json`, [
+    await storage.putJSON(`index/pinned-v2/${FIA_MAPS_ENTRY.resource_code}/${sha2}/entities.json`, [
       ["person:paul", [{
         resource_code: FIA_MAPS_ENTRY.resource_code, language: "eng",
         content_id: "500001", title: "Paul's Missionary Journeys", resource_type: "", index_reference: "",
@@ -1547,7 +1558,7 @@ describe("H11 — fanOutEntitySearch eager entity index", () => {
     idx.entity.clear();  // Force fan-out path
     mockGetOrBuildIndex.mockResolvedValue(idx);
     const sha = idx.repo_shas.get(STUDY_NOTES_ENTRY.resource_code)!;
-    await storage.putJSON(`index/${STUDY_NOTES_ENTRY.resource_code}/${sha}/entities.json`, [
+    await storage.putJSON(`index/pinned-v2/${STUDY_NOTES_ENTRY.resource_code}/${sha}/entities.json`, [
       ["person:paul", [{
         resource_code: STUDY_NOTES_ENTRY.resource_code, language: "eng",
         content_id: "9640", title: "Acts 7:58", resource_type: "", index_reference: "ACT 7:58",
@@ -1592,7 +1603,7 @@ describe("H11b — partial data with transparency + background warm", () => {
 
     // Pre-seed ONE of the two indexes so only one is missing.
     const sha1 = idx.repo_shas.get(STUDY_NOTES_ENTRY.resource_code)!;
-    await storage.putJSON(`index/${STUDY_NOTES_ENTRY.resource_code}/${sha1}/entities.json`, [
+    await storage.putJSON(`index/pinned-v2/${STUDY_NOTES_ENTRY.resource_code}/${sha1}/entities.json`, [
       ["person:paul", [{
         resource_code: STUDY_NOTES_ENTRY.resource_code, language: "eng",
         content_id: "9640", title: "Acts 7:58", resource_type: "", index_reference: "ACT 7:58",
@@ -1672,13 +1683,13 @@ describe("H11b — partial data with transparency + background warm", () => {
     mockGetOrBuildIndex.mockResolvedValue(idx);
     const sha1 = idx.repo_shas.get(STUDY_NOTES_ENTRY.resource_code)!;
     const sha2 = idx.repo_shas.get(FIA_MAPS_ENTRY.resource_code)!;
-    await storage.putJSON(`index/${STUDY_NOTES_ENTRY.resource_code}/${sha1}/entities.json`, [
+    await storage.putJSON(`index/pinned-v2/${STUDY_NOTES_ENTRY.resource_code}/${sha1}/entities.json`, [
       ["person:paul", [{
         resource_code: STUDY_NOTES_ENTRY.resource_code, language: "eng",
         content_id: "9640", title: "Acts 7:58", resource_type: "", index_reference: "ACT 7:58",
       }]],
     ]);
-    await storage.putJSON(`index/${FIA_MAPS_ENTRY.resource_code}/${sha2}/entities.json`, [
+    await storage.putJSON(`index/pinned-v2/${FIA_MAPS_ENTRY.resource_code}/${sha2}/entities.json`, [
       ["person:paul", [{
         resource_code: FIA_MAPS_ENTRY.resource_code, language: "eng",
         content_id: "500001", title: "Paul's Missionary Journeys", resource_type: "", index_reference: "",
@@ -1797,7 +1808,7 @@ const REL_IMAGE_ARTICLE: ArticleContent = {
 describe("image URL resolution (relative \u2192 absolute, server-side)", () => {
   let env: Env;
   let storage: AquiferStorage;
-  const ABS = "https://raw.githubusercontent.com/BibleAquifer/BiblicaOpenBibleMaps/main/eng/json/images/NT001.png";
+  const ABS = "https://raw.githubusercontent.com/BibleAquifer/BiblicaOpenBibleMaps/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/eng/json/images/NT001.png";
 
   beforeEach(() => {
     env = { AQUIFER_CACHE: createMockKV(), AQUIFER_CONTENT: {} as R2Bucket, AQUIFER_ORG: "BibleAquifer", DOCS_REPO: "docs", WORKER_ENV: "production" };
@@ -1852,3 +1863,15 @@ describe("image URL resolution (relative \u2192 absolute, server-side)", () => {
     expect(text).toContain(`Image: ${ABS}`);
   });
 });
+
+describe('source media handler compatibility',()=>{
+ it('returns MP4 descriptors and pinned relative image while retaining formatted get text',async()=>{
+  const env={AQUIFER_CACHE:createMockKV(),AQUIFER_ORG:'BibleAquifer'} as Env;const storage=createMockStorage();mockGetOrBuildIndex.mockResolvedValue(buildMockIndex([FIA_MAPS_ENTRY]));
+  const article={...MAP_ARTICLE,content:'<p>Original video description</p><video src="https://example.org/clip.mp4"></video><img src="images/map.png">'};
+  mockFetchJson.mockImplementation(async(url:string)=>url.endsWith('metadata.json')?{resource_metadata:FIA_MAPS_ENTRY,scripture_burrito:{ingredients:{'json/1.content.json':{}}}}:url.endsWith('1.content.json')?[article]:null);
+  const browse=await handleBrowse({resource_code:'FIAMaps',modality:'video'},env,storage) as any;expect(browse.structuredContent.entries).toHaveLength(1);expect(browse.structuredContent.entries[0].media.some((m:any)=>m.kind==='video'&&m.url==='https://example.org/clip.mp4')).toBe(true);expect(browse.content[0].text).toContain(`/`+'a'.repeat(40)+'/eng/json/images/map.png');
+  const get=await handleGet({resource_code:'FIAMaps',language:'eng',content_id:String(article.content_id),include_media:true},env,storage) as any;expect(get.content[0].text).toContain(article.title);expect(get.content[0].text).toContain('Original video description');expect(get.content[0].text).toContain(`FIAMaps/eng/${article.content_id}`);expect(get.content[0].text).toContain(`**Version**: ${article.version} | **Review**: ${article.review_level}`);expect(get.structuredContent.article.image_url).toContain('/'+'a'.repeat(40)+'/eng/json/images/map.png');
+ });
+});
+
+it('media get failure without cursor tells caller to restart',async()=>{const env={AQUIFER_CACHE:createMockKV(),AQUIFER_ORG:'BibleAquifer'} as Env;const storage=createMockStorage();mockGetOrBuildIndex.mockResolvedValue(buildMockIndex([FIA_MAPS_ENTRY]));mockFetchJson.mockImplementation(async(url:string)=>url.endsWith('metadata.json')?{resource_metadata:FIA_MAPS_ENTRY,scripture_burrito:{ingredients:{'json/1.content.json':{}}}}:null);const result=await handleGet({resource_code:'FIAMaps',language:'eng',content_id:'absent',include_media:true},env,storage) as any;expect(result.structuredContent.complete).toBe(false);expect(result.structuredContent.nextCursor).toBeNull();expect(result.content[0].text).toContain('Restart without scan_cursor');});

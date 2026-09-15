@@ -1,0 +1,15 @@
+
+> aquifer-mcp@1.7.0 test
+> vitest run --run src/catalog-server.test.ts src/language-catalog.test.ts src/tools.test.ts
+
+
+ RUN  v3.2.4 /private/tmp/aquifer-media-integration
+
+ ✓ src/language-catalog.test.ts (18 tests) 19ms
+ ✓ src/catalog-server.test.ts (12 tests) 22ms
+ ✓ src/tools.test.ts (78 tests) 56ms
+
+ Test Files  3 passed (3)
+      Tests  108 passed (108)
+   Start at  11:26:49
+   Duration  460ms (transform 218ms, setup 0ms, collect 369ms, tests 97ms, environment 0ms, prepare 222ms)

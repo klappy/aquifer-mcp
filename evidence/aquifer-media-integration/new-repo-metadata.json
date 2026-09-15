@@ -1,0 +1,242 @@
+[
+  {
+    "repo": "AFBRTTranslationNotes",
+    "revision": "4408ecafc8b675da1c55cb403eeb960d18a07b74",
+    "treeTruncated": false,
+    "metadata": [
+      {
+        "path": "fra/metadata.json",
+        "url": "https://raw.githubusercontent.com/BibleAquifer/AFBRTTranslationNotes/4408ecafc8b675da1c55cb403eeb960d18a07b74/fra/metadata.json",
+        "fileSha256": "8152fd090e02a7f2eb4ce1041b2307dccd96a7f2ce64aa0efda9f1894d5bc870",
+        "resource_metadata": {
+          "aquifer_type": "Guide",
+          "resource_type": "Translation Guide",
+          "title": "Aquifer French Bible Reference Text Translation Notes",
+          "aquifer_name": "Notes de traduction de r\u00e9f\u00e9rence biblique fran\u00e7aise (Aquifer)",
+          "version": "1.1.2",
+          "collection_title": "Aquifer French Bible Reference Text Translation Notes",
+          "short_name": "AFBRTTN",
+          "license_info": {
+            "title": "Aquifer French Bible Reference Text Translation Notes",
+            "copyright": {
+              "dates": "2026",
+              "holder": {
+                "name": "Mission Mutual",
+                "url": "https://missionmutual.org"
+              }
+            },
+            "licenses": [
+              {
+                "eng": {
+                  "name": "CC BY-SA 4.0 license",
+                  "url": "https://creativecommons.org/licenses/by-sa/4.0/legalcode.en"
+                }
+              }
+            ],
+            "showAdaptationNoticeForEnglish": false,
+            "showAdaptationNoticeForNonEnglish": true
+          },
+          "adaptation_notice": "",
+          "resource_code": "AFBRTTranslationNotes",
+          "date_created": "2026-09-04",
+          "language": "fra",
+          "localizations": [],
+          "order": "canonical",
+          "content_type": "Html"
+        }
+      }
+    ]
+  },
+  {
+    "repo": "TokPisinBible2008",
+    "revision": "2acc943325761b575494d7860a877552ab4cafc7",
+    "treeTruncated": false,
+    "metadata": [
+      {
+        "path": "tpi/metadata.json",
+        "url": "https://raw.githubusercontent.com/BibleAquifer/TokPisinBible2008/2acc943325761b575494d7860a877552ab4cafc7/tpi/metadata.json",
+        "fileSha256": "f741cfca3fd9c408143aac87108f272d9ac0bbe11a4d883a4ee8c8afe09eaa80",
+        "resource_metadata": {
+          "aquifer_type": "Bible",
+          "resource_type": "Bible",
+          "title": "Buk Baibel long Tok Pisin",
+          "aquifer_name": "Buk Baibel long Tok Pisin",
+          "version": "1.0.2",
+          "collection_title": "Buk Baibel long Tok Pisin",
+          "short_name": "TPB08",
+          "license_info": {
+            "licenses": [
+              {
+                "eng": {
+                  "name": "CC BY-NC-ND 4.0 license",
+                  "url": "https://creativecommons.org/licenses/by-nc-nd/4.0/"
+                }
+              }
+            ],
+            "title": "Buk Baibel long Tok Pisin",
+            "copyright": {
+              "holder": {
+                "name": "The Bible Society of Papua New Guinea",
+                "url": "https://papuanewguinean.bible/"
+              },
+              "dates": "1969-2008"
+            },
+            "showAdaptationNoticeForEnglish": false,
+            "showAdaptationNoticeForNonEnglish": false
+          },
+          "adaptation_notice": "",
+          "resource_code": "TokPisinBible2008",
+          "date_created": "2026-09-03",
+          "language": "tpi",
+          "localizations": [],
+          "order": "canonical",
+          "content_type": "Bible"
+        }
+      }
+    ]
+  },
+  {
+    "repo": "BiblicaOpenIndonesianContemporaryNewTestament2025",
+    "revision": "801802204c8915575946c36f05a326a01234ef5d",
+    "treeTruncated": false,
+    "metadata": [
+      {
+        "path": "ind/metadata.json",
+        "url": "https://raw.githubusercontent.com/BibleAquifer/BiblicaOpenIndonesianContemporaryNewTestament2025/801802204c8915575946c36f05a326a01234ef5d/ind/metadata.json",
+        "fileSha256": "cc88f6659cbd966776fa6223b7f9e532eda11ca9eb346fced94dadb67ffbb46d",
+        "resource_metadata": {
+          "aquifer_type": "Bible",
+          "resource_type": "Bible",
+          "title": "Biblica\u00ae Open Indonesian Contemporary New Testament 2025",
+          "aquifer_name": "Biblica\u00ae Open Indonesian Contemporary New Testament 2025",
+          "version": "1.0.2",
+          "collection_title": "Biblica\u00ae Open Indonesian Contemporary New Testament 2025",
+          "short_name": "BOKKPB",
+          "license_info": {
+            "licenses": [
+              {
+                "eng": {
+                  "name": "CC BY-SA 4.0 license",
+                  "url": "https://creativecommons.org/licenses/by-sa/4.0/legalcode.en"
+                }
+              }
+            ],
+            "title": "Biblica\u00ae Open Indonesian Contemporary New Testament 2025",
+            "copyright": {
+              "holder": {
+                "name": "Biblica, Inc.",
+                "url": "https://www.biblica.com/"
+              },
+              "dates": "2025"
+            },
+            "showAdaptationNoticeForEnglish": false,
+            "showAdaptationNoticeForNonEnglish": false
+          },
+          "adaptation_notice": "",
+          "resource_code": "BiblicaOpenIndonesianContemporaryNewTestament2025",
+          "date_created": "2026-09-03",
+          "language": "ind",
+          "localizations": [],
+          "order": "canonical",
+          "content_type": "Bible"
+        }
+      }
+    ]
+  },
+  {
+    "repo": "BiblicaOpenChineseContemporary2023Simplified",
+    "revision": "a16778d13e6416300f3b36d193d7acc7784c8df8",
+    "treeTruncated": false,
+    "metadata": [
+      {
+        "path": "zhs/metadata.json",
+        "url": "https://raw.githubusercontent.com/BibleAquifer/BiblicaOpenChineseContemporary2023Simplified/a16778d13e6416300f3b36d193d7acc7784c8df8/zhs/metadata.json",
+        "fileSha256": "2350660f803520a24c11a44f0f3b91311e9767ee72d440b8b37d9e54371aef7d",
+        "resource_metadata": {
+          "aquifer_type": "Bible",
+          "resource_type": "Bible",
+          "title": "Biblica\u00ae Open Chinese Contemporary Bible 2023 (Simplified)",
+          "aquifer_name": "Biblica\u00ae Open Chinese Contemporary Bible 2023 (Simplified)",
+          "version": "1.0.2",
+          "collection_title": "Biblica\u00ae Open Chinese Contemporary Bible 2023 (Simplified)",
+          "short_name": "CUV",
+          "license_info": {
+            "licenses": [
+              {
+                "eng": {
+                  "name": "CC BY-SA 4.0",
+                  "url": "https://creativecommons.org/licenses/by-sa/4.0"
+                }
+              }
+            ],
+            "title": "Biblica\u00ae Open Chinese Contemporary Bible 2023 (Simplified)",
+            "copyright": {
+              "holder": {
+                "name": "Biblica, Inc",
+                "url": "http://www.Biblica.com/permissions"
+              },
+              "dates": "2023"
+            },
+            "showAdaptationNoticeForEnglish": false,
+            "showAdaptationNoticeForNonEnglish": false
+          },
+          "adaptation_notice": "",
+          "resource_code": "BiblicaOpenChineseContemporary2023Simplified",
+          "date_created": "2026-09-03",
+          "language": "zhs",
+          "localizations": [],
+          "order": "canonical",
+          "content_type": "Bible"
+        }
+      }
+    ]
+  },
+  {
+    "repo": "BiblicaOpenChineseContemporary2023Traditional",
+    "revision": "b6296b2bc848c8e60f8defb97fbe443ceadc38b5",
+    "treeTruncated": false,
+    "metadata": [
+      {
+        "path": "zht/metadata.json",
+        "url": "https://raw.githubusercontent.com/BibleAquifer/BiblicaOpenChineseContemporary2023Traditional/b6296b2bc848c8e60f8defb97fbe443ceadc38b5/zht/metadata.json",
+        "fileSha256": "9966408bdb8b87fe45b9a758f2fe325b67c792ca17810e0048ab67ef050542f6",
+        "resource_metadata": {
+          "aquifer_type": "Bible",
+          "resource_type": "Bible",
+          "title": "Biblica\u00ae Open Chinese Contemporary Bible 2023 (Traditional)",
+          "aquifer_name": "Biblica\u00ae Open Chinese Contemporary Bible 2023 (Traditional)",
+          "version": "1.0.2",
+          "collection_title": "Biblica\u00ae Open Chinese Contemporary Bible 2023 (Traditional)",
+          "short_name": "CUV",
+          "license_info": {
+            "licenses": [
+              {
+                "eng": {
+                  "name": "CC BY-SA 4.0",
+                  "url": "https://creativecommons.org/licenses/by-sa/4.0"
+                }
+              }
+            ],
+            "title": "Biblica\u00ae Open Chinese Contemporary Bible 2023 (Traditional)",
+            "copyright": {
+              "holder": {
+                "name": "Biblica, Inc",
+                "url": "http://www.Biblica.com/permissions"
+              },
+              "dates": "2023"
+            },
+            "showAdaptationNoticeForEnglish": false,
+            "showAdaptationNoticeForNonEnglish": false
+          },
+          "adaptation_notice": "",
+          "resource_code": "BiblicaOpenChineseContemporary2023Traditional",
+          "date_created": "2026-09-03",
+          "language": "zht",
+          "localizations": [],
+          "order": "canonical",
+          "content_type": "Bible"
+        }
+      }
+    ]
+  }
+]

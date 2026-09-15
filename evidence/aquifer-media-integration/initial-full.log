@@ -1,0 +1,442 @@
+
+> aquifer-mcp@1.7.0 test
+> vitest run
+
+
+ RUN  v3.2.4 /private/tmp/aquifer-media-integration
+
+ ✓ src/catalog-server.test.ts (3 tests) 10ms
+ ✓ src/media.test.ts (25 tests) 19ms
+ ✓ src/language-catalog.test.ts (18 tests) 18ms
+ ✓ src/telemetry.test.ts (17 tests) 26ms
+ ✓ src/registry.test.ts (7 tests) 13ms
+ ✓ src/references.test.ts (80 tests) 10ms
+ ❯ src/tools.test.ts (76 tests | 18 failed) 999ms
+   ✓ handleList > returns all resources when no filters 3ms
+   ✓ handleList > filters by type 0ms
+   ✓ handleList > filters by language 0ms
+   ✓ handleList > returns message when no match 0ms
+   ✓ handleSearch > requires a query 0ms
+   ✓ handleSearch > searches by passage reference 1ms
+   ✓ handleSearch > searches by human-readable reference 1ms
+   ✓ handleSearch > returns no results for uncovered passage 0ms
+   ✓ handleSearch > searches by keyword 2ms
+   ✓ handleSearch > returns no results for unmatched keyword 1ms
+   ✓ handleGet > requires all three fields 0ms
+   ✓ handleGet > returns error for unknown resource 0ms
+   ✓ handleGet > fetches and returns article content 1ms
+   ✓ handleGet > returns not-found for missing article 0ms
+   ✓ handleRelated > requires all three fields 0ms
+   ✓ handleRelated > finds passage-overlapping articles 0ms
+   ✓ association-less resources (1.6.2 regression) > get renders the article (Passage: none, no link sections) instead of throwing 1ms
+   ✓ association-less resources (1.6.2 regression) > related reports no related articles instead of throwing 0ms
+   ✓ association-less resources (1.6.2 regression) > scripture still returns text for an association-less Bible (non-regression guard) 0ms
+   ✓ handleBrowse > requires resource_code 0ms
+   ✓ handleBrowse > returns error for unknown resource 0ms
+   × handleBrowse > returns paginated catalog for media resource 253ms
+     → Source discovery failed (404)
+   × handleBrowse > paginates correctly 112ms
+     → Source discovery failed (404)
+   × handleBrowse > returns error for out-of-range page 40ms
+     → Source discovery failed (404)
+   × handleBrowse > extracts image URLs from content HTML 39ms
+     → Source discovery failed (404)
+   × handleBrowse > defaults language to eng 41ms
+     → Source discovery failed (404)
+   × handleBrowse > caches catalog in R2 on first call 40ms
+     → Source discovery failed (404)
+   × handleBrowse > handles empty content files gracefully 41ms
+     → Source discovery failed (404)
+   × handleBrowse > clamps page_size to 1-100 40ms
+     → Source discovery failed (404)
+   ✓ handleReadme > fetches README and caches it 2ms
+   ✓ handleReadme > returns cached README when refresh is false 1ms
+   ✓ handleReadme > falls back to cached README if fetch fails 1ms
+   ✓ handleTelemetryPolicy > returns base policy with no surface 0ms
+   ✓ handleTelemetryPolicy > returns targeted guidance for mcp-client 0ms
+   ✓ handleTelemetryPolicy > returns unknown-surface message with supported values 0ms
+   ✓ handleTelemetryPublic > returns empty leaderboard state when no telemetry exists 1ms
+   ✓ handleTelemetryPublic > returns ranked consumers and tools from telemetry counters 1ms
+   ✓ handleScripture > requires a reference 0ms
+   ✓ handleScripture > returns error for unparseable reference 0ms
+   ✓ handleScripture > fetches Bible text for a valid reference 0ms
+   ✓ handleScripture > parses abbreviation 'Rom 3:23' 0ms
+   ✓ handleScripture > returns no-text message when no Bible articles match 0ms
+   ✓ handleScripture > filters by resource_code when specified 0ms
+   ✓ handleEntity > requires an entity_id 0ms
+   ✓ handleEntity > returns grouped results for known entity 3ms
+   ✓ handleEntity > returns not-found for unknown entity 1ms
+   ✓ handleList capabilities > shows scripture in capabilities for Bible resources 0ms
+   ✓ handleList capabilities > does not show scripture for non-Bible resources 0ms
+   ✓ settledInChunks > processes items in chunks no larger than chunkSize 14ms
+   ✓ settledInChunks > preserves the PromiseSettledResult shape on rejection 0ms
+   ✓ settledInChunks > handles empty input 0ms
+   ✓ settledInChunks > rejects chunkSize <= 0 1ms
+   ✓ settledInChunks > passes the original index to the callback 0ms
+   ✓ BootstrapEntityResult transparency > returns a complete result on cold-path empty scan (no partial note) 3ms
+   × BootstrapEntityResult transparency > renders no partial note when all per-resource entity indexes are populated (complete empty) 4ms
+     → expected 'No articles found for entity "person:…' not to contain 'Partial result'
+   ✓ BootstrapEntityResult transparency > BootstrapEntityResult shape contains all required transparency fields 1ms
+   ✓ BootstrapEntityResult transparency > cache hit returns complete=true with the cached payload 0ms
+   ✓ BootstrapEntityResult — Bugbot fix coverage > (#5 High) failed file fetch makes complete=false with failed_files>0 0ms
+   ✓ BootstrapEntityResult — Bugbot fix coverage > (#5 High) failed-fetch result is NOT cached 0ms
+   ✓ BootstrapEntityResult — Bugbot fix coverage > (#2 Low) resource with no repoSha does not prevent complete=true 1ms
+   ✓ BootstrapEntityResult — Bugbot fix coverage > (#1 Low) tracer reason taxonomy matches user-facing note taxonomy 0ms
+   ✓ formatPartialBootstrapNote — output text invariants > (#9 Low) failed_files branch states the failure count exactly once 1ms
+   × formatPartialBootstrapNote — output text invariants > (#9 Low) scan_incomplete branch (no deadline, no failures) has no failure count text 1ms
+     → expected 'No articles found for entity "person:…' not to contain '⚠ Partial result'
+   × H11 — fanOutEntitySearch eager entity index > returns matches from per-resource entity index without bootstrap scan 1ms
+     → expected 'No articles found for entity "person:…' to contain 'Found 1 article(s)'
+   ✓ H11 — fanOutEntitySearch eager entity index > (H11b) empty fan-out emits partial note and does NOT call bootstrap inline 0ms
+   × H11 — fanOutEntitySearch eager entity index > merges results from multiple per-resource entity indexes 1ms
+     → expected 'No articles found for entity "person:…' to contain 'Found 2 article(s)'
+   × H11 — fanOutEntitySearch eager entity index > normalizes entity_id case before lookup 1ms
+     → expected 'No articles found for entity "PERSON:…' to contain 'Found 1 article(s)'
+   × H11b — partial data with transparency + background warm > kicks off ctx.waitUntil(warmEntityIndexesForResources) for missing resources 4ms
+     → expected 'No articles found for entity "person:…' to contain 'Found 1 article(s)'
+   ✓ H11b — partial data with transparency + background warm > without ctx, emits partial note but skips the warm (self-healing via next query) 0ms
+   × H11b — partial data with transparency + background warm > returns complete result without partial note when all indexes present 1ms
+     → expected 'No articles found for entity "person:…' to contain 'Found 2 article(s)'
+   × handleBrowse language defaulting > defaults to the resource's own language (fra) when no language is given 135ms
+     → Source discovery failed (404)
+   ✓ image URL resolution (relative → absolute, server-side) > get rewrites a relative <img src> to an absolute raw URL 1ms
+   ✓ image URL resolution (relative → absolute, server-side) > get leaves the absolute drive.google.com Original link intact 0ms
+   ✓ image URL resolution (relative → absolute, server-side) > get rewrites the relative download <a href> as well 0ms
+   × image URL resolution (relative → absolute, server-side) > browse emits an absolute Image: line for a relative-image resource 154ms
+     → Source discovery failed (404)
+   × image URL resolution (relative → absolute, server-side) > browse ignores stale unversioned catalogs that predate relative image resolution 41ms
+     → Source discovery failed (404)
+ ❯ src/coverage.test.ts (4 tests | 1 failed) 1292ms
+   ✓ resource coverage manifest > is valid JSON with required structure 3ms
+   ✓ resource coverage manifest > served count meets or exceeds floor (ratchet) 0ms
+   × resource coverage manifest > every org repo is categorized in manifest 1288ms
+     → Uncategorized repos found in BibleAquifer org: AFBRTTranslationNotes, TokPisinBible2008, BiblicaOpenIndonesianContemporaryNewTestament2025, BiblicaOpenChineseContemporary2023Simplified, BiblicaOpenChineseContemporary2023Traditional. Add each to schemas/resource-manifest.json as "served", "pending", or "excluded".: expected [ 'AFBRTTranslationNotes', …(4) ] to have a length of +0 but got 5
+   ✓ resource coverage manifest > no phantom entries in manifest 0ms
+
+⎯⎯⎯⎯⎯⎯ Failed Tests 19 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/coverage.test.ts > resource coverage manifest > every org repo is categorized in manifest
+AssertionError: Uncategorized repos found in BibleAquifer org: AFBRTTranslationNotes, TokPisinBible2008, BiblicaOpenIndonesianContemporaryNewTestament2025, BiblicaOpenChineseContemporary2023Simplified, BiblicaOpenChineseContemporary2023Traditional. Add each to schemas/resource-manifest.json as "served", "pending", or "excluded".: expected [ 'AFBRTTranslationNotes', …(4) ] to have a length of +0 but got 5
+
+- Expected
++ Received
+
+- 0
++ 5
+
+ ❯ src/coverage.test.ts:116:9
+    114|         `Uncategorized repos found in BibleAquifer org: ${uncategorize…
+    115|           `Add each to schemas/resource-manifest.json as "served", "pe…
+    116|       ).toHaveLength(0);
+       |         ^
+    117|     },
+    118|     15_000,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/19]⎯
+
+ FAIL  src/tools.test.ts > handleBrowse > returns paginated catalog for media resource
+Error: Source discovery failed (404)
+ ❯ sourceCatalog src/catalog-server.ts:13:25
+     11|  if(!discovery){
+     12|   const response=await fetch(`https://api.github.com/repos/${identity.…
+     13|   if(!response.ok)throw Error(`Source discovery failed (${response.sta…
+       |                         ^
+     14|   const tree=await response.json() as {sha:string;truncated:boolean;tr…
+     15|   if(!/^[a-f0-9]{40}$/.test(tree.sha)||!Array.isArray(tree.tree)||type…
+ ❯ Module.handleBrowse src/tools.ts:1147:18
+ ❯ src/tools.test.ts:557:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/19]⎯
+
+ FAIL  src/tools.test.ts > handleBrowse > paginates correctly
+Error: Source discovery failed (404)
+ ❯ sourceCatalog src/catalog-server.ts:13:25
+     11|  if(!discovery){
+     12|   const response=await fetch(`https://api.github.com/repos/${identity.…
+     13|   if(!response.ok)throw Error(`Source discovery failed (${response.sta…
+       |                         ^
+     14|   const tree=await response.json() as {sha:string;truncated:boolean;tr…
+     15|   if(!/^[a-f0-9]{40}$/.test(tree.sha)||!Array.isArray(tree.tree)||type…
+ ❯ Module.handleBrowse src/tools.ts:1147:18
+ ❯ src/tools.test.ts:584:19
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/19]⎯
+
+ FAIL  src/tools.test.ts > handleBrowse > returns error for out-of-range page
+Error: Source discovery failed (404)
+ ❯ sourceCatalog src/catalog-server.ts:13:25
+     11|  if(!discovery){
+     12|   const response=await fetch(`https://api.github.com/repos/${identity.…
+     13|   if(!response.ok)throw Error(`Source discovery failed (${response.sta…
+       |                         ^
+     14|   const tree=await response.json() as {sha:string;truncated:boolean;tr…
+     15|   if(!/^[a-f0-9]{40}$/.test(tree.sha)||!Array.isArray(tree.tree)||type…
+ ❯ Module.handleBrowse src/tools.ts:1147:18
+ ❯ src/tools.test.ts:608:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/19]⎯
+
+ FAIL  src/tools.test.ts > handleBrowse > extracts image URLs from content HTML
+Error: Source discovery failed (404)
+ ❯ sourceCatalog src/catalog-server.ts:13:25
+     11|  if(!discovery){
+     12|   const response=await fetch(`https://api.github.com/repos/${identity.…
+     13|   if(!response.ok)throw Error(`Source discovery failed (${response.sta…
+       |                         ^
+     14|   const tree=await response.json() as {sha:string;truncated:boolean;tr…
+     15|   if(!/^[a-f0-9]{40}$/.test(tree.sha)||!Array.isArray(tree.tree)||type…
+ ❯ Module.handleBrowse src/tools.ts:1147:18
+ ❯ src/tools.test.ts:625:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/19]⎯
+
+ FAIL  src/tools.test.ts > handleBrowse > defaults language to eng
+Error: Source discovery failed (404)
+ ❯ sourceCatalog src/catalog-server.ts:13:25
+     11|  if(!discovery){
+     12|   const response=await fetch(`https://api.github.com/repos/${identity.…
+     13|   if(!response.ok)throw Error(`Source discovery failed (${response.sta…
+       |                         ^
+     14|   const tree=await response.json() as {sha:string;truncated:boolean;tr…
+     15|   if(!/^[a-f0-9]{40}$/.test(tree.sha)||!Array.isArray(tree.tree)||type…
+ ❯ Module.handleBrowse src/tools.ts:1147:18
+ ❯ src/tools.test.ts:643:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/19]⎯
+
+ FAIL  src/tools.test.ts > handleBrowse > caches catalog in R2 on first call
+Error: Source discovery failed (404)
+ ❯ sourceCatalog src/catalog-server.ts:13:25
+     11|  if(!discovery){
+     12|   const response=await fetch(`https://api.github.com/repos/${identity.…
+     13|   if(!response.ok)throw Error(`Source discovery failed (${response.sta…
+       |                         ^
+     14|   const tree=await response.json() as {sha:string;truncated:boolean;tr…
+     15|   if(!/^[a-f0-9]{40}$/.test(tree.sha)||!Array.isArray(tree.tree)||type…
+ ❯ Module.handleBrowse src/tools.ts:1147:18
+ ❯ src/tools.test.ts:660:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/19]⎯
+
+ FAIL  src/tools.test.ts > handleBrowse > handles empty content files gracefully
+Error: Source discovery failed (404)
+ ❯ sourceCatalog src/catalog-server.ts:13:25
+     11|  if(!discovery){
+     12|   const response=await fetch(`https://api.github.com/repos/${identity.…
+     13|   if(!response.ok)throw Error(`Source discovery failed (${response.sta…
+       |                         ^
+     14|   const tree=await response.json() as {sha:string;truncated:boolean;tr…
+     15|   if(!/^[a-f0-9]{40}$/.test(tree.sha)||!Array.isArray(tree.tree)||type…
+ ❯ Module.handleBrowse src/tools.ts:1147:18
+ ❯ src/tools.test.ts:680:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/19]⎯
+
+ FAIL  src/tools.test.ts > handleBrowse > clamps page_size to 1-100
+Error: Source discovery failed (404)
+ ❯ sourceCatalog src/catalog-server.ts:13:25
+     11|  if(!discovery){
+     12|   const response=await fetch(`https://api.github.com/repos/${identity.…
+     13|   if(!response.ok)throw Error(`Source discovery failed (${response.sta…
+       |                         ^
+     14|   const tree=await response.json() as {sha:string;truncated:boolean;tr…
+     15|   if(!/^[a-f0-9]{40}$/.test(tree.sha)||!Array.isArray(tree.tree)||type…
+ ❯ Module.handleBrowse src/tools.ts:1147:18
+ ❯ src/tools.test.ts:698:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[9/19]⎯
+
+ FAIL  src/tools.test.ts > BootstrapEntityResult transparency > renders no partial note when all per-resource entity indexes are populated (complete empty)
+AssertionError: expected 'No articles found for entity "person:…' not to contain 'Partial result'
+
+- Expected
++ Received
+
+- Partial result
++ No articles found for entity "person:DefinitelyAbsent".
++
++ _⚠ Partial result: 0/2 resources indexed, 2 still warming in the background. Retry in a few seconds for the complete result._
+
+ ❯ src/tools.test.ts:1054:22
+    1052|     const text = result.content[0]!.text;
+    1053|     expect(text).toContain("No articles found");
+    1054|     expect(text).not.toContain("Partial result");
+       |                      ^
+    1055|     expect(text).not.toContain("⚠");
+    1056|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[10/19]⎯
+
+ FAIL  src/tools.test.ts > formatPartialBootstrapNote — output text invariants > (#9 Low) scan_incomplete branch (no deadline, no failures) has no failure count text
+AssertionError: expected 'No articles found for entity "person:…' not to contain '⚠ Partial result'
+
+- Expected
++ Received
+
+- ⚠ Partial result
++ No articles found for entity "person:Nobody".
++
++ _⚠ Partial result: 0/1 resources indexed, 1 still warming in the background. Retry in a few seconds for the complete result._
+
+ ❯ src/tools.test.ts:1391:22
+    1389|     const result = await handleEntity({ entity_id: "person:Nobody" }, …
+    1390|     const text = result.content[0]!.text;
+    1391|     expect(text).not.toContain("⚠ Partial result");
+       |                      ^
+    1392|     expect(text).not.toContain("failed");
+    1393|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[11/19]⎯
+
+ FAIL  src/tools.test.ts > H11 — fanOutEntitySearch eager entity index > returns matches from per-resource entity index without bootstrap scan
+AssertionError: expected 'No articles found for entity "person:…' to contain 'Found 1 article(s)'
+
+- Expected
++ Received
+
+- Found 1 article(s)
++ No articles found for entity "person:Paul".
++
++ _⚠ Partial result: 0/1 resources indexed, 1 still warming in the background. Retry in a few seconds for the complete result._
+
+ ❯ src/tools.test.ts:1450:18
+    1448|     const text = result.content[0]!.text;
+    1449|
+    1450|     expect(text).toContain("Found 1 article(s)");
+       |                  ^
+    1451|     expect(text).toContain("Acts 7:58");
+    1452|     // resource_type should be filled in from registry
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[12/19]⎯
+
+ FAIL  src/tools.test.ts > H11 — fanOutEntitySearch eager entity index > merges results from multiple per-resource entity indexes
+AssertionError: expected 'No articles found for entity "person:…' to contain 'Found 2 article(s)'
+
+- Expected
++ Received
+
+- Found 2 article(s)
++ No articles found for entity "person:Paul".
++
++ _⚠ Partial result: 0/2 resources indexed, 2 still warming in the background. Retry in a few seconds for the complete result._
+
+ ❯ src/tools.test.ts:1526:18
+    1524|     const result = await handleEntity({ entity_id: "person:Paul" }, en…
+    1525|     const text = result.content[0]!.text;
+    1526|     expect(text).toContain("Found 2 article(s)");
+       |                  ^
+    1527|     expect(text).toContain("Acts 7:58");
+    1528|     expect(text).toContain("Paul's Missionary Journeys");
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[13/19]⎯
+
+ FAIL  src/tools.test.ts > H11 — fanOutEntitySearch eager entity index > normalizes entity_id case before lookup
+AssertionError: expected 'No articles found for entity "PERSON:…' to contain 'Found 1 article(s)'
+
+- Expected
++ Received
+
+- Found 1 article(s)
++ No articles found for entity "PERSON:Paul".
++
++ _⚠ Partial result: 0/1 resources indexed, 1 still warming in the background. Retry in a few seconds for the complete result._
+
+ ❯ src/tools.test.ts:1561:18
+    1559|     const result = await handleEntity({ entity_id: "PERSON:Paul" }, en…
+    1560|     const text = result.content[0]!.text;
+    1561|     expect(text).toContain("Found 1 article(s)");
+       |                  ^
+    1562|     expect(text).toContain("Acts 7:58");
+    1563|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[14/19]⎯
+
+ FAIL  src/tools.test.ts > H11b — partial data with transparency + background warm > kicks off ctx.waitUntil(warmEntityIndexesForResources) for missing resources
+AssertionError: expected 'No articles found for entity "person:…' to contain 'Found 1 article(s)'
+
+- Expected
++ Received
+
+- Found 1 article(s)
++ No articles found for entity "person:Paul".
++
++ _⚠ Partial result: 0/2 resources indexed, 2 still warming in the background. Retry in a few seconds for the complete result._
+
+ ❯ src/tools.test.ts:1619:18
+    1617|
+    1618|     // User got a result (from the one populated resource) PLUS a part…
+    1619|     expect(text).toContain("Found 1 article(s)");
+       |                  ^
+    1620|     expect(text).toContain("Acts 7:58");
+    1621|     expect(text).toContain("⚠ Partial result");
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[15/19]⎯
+
+ FAIL  src/tools.test.ts > H11b — partial data with transparency + background warm > returns complete result without partial note when all indexes present
+AssertionError: expected 'No articles found for entity "person:…' to contain 'Found 2 article(s)'
+
+- Expected
++ Received
+
+- Found 2 article(s)
++ No articles found for entity "person:Paul".
++
++ _⚠ Partial result: 0/2 resources indexed, 2 still warming in the background. Retry in a few seconds for the complete result._
+
+ ❯ src/tools.test.ts:1697:18
+    1695|     const text = result.content[0]!.text;
+    1696|
+    1697|     expect(text).toContain("Found 2 article(s)");
+       |                  ^
+    1698|     expect(text).not.toContain("⚠ Partial result");
+    1699|     // No warms scheduled — every resource was already indexed.
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[16/19]⎯
+
+ FAIL  src/tools.test.ts > handleBrowse language defaulting > defaults to the resource's own language (fra) when no language is given
+Error: Source discovery failed (404)
+ ❯ sourceCatalog src/catalog-server.ts:13:25
+     11|  if(!discovery){
+     12|   const response=await fetch(`https://api.github.com/repos/${identity.…
+     13|   if(!response.ok)throw Error(`Source discovery failed (${response.sta…
+       |                         ^
+     14|   const tree=await response.json() as {sha:string;truncated:boolean;tr…
+     15|   if(!/^[a-f0-9]{40}$/.test(tree.sha)||!Array.isArray(tree.tree)||type…
+ ❯ Module.handleBrowse src/tools.ts:1147:18
+ ❯ src/tools.test.ts:1756:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[17/19]⎯
+
+ FAIL  src/tools.test.ts > image URL resolution (relative → absolute, server-side) > browse emits an absolute Image: line for a relative-image resource
+Error: Source discovery failed (404)
+ ❯ sourceCatalog src/catalog-server.ts:13:25
+     11|  if(!discovery){
+     12|   const response=await fetch(`https://api.github.com/repos/${identity.…
+     13|   if(!response.ok)throw Error(`Source discovery failed (${response.sta…
+       |                         ^
+     14|   const tree=await response.json() as {sha:string;truncated:boolean;tr…
+     15|   if(!/^[a-f0-9]{40}$/.test(tree.sha)||!Array.isArray(tree.tree)||type…
+ ❯ Module.handleBrowse src/tools.ts:1147:18
+ ❯ src/tools.test.ts:1836:19
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[18/19]⎯
+
+ FAIL  src/tools.test.ts > image URL resolution (relative → absolute, server-side) > browse ignores stale unversioned catalogs that predate relative image resolution
+Error: Source discovery failed (404)
+ ❯ sourceCatalog src/catalog-server.ts:13:25
+     11|  if(!discovery){
+     12|   const response=await fetch(`https://api.github.com/repos/${identity.…
+     13|   if(!response.ok)throw Error(`Source discovery failed (${response.sta…
+       |                         ^
+     14|   const tree=await response.json() as {sha:string;truncated:boolean;tr…
+     15|   if(!/^[a-f0-9]{40}$/.test(tree.sha)||!Array.isArray(tree.tree)||type…
+ ❯ Module.handleBrowse src/tools.ts:1147:18
+ ❯ src/tools.test.ts:1851:19
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[19/19]⎯
+
+
+ Test Files  2 failed | 6 passed (8)
+      Tests  19 failed | 211 passed (230)
+   Start at  11:05:00
+   Duration  1.67s (transform 495ms, setup 0ms, collect 978ms, tests 2.39s, environment 1ms, prepare 873ms)
