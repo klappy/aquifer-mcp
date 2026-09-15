@@ -29,3 +29,36 @@ it.each([{}, {'../escape.content.json':{}}, {'json/a.content.json':null}])('inva
 });
 it('missing listed manifest file keeps coverage partial',async()=>{vi.stubGlobal('fetch',async(url:string)=>url.endsWith('metadata.json')?new Response(JSON.stringify({resource_metadata:{language:'eng'},scripture_burrito:{format:'scripture burrito',ingredients:{'json/1.content.json':{mimeType:'text/json'}}}})):new Response('',{status:404}));const result=await sourceCatalog(identity,{} as Env,storage());expect(result.complete).toBe(false);expect(result.failedFiles).toHaveLength(1);expect(result.expectedFiles).toBe(1);});
 it('invalid tree path is never persisted and a later valid tree can recover',async()=>{const store=storage();let invalid=true;vi.stubGlobal('fetch',async(url:string)=>url.endsWith('metadata.json')?new Response('',{status:404}):url.includes('/git/trees/')?new Response(JSON.stringify({sha:'b'.repeat(40),truncated:false,tree:[{type:'blob',path:invalid?'eng/json/../bad.content.json':'eng/json/good.content.json'}]})):new Response('[]'));await expect(sourceCatalog(identity,{} as Env,store)).rejects.toThrow();expect((await store.getJSON(`tree/pinned-v2/BibleAquifer/FIAKeyTerms/${revision}/eng`)).data).toBeNull();invalid=false;expect((await sourceCatalog(identity,{} as Env,store)).complete).toBe(true);});
+
+it.each([false,true])('cached=%s preserves residual deferral and next continuation eligibility',async cached=>{
+ const store=storage(),paths=['eng/json/1.content.json','eng/json/2.content.json','eng/json/3.content.json','eng/json/4.content.json'];
+ const sizes=[656003,583399,1702334,2],bodies=sizes.map(size=>'[]'+' '.repeat(size-2));
+ const metadata={resource_metadata:{language:'eng'},scripture_burrito:{format:'scripture burrito',ingredients:Object.fromEntries(paths.map(p=>[p.slice(4),{}]))}};
+ await store.putJSON(`raw/pinned-v2/BibleAquifer/FIAKeyTerms/${revision}/eng/metadata.json`,JSON.stringify(metadata));
+ if(cached)for(let i=0;i<paths.length;i++)await store.putJSON(`raw/pinned-v2/BibleAquifer/FIAKeyTerms/${revision}/${paths[i]}`,bodies[i]);
+ const requests:string[]=[];vi.stubGlobal('fetch',async(url:string)=>{requests.push(url);return new Response(bodies[paths.findIndex(p=>url.endsWith(p))]);});
+ const first=await sourceCatalog(identity,{} as Env,store);expect(first).toMatchObject({scannedFiles:2,attemptedReads:3,attemptedBytes:2941736,acceptedBytes:1239402,failedFiles:[],pendingFiles:paths.slice(2)});
+ expect(first.networkBytes).toBe(cached?0:2941736);expect(first.cacheBytes).toBe(cached?2941736:0);expect(requests.some(u=>u.endsWith(paths[3]!))).toBe(false);
+ const final=await sourceCatalog(identity,{} as Env,store,first.nextCursor!);expect(final.complete).toBe(true);expect(final.scannedFiles).toBe(4);expect(final.attemptedReads).toBe(5);
+});
+it.each([false,true])('cached=%s whole oversized source stops before next file',async cached=>{
+ const store=storage(),body=' '.repeat(2000001),key=`raw/pinned-v2/BibleAquifer/FIAKeyTerms/${revision}/eng/`;
+ await store.putJSON(key+'metadata.json',JSON.stringify({resource_metadata:{language:'eng'},scripture_burrito:{format:'scripture burrito',ingredients:{'json/1.content.json':{},'json/2.content.json':{}}}}));
+ if(cached)await store.putJSON(key+'json/1.content.json',body);
+ const fetch=vi.fn(async()=>new Response(body));vi.stubGlobal('fetch',fetch);
+ const result=await sourceCatalog(identity,{} as Env,store);expect(result.failedFiles).toEqual([{path:'eng/json/1.content.json',code:'oversized-file'}]);expect(result.pendingFiles).toEqual(['eng/json/2.content.json']);expect(result.attemptedBytes).toBe(2000001);expect(fetch).toHaveBeenCalledTimes(cached?0:1);
+});
+it('counts the discarded delivered chunk, immediately cancels, and performs no further fetch',async()=>{
+ const store=storage(),key=`raw/pinned-v2/BibleAquifer/FIAKeyTerms/${revision}/eng/`;
+ await store.putJSON(key+'metadata.json',JSON.stringify({resource_metadata:{language:'eng'},scripture_burrito:{format:'scripture burrito',ingredients:{'json/1.content.json':{},'json/2.content.json':{}}}}));
+ let pulls=0,cancelled=false;
+ const stream=new ReadableStream<Uint8Array>({pull(c){pulls++;c.enqueue(new Uint8Array(1100000));},cancel(){cancelled=true;}},{highWaterMark:0});
+ const fetch=vi.fn(async()=>new Response(stream));vi.stubGlobal('fetch',fetch);
+ const result=await sourceCatalog(identity,{} as Env,store);expect(pulls).toBe(2);expect(cancelled).toBe(true);expect(fetch).toHaveBeenCalledTimes(1);expect(result.networkBytes).toBe(2200000);expect(result.acceptedBytes).toBe(0);expect(result.failedFiles[0]?.code).toBe('oversized-file');
+});
+it('preserves bytes already read when a stream genuinely fails',async()=>{
+ const store=storage(),key=`raw/pinned-v2/BibleAquifer/FIAKeyTerms/${revision}/eng/`;
+ await store.putJSON(key+'metadata.json',JSON.stringify({resource_metadata:{language:'eng'},scripture_burrito:{format:'scripture burrito',ingredients:{'json/1.content.json':{}}}}));let pulls=0;
+ vi.stubGlobal('fetch',async()=>new Response(new ReadableStream<Uint8Array>({pull(c){if(pulls++===0)c.enqueue(new Uint8Array(120));else c.error(Error('private transport detail'));}},{highWaterMark:0})));
+ const result=await sourceCatalog(identity,{} as Env,store);expect(result).toMatchObject({networkBytes:120,attemptedBytes:120,acceptedBytes:0,scannedFiles:1});expect(result.failedFiles).toEqual([{path:'eng/json/1.content.json',code:'read-error'}]);expect(JSON.stringify(result)).not.toContain('private transport');
+});
