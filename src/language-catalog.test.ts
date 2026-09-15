@@ -27,3 +27,33 @@ describe('language catalog source and continuation',()=>{
  it('prunes an earlier alias when a later page supplies its exact ID without repeated metadata',async()=>{const d=discovery([path(1),path(2)]),read=reader({[path(1)]:[article('other')],[path(2)]:[article('actual')]});const metadata={path:'eng/metadata.json',language:'eng',revision:id.revision,content:JSON.stringify({article_metadata:{actual:{localizations:{spa:{content_id:'other'}}}}})};const first=await buildLanguageCatalog({identity:id,discovery:d,read,maxFiles:1,localizationMetadata:metadata});expect(first.entries[0]!.aliases.map(a=>a.id)).toEqual(['actual']);const final=await buildLanguageCatalog({identity:id,discovery:d,read,previous:first,cursor:first.nextCursor!});expect(final.complete).toBe(true);expect(final.entries.find(e=>e.contentId==='other')!.aliases).toEqual([]);expect(final.entries.find(e=>e.contentId==='actual')).toBeDefined();expect(first.entries[0]!.aliases.map(a=>a.id)).toEqual(['actual']);});
 
 });
+
+it('defers a residual-budget file, stops reads and resumes exactly that path with honest counters',async()=>{
+ const sizes=[656003,583399,1702334,2],d=discovery(sizes.map((_,i)=>path(i+1)));
+ const read=vi.fn<ContentReader>(async r=>{const size=sizes[d.paths.indexOf(r.path)]!;return{status:'found',path:r.path,revision:r.revision,content:'[]'+' '.repeat(size-2)};});
+ const first=await buildLanguageCatalog({identity:id,discovery:d,read});
+ expect(read.mock.calls.map(([r])=>r.path)).toEqual(d.paths.slice(0,3));
+ expect(first).toMatchObject({scannedFiles:2,attemptedReads:3,acceptedBytes:1239402,attemptedBytes:2941736,failedFiles:[],pendingFiles:d.paths.slice(2)});
+ expect(first.issues).not.toContain('failed-sources');
+ read.mockClear();const final=await buildLanguageCatalog({identity:id,discovery:d,read,previous:first,cursor:first.nextCursor!});
+ expect(read.mock.calls[0]![0]).toMatchObject({path:path(3),maxBytes:2000000});expect(final.complete).toBe(true);expect(final.scannedFiles).toBe(4);expect(final.attemptedReads).toBe(5);
+ expect(first.scannedFiles).toBe(2);
+});
+it('whole-budget oversized files terminate the invocation but never loop on continuation',async()=>{
+ const d=discovery([path(1),path(2)]),read=vi.fn<ContentReader>(async r=>({status:'budget-exhausted',accounting:{attemptedBytes:2000001,networkBytes:2000001,cacheBytes:0}}));
+ const first=await buildLanguageCatalog({identity:id,discovery:d,read});expect(read).toHaveBeenCalledTimes(1);expect(first.failedFiles).toEqual([{path:path(1),code:'oversized-file'}]);expect(first.pendingFiles).toEqual([path(2)]);expect(first.scannedFiles).toBe(1);expect(first.attemptedBytes).toBe(2000001);
+});
+it('rejects legacy accounting snapshots with explicit restart instruction',async()=>{
+ const d=discovery([path(1),path(2)]),read=reader({[path(1)]:[]});const first=await buildLanguageCatalog({identity:id,discovery:d,read,maxFiles:1});
+ const legacy={...first};delete (legacy as Partial<typeof first>).accountingVersion;
+ await expect(buildLanguageCatalog({identity:id,discovery:d,read,previous:legacy,cursor:first.nextCursor!})).rejects.toThrow('restart without cursor');
+ expect(first.pendingFiles).toEqual([path(2)]);
+});
+it('retains real error codes and their attempted bytes rather than silently deferring',async()=>{
+ const read:ContentReader=async()=>({status:'error',code:'HTTP-503',accounting:{attemptedBytes:120,networkBytes:120,cacheBytes:0}});
+ const result=await buildLanguageCatalog({identity:id,discovery:discovery(),read});expect(result.failedFiles).toEqual([{path:path(1),code:'HTTP-503'}]);expect(result).toMatchObject({attemptedReads:1,scannedFiles:1,attemptedBytes:120,networkBytes:120,acceptedBytes:0,complete:false});
+});
+it('binds accounting counters into the immutable continuation hash',async()=>{
+ const d=discovery([path(1),path(2)]),read=reader({[path(1)]:[]});const first=await buildLanguageCatalog({identity:id,discovery:d,read,maxFiles:1});
+ await expect(buildLanguageCatalog({identity:id,discovery:d,read,previous:{...first,attemptedBytes:first.attemptedBytes+1},cursor:first.nextCursor!})).rejects.toThrow('mismatched cursor');
+});

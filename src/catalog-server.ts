@@ -51,10 +51,30 @@ export async function sourceCatalog(identity:CatalogIdentity, env:Env, storage:A
  if(cursor){if(cursor.length>4096||!/^[\w-]+$/.test(cursor))throw Error('Invalid scan cursor');const saved=await storage.getJSON<CatalogEnvelope>(`catalog-state/v2/${cursor}`);if(!saved.data)throw Error('Scan snapshot unavailable; restart without cursor');previous=saved.data;}
  const envelope=await buildLanguageCatalog({identity,discovery,previous,cursor,read:async({path,revision,maxBytes})=>{
   const key=`raw/pinned-v2/${identity.organization}/${identity.resourceCode}/${revision}/${path}`;
-  const cached=await storage.getJSON<string>(key);let content=cached.data;
-  if(content===null){const r=await fetch(pinnedCatalogUrl(identity,path),{headers:{'User-Agent':'aquifer-mcp'}});if(!r.ok)return{status:r.status===404?'missing':'error',code:`HTTP-${r.status}`};
-   const reader=r.body?.getReader();if(!reader)return{status:'error',code:'empty-body'};const chunks:Uint8Array[]=[];let size=0;for(;;){const part=await reader.read();if(part.done)break;size+=part.value.byteLength;if(size>maxBytes){await reader.cancel();return{status:'error',code:'byte-budget'};}chunks.push(part.value);}const all=new Uint8Array(size);let offset=0;for(const c of chunks){all.set(c,offset);offset+=c.length;}content=new TextDecoder('utf-8',{fatal:true,ignoreBOM:true}).decode(all);await storage.putJSON(key,content);}
-  return{status:'found',path,revision,content};
+  const cached=await storage.getJSON<string>(key);
+  if(cached.data!==null){
+   const size=new TextEncoder().encode(cached.data).byteLength;
+   const accounting={attemptedBytes:size,networkBytes:0,cacheBytes:size};
+   return size>maxBytes?{status:'budget-exhausted',accounting}:{status:'found',path,revision,content:cached.data,accounting};
+  }
+  let size=0;
+  const accounting=()=>({attemptedBytes:size,networkBytes:size,cacheBytes:0});
+  try{
+   const r=await fetch(pinnedCatalogUrl(identity,path),{headers:{'User-Agent':'aquifer-mcp'}});
+   if(!r.ok){await r.body?.cancel();return{status:r.status===404?'missing':'error',code:`HTTP-${r.status}`,accounting:accounting()};}
+   const reader=r.body?.getReader();if(!reader)return{status:'error',code:'empty-body',accounting:accounting()};
+   const chunks:Uint8Array[]=[];
+   for(;;){const part=await reader.read();if(part.done)break;size+=part.value.byteLength;
+    if(size>maxBytes){try{await reader.cancel();}catch{/* Preserve the measured budget outcome even if cancellation rejects. */}return{status:'budget-exhausted',accounting:accounting()};}
+    chunks.push(part.value);
+   }
+   const all=new Uint8Array(size);let offset=0;for(const c of chunks){all.set(c,offset);offset+=c.length;}
+   // Preserve the original byte sequence for catalog hashing, including any BOM.
+   const content=new TextDecoder('utf-8',{fatal:true,ignoreBOM:true}).decode(all);
+   await storage.putJSON(key,content);
+   return{status:'found',path,revision,content:all,accounting:accounting()};
+  }catch{return{status:'error',code:'read-error',accounting:accounting()};}
+
  }});
  if(envelope.nextCursor)await storage.putJSON(`catalog-state/v2/${envelope.nextCursor}`,envelope);
  const entries=await Promise.all(envelope.entries.map(async entry=>({...entry,...await extractMediaReferences({html:entry.content,rights,source:{...identity,contentId:entry.contentId,contentPath:entry.contentPath,contentFileSha256:entry.contentFileSha256,articleHtmlSha256:entry.articleHtmlSha256}})})));
