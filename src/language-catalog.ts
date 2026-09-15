@@ -72,6 +72,9 @@ export async function buildLanguageCatalog(input:{
   if(!articleMetadata||typeof articleMetadata!=='object'||Array.isArray(articleMetadata))throw Error('Invalid localization mapping');
   for(const [primaryId,value]of Object.entries(articleMetadata)){const target=value?.localizations?.[id.language]?.content_id;if(target===undefined)continue;if((typeof target!=='string'&&typeof target!=='number')||(typeof target==='number'&&!Number.isSafeInteger(target))||!String(target))throw Error('Invalid localized identity');const entry=e.entries.find(x=>x.contentId===String(target));if(entry&&primaryId!==entry.contentId&&!e.entries.some(x=>x.contentId===primaryId)&&!entry.aliases.some(a=>a.id===primaryId))entry.aliases.push({id:primaryId,metadataPath:m.path,metadataSha256,revision:id.revision});}
  }
+ // Exact identities discovered on later pages supersede earlier metadata aliases.
+ const exactIds=new Set(e.entries.map(entry=>entry.contentId));
+ for(const entry of e.entries)entry.aliases=entry.aliases.filter(alias=>!exactIds.has(alias.id));
  if(e.failedFiles.length)issues('failed-sources');if(e.conflicts.length)issues('conflicting-ids');
  e.scanComplete=e.pendingFiles.length===0&&e.failedFiles.length===0&&e.conflicts.length===0;
  e.complete=e.discoveryComplete&&e.scanComplete&&e.issues.length===0;
