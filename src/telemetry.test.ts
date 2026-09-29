@@ -364,3 +364,102 @@ describe("passage hierarchy telemetry recording", () => {
     expect(snapshot.passage_counts.books).toHaveLength(0);
   });
 });
+
+describe("stateless-aware telemetry (protocol era + client on every request)", () => {
+  const post = (body: unknown, headers: Record<string, string> = {}) =>
+    new Request("https://aquifer.klappy.dev/mcp", {
+      method: "POST",
+      headers: { "content-type": "application/json", ...headers },
+      body: JSON.stringify(body),
+    });
+
+  it("2026-07-28 tools/list with clientInfo in _meta records client and era, no initialize", async () => {
+    const env = createEnv();
+    await recordPublicTelemetry(
+      post({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/list",
+        params: {
+          _meta: {
+            "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+            "io.modelcontextprotocol/clientInfo": { name: "s2b-probe", version: "0.0.1" },
+            "io.modelcontextprotocol/clientCapabilities": {},
+          },
+        },
+      }, { "mcp-method": "tools/list" }),
+      env,
+    );
+    const snapshot = await getPublicTelemetrySnapshot(env, 10);
+    expect(snapshot.totals.mcp_requests).toBe(1);
+    expect(snapshot.method_counts).toEqual([{ name: "tools/list", calls: 1 }]);
+    expect(snapshot.client_request_counts).toEqual([{ name: "s2b-probe", calls: 1 }]);
+    expect(snapshot.client_request_label_sources).toEqual([{ name: "_meta.clientInfo.name", calls: 1 }]);
+    expect(snapshot.protocol_era_counts).toEqual([{ name: "2026-07-28", calls: 1 }]);
+    expect(snapshot.protocol_era_source_counts).toEqual([{ name: "_meta", calls: 1 }]);
+  });
+
+  it("2026-07-28 tools/call labels the consumer from _meta clientInfo", async () => {
+    const env = createEnv();
+    await recordPublicTelemetry(
+      post({
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tools/call",
+        params: {
+          name: "list",
+          arguments: {},
+          _meta: {
+            "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+            "io.modelcontextprotocol/clientInfo": { name: "s2b-probe", version: "0.0.1" },
+          },
+        },
+      }),
+      env,
+    );
+    const snapshot = await getPublicTelemetrySnapshot(env, 10);
+    expect(snapshot.leaderboards.consumers).toEqual([{ name: "s2b-probe", calls: 1 }]);
+    expect(snapshot.consumer_label_sources).toEqual([{ name: "_meta.clientInfo.name", calls: 1 }]);
+    expect(snapshot.self_report_field_counts).toEqual(
+      expect.arrayContaining([{ name: "client_name", calls: 1 }, { name: "client_version", calls: 1 }]),
+    );
+  });
+
+  it("2025-11-25 initialize records client from params and era from initialize params", async () => {
+    const env = createEnv();
+    await recordPublicTelemetry(
+      post({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "initialize",
+        params: {
+          protocolVersion: "2025-11-25",
+          capabilities: {},
+          clientInfo: { name: "legacy-client", version: "1.0.0" },
+        },
+      }),
+      env,
+    );
+    const snapshot = await getPublicTelemetrySnapshot(env, 10);
+    expect(snapshot.client_request_counts).toEqual([{ name: "legacy-client", calls: 1 }]);
+    expect(snapshot.client_request_label_sources).toEqual([{ name: "initialize.clientInfo.name", calls: 1 }]);
+    expect(snapshot.protocol_era_counts).toEqual([{ name: "2025-11-25", calls: 1 }]);
+    expect(snapshot.protocol_era_source_counts).toEqual([{ name: "initialize.params", calls: 1 }]);
+  });
+
+  it("follow-on 2025-era tools/list with no session id takes era from MCP-Protocol-Version header", async () => {
+    const env = createEnv();
+    await recordPublicTelemetry(
+      post({ jsonrpc: "2.0", id: 2, method: "tools/list", params: {} }, {
+        "mcp-protocol-version": "2025-11-25",
+        "user-agent": "legacy-client/1.0.0",
+      }),
+      env,
+    );
+    const snapshot = await getPublicTelemetrySnapshot(env, 10);
+    expect(snapshot.protocol_era_counts).toEqual([{ name: "2025-11-25", calls: 1 }]);
+    expect(snapshot.protocol_era_source_counts).toEqual([{ name: "mcp-protocol-version-header", calls: 1 }]);
+    expect(snapshot.client_request_counts).toEqual([{ name: "legacy-client/1.0.0", calls: 1 }]);
+    expect(snapshot.client_request_label_sources).toEqual([{ name: "user-agent", calls: 1 }]);
+  });
+});
