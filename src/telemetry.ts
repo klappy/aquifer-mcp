@@ -1,3 +1,4 @@
+import { CLIENT_INFO_META_KEY, PROTOCOL_VERSION_META_KEY } from "@modelcontextprotocol/server";
 import type { Env } from "./types.js";
 import { GC_TTL } from "./github.js";
 import { parseReference } from "./references.js";
@@ -40,6 +41,10 @@ interface TelemetryPrefixes {
   passageBook: string;
   passageTestament: string;
   listType: string;
+  protocolEra: string;
+  protocolEraSource: string;
+  clientRequest: string;
+  clientRequestSource: string;
 }
 
 function buildPrefixes(env: Env): TelemetryPrefixes {
@@ -69,11 +74,18 @@ function buildPrefixes(env: Env): TelemetryPrefixes {
     passageBook: `${base}:passage-book:`,
     passageTestament: `${base}:passage-testament:`,
     listType: `${base}:list-type:`,
+    protocolEra: `${base}:protocol-era:`,
+    protocolEraSource: `${base}:protocol-era-source:`,
+    clientRequest: `${base}:client-request:`,
+    clientRequestSource: `${base}:client-request-source:`,
   };
 }
 
+type ProtocolEraSource = "_meta" | "mcp-protocol-version-header" | "initialize.params" | "unknown";
+
 type ConsumerLabelSource =
   | "x-aquifer-client"
+  | "_meta.clientInfo.name"
   | "initialize.clientInfo.name"
   | "user-agent"
   | "unknown";
@@ -111,6 +123,10 @@ export interface PublicTelemetrySnapshot {
   };
   method_counts: TelemetryRankItem[];
   consumer_label_sources: TelemetryRankItem[];
+  protocol_era_counts: TelemetryRankItem[];
+  protocol_era_source_counts: TelemetryRankItem[];
+  client_request_counts: TelemetryRankItem[];
+  client_request_label_sources: TelemetryRankItem[];
   consumer_verification_counts: TelemetryRankItem[];
   self_report_field_counts: TelemetryRankItem[];
   leaderboards: {
@@ -170,6 +186,48 @@ function parseClientInfoVersion(payload: unknown): string | null {
   if (!clientInfo || typeof clientInfo !== "object") return null;
   const version = (clientInfo as { version?: unknown }).version;
   return typeof version === "string" ? sanitizeLabel(version) : null;
+}
+
+// 2026-07-28 stateless requests carry no initialize; client identity and protocol
+// version ride in params._meta under the SDK's keys (CLIENT_INFO_META_KEY =
+// "io.modelcontextprotocol/clientInfo", PROTOCOL_VERSION_META_KEY =
+// "io.modelcontextprotocol/protocolVersion", @modelcontextprotocol/core 2.0.0).
+function parseRequestMeta(payload: unknown): Record<string, unknown> | null {
+  if (!payload || typeof payload !== "object") return null;
+  const params = (payload as { params?: unknown }).params;
+  if (!params || typeof params !== "object") return null;
+  const meta = (params as { _meta?: unknown })._meta;
+  return meta && typeof meta === "object" ? (meta as Record<string, unknown>) : null;
+}
+
+function parseMetaClientInfoField(payload: unknown, field: "name" | "version"): string | null {
+  const clientInfo = parseRequestMeta(payload)?.[CLIENT_INFO_META_KEY];
+  if (!clientInfo || typeof clientInfo !== "object") return null;
+  const value = (clientInfo as Record<string, unknown>)[field];
+  return typeof value === "string" ? sanitizeLabel(value) : null;
+}
+
+function parseAnyClientName(payload: unknown): string | null {
+  return parseMetaClientInfoField(payload, "name") ?? parseClientInfoName(payload);
+}
+
+function parseAnyClientVersion(payload: unknown): string | null {
+  return parseMetaClientInfoField(payload, "version") ?? parseClientInfoVersion(payload);
+}
+
+export function parseProtocolEra(
+  request: Request,
+  payload: unknown,
+): { era: string; source: ProtocolEraSource } {
+  const fromMeta = parseRequestMeta(payload)?.[PROTOCOL_VERSION_META_KEY];
+  if (typeof fromMeta === "string" && fromMeta) return { era: sanitizeLabel(fromMeta), source: "_meta" };
+  const fromHeader = request.headers.get("mcp-protocol-version");
+  if (fromHeader) return { era: sanitizeLabel(fromHeader), source: "mcp-protocol-version-header" };
+  // Legacy (2025-era) handshake: protocolVersion sits in the initialize params.
+  const params = payload && typeof payload === "object" ? (payload as { params?: unknown }).params : null;
+  const fromParams = params && typeof params === "object" ? (params as { protocolVersion?: unknown }).protocolVersion : null;
+  if (typeof fromParams === "string" && fromParams) return { era: sanitizeLabel(fromParams), source: "initialize.params" };
+  return { era: "unknown", source: "unknown" };
 }
 
 function parseToolName(payload: unknown): string | null {
@@ -273,6 +331,8 @@ function getConsumerLabelInfo(
 ): { label: string; source: ConsumerLabelSource } {
   const explicit = request.headers.get("x-aquifer-client");
   if (explicit) return { label: sanitizeLabel(explicit), source: "x-aquifer-client" };
+  const fromMeta = parseMetaClientInfoField(payload, "name");
+  if (fromMeta) return { label: fromMeta, source: "_meta.clientInfo.name" };
   const fromInitialize = parseClientInfoName(payload);
   if (fromInitialize) return { label: fromInitialize, source: "initialize.clientInfo.name" };
   if (batchClientName) return { label: sanitizeLabel(batchClientName), source: "initialize.clientInfo.name" };
@@ -317,9 +377,9 @@ function getSelfReportDetails(
   batchClientVersion?: string,
 ): Record<(typeof SELF_REPORT_FIELDS)[number], boolean> {
   const clientNameFromHeaders = getHeaderValue(request, "x-aquifer-client");
-  const clientNameFromPayload = parseClientInfoName(payload) ?? batchClientName ?? null;
+  const clientNameFromPayload = parseAnyClientName(payload) ?? batchClientName ?? null;
   const clientVersionFromHeaders = getHeaderValue(request, "x-aquifer-client-version");
-  const clientVersionFromPayload = parseClientInfoVersion(payload) ?? batchClientVersion ?? null;
+  const clientVersionFromPayload = parseAnyClientVersion(payload) ?? batchClientVersion ?? null;
 
   return {
     client_name: Boolean(clientNameFromHeaders || clientNameFromPayload),
@@ -372,6 +432,15 @@ export async function recordPublicTelemetry(request: Request, env: Env): Promise
     const method = parseJsonRpcMethod(message) ?? "unknown";
     await incrementCounter(env, p.mcp_requests);
     await incrementCounter(env, `${p.method}${sanitizeLabel(method.toLowerCase())}`);
+
+    // Every request records its protocol era and client, whatever the method:
+    // a 2026-07-28 client never sends initialize, so nothing here keys on it.
+    const eraInfo = parseProtocolEra(request, message);
+    await incrementCounter(env, `${p.protocolEra}${eraInfo.era}`);
+    await incrementCounter(env, `${p.protocolEraSource}${eraInfo.source}`);
+    const requestClient = getConsumerLabelInfo(request, message, batchClientName);
+    await incrementCounter(env, `${p.clientRequest}${requestClient.label}`);
+    await incrementCounter(env, `${p.clientRequestSource}${requestClient.source}`);
 
     if (method === "tools/call") {
       await incrementCounter(env, p.tool_calls);
@@ -469,6 +538,10 @@ export async function getPublicTelemetrySnapshot(env: Env, limit: number): Promi
     passageBookCounters,
     passageChapterCounters,
     passageVerseCounters,
+    protocolEraCounters,
+    protocolEraSourceCounters,
+    clientRequestCounters,
+    clientRequestSourceCounters,
   ] = await Promise.all([
     env.AQUIFER_CACHE.get(p.mcp_requests),
     env.AQUIFER_CACHE.get(p.tool_calls),
@@ -491,6 +564,10 @@ export async function getPublicTelemetrySnapshot(env: Env, limit: number): Promi
     readCounters(env, p.passageBook),
     readCounters(env, p.passageChapter),
     readCounters(env, p.passageVerse),
+    readCounters(env, p.protocolEra),
+    readCounters(env, p.protocolEraSource),
+    readCounters(env, p.clientRequest),
+    readCounters(env, p.clientRequestSource),
   ]);
 
   const toRank = (counters: Array<{ key: string; calls: number }>, prefix: string) =>
@@ -567,6 +644,10 @@ export async function getPublicTelemetrySnapshot(env: Env, limit: number): Promi
       "tool_call_weighted_score_by_consumer_label",
       "consumer_self_report_completeness",
       "consumer_label_source_count",
+      "protocol_era_count",
+      "protocol_era_source_count",
+      "client_request_count_by_consumer_label",
+      "client_request_label_source_count",
       "consumer_verification_count",
       "self_report_field_presence_count",
       "resource_access_count",
@@ -580,6 +661,7 @@ export async function getPublicTelemetrySnapshot(env: Env, limit: number): Promi
     tracked_field_notes: [
       "All tools/call usage is tracked automatically by the server on /mcp POST envelopes.",
       "Current server tracking is aggregate counters, not per-request event logs.",
+      "Protocol era and client are recorded on every /mcp request: era from _meta io.modelcontextprotocol/protocolVersion, else the MCP-Protocol-Version header, else initialize params; client from _meta io.modelcontextprotocol/clientInfo, else initialize clientInfo.",
       "Consumer labels are self-declared and should be treated as transparent claims, not identity proof.",
       `Verified consumer labels (from env allowlist) receive ${VERIFIED_SCORE_MULTIPLIER}x weighted leaderboard score.`,
       "Self-reported metadata completeness is scored from optional disclosure fields to incentivize richer transparency.",
@@ -604,6 +686,10 @@ export async function getPublicTelemetrySnapshot(env: Env, limit: number): Promi
     },
     method_counts: methods,
     consumer_label_sources: consumerLabelSources,
+    protocol_era_counts: toRank(protocolEraCounters, p.protocolEra),
+    protocol_era_source_counts: toRank(protocolEraSourceCounters, p.protocolEraSource),
+    client_request_counts: toRank(clientRequestCounters, p.clientRequest),
+    client_request_label_sources: toRank(clientRequestSourceCounters, p.clientRequestSource),
     consumer_verification_counts: consumerVerificationCounts,
     self_report_field_counts: selfReportFieldCounts,
     leaderboards: {
