@@ -248,6 +248,10 @@ export async function handleTelemetryPublic(
   const sourceLines = rankLines(snapshot.consumer_label_sources, "_No label source counts recorded yet._");
   const verificationLines = rankLines(snapshot.consumer_verification_counts, "_No verification counts recorded yet._");
   const selfReportFieldLines = rankLines(snapshot.self_report_field_counts, "_No self-report field counts recorded yet._");
+  const protocolEraLines = rankLines(snapshot.protocol_era_counts, "_No protocol era counts recorded yet._");
+  const protocolEraSourceLines = rankLines(snapshot.protocol_era_source_counts, "_No protocol era source counts recorded yet._");
+  const clientRequestLines = rankLines(snapshot.client_request_counts, "_No client request counts recorded yet._");
+  const clientRequestSourceLines = rankLines(snapshot.client_request_label_sources, "_No client request label source counts recorded yet._");
 
   const lastArticle = snapshot.last_article
     ? `${snapshot.last_article.resource_code}/${snapshot.last_article.language}/${snapshot.last_article.content_id} (via ${snapshot.last_article.tool} at ${snapshot.last_article.accessed_at})`
@@ -309,6 +313,18 @@ export async function handleTelemetryPublic(
       "",
       "## Self-Report Field Counts",
       selfReportFieldLines,
+      "",
+      "## Protocol Era Counts",
+      protocolEraLines,
+      "",
+      "## Protocol Era Sources",
+      protocolEraSourceLines,
+      "",
+      "## Client Request Counts (every /mcp request)",
+      clientRequestLines,
+      "",
+      "## Client Request Label Sources",
+      clientRequestSourceLines,
       "",
       "## Tracked Fields",
       tracked,

@@ -799,6 +799,37 @@ describe("handleTelemetryPublic", () => {
     expect(text).toContain("Public Telemetry Snapshot");
     expect(text).toContain("MCP requests: 0");
     expect(text).toContain("No consumer calls recorded yet");
+    expect(text).toContain("## Protocol Era Counts");
+    expect(text).toContain("No protocol era counts recorded yet");
+    expect(text).toContain("No client request label source counts recorded yet");
+  });
+
+  it("renders S2b protocol era and client request sections", async () => {
+    await env.AQUIFER_CACHE.put("telemetry:v1:production:protocol-era:stateless", "9");
+    await env.AQUIFER_CACHE.put("telemetry:v1:production:protocol-era:legacy-session", "3");
+    await env.AQUIFER_CACHE.put("telemetry:v1:production:protocol-era-source:header", "11");
+    await env.AQUIFER_CACHE.put("telemetry:v1:production:protocol-era-source:default", "1");
+    await env.AQUIFER_CACHE.put("telemetry:v1:production:client-request:Cursor", "7");
+    await env.AQUIFER_CACHE.put("telemetry:v1:production:client-request:claude-ai", "5");
+    await env.AQUIFER_CACHE.put("telemetry:v1:production:client-request-source:user-agent", "10");
+    await env.AQUIFER_CACHE.put("telemetry:v1:production:client-request-source:unknown", "2");
+
+    const result = await handleTelemetryPublic({}, env);
+    const text = result.content[0]!.text;
+    const section = (heading: string) => {
+      const start = text.indexOf(heading);
+      expect(start).toBeGreaterThanOrEqual(0);
+      const end = text.indexOf("\n## ", start + heading.length);
+      return text.slice(start, end === -1 ? undefined : end);
+    };
+    expect(section("## Protocol Era Counts\n")).toContain("1. stateless — 9 calls");
+    expect(section("## Protocol Era Counts\n")).toContain("2. legacy-session — 3 calls");
+    expect(section("## Protocol Era Sources\n")).toContain("1. header — 11 calls");
+    expect(section("## Protocol Era Sources\n")).toContain("2. default — 1 calls");
+    expect(section("## Client Request Counts (every /mcp request)\n")).toContain("1. Cursor — 7 calls");
+    expect(section("## Client Request Counts (every /mcp request)\n")).toContain("2. claude-ai — 5 calls");
+    expect(section("## Client Request Label Sources\n")).toContain("1. user-agent — 10 calls");
+    expect(section("## Client Request Label Sources\n")).toContain("2. unknown — 2 calls");
   });
 
   it("returns ranked consumers and tools from telemetry counters", async () => {
