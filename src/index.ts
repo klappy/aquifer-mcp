@@ -114,6 +114,7 @@ function createServer(env: Env, ctx: ExecutionContext, tracer: RequestTracer) {
       content_id: z.string().describe("The article content ID."),
       include_media: z.boolean().optional().describe("Include source-bound media descriptors; bounded scans may require continuation."),
       scan_cursor: z.string().optional().describe("Opaque server-owned continuation from prior result."),
+      scan_max_bytes: z.number().int().min(1).max(8_000_000).optional().describe("Content scan byte allowance per call (default 2000000, maximum 8000000). Repeat on continuations; restart without cursor after oversized-file failures. A received chunk may cross the allowance before cancellation."),
     },
     async (args) => handleGet(args, env, storage, ctx, tracer),
   );
@@ -139,6 +140,7 @@ function createServer(env: Env, ctx: ExecutionContext, tracer: RequestTracer) {
       page_size: z.number().optional().describe("Articles per page, 1-100 (default: 50)."),
       modality: z.enum(['audio','video','image','text']).optional().describe("Article modality, separate from collection type."),
       scan_cursor: z.string().optional().describe("Opaque server-owned scan continuation; omit to restart failed discovery."),
+      scan_max_bytes: z.number().int().min(1).max(8_000_000).optional().describe("Content scan byte allowance per call (default 2000000, maximum 8000000). Repeat on continuations; restart without cursor after oversized-file failures. A received chunk may cross the allowance before cancellation."),
     },
     async (args) => handleBrowse(args, env, storage, ctx, tracer),
   );

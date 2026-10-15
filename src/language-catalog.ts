@@ -2,7 +2,9 @@
 export const LANGUAGE_CATALOG_SCHEMA = 2;
 export interface CatalogIdentity { organization:string; resourceCode:string; language:string; revision:string; }
 export interface Discovery { revision:string; language:string; paths:string[]; exhaustive:boolean; method:'git-tree'|'metadata'|'probe'; truncated?:boolean; issues?:string[]; }
-export type FileRead = {status:'found';path:string;revision:string;content:string|Uint8Array}|{status:'missing'|'error';code?:string};
+export const SCAN_ACCOUNTING_VERSION = 1;
+export interface ReadAccounting { attemptedBytes:number; networkBytes:number; cacheBytes:number; }
+export type FileRead = ({status:'found';path:string;revision:string;content:string|Uint8Array}|{status:'missing'|'error';code?:string}|{status:'budget-exhausted'}) & {accounting?:ReadAccounting};
 export type ContentReader = (request:{path:string;revision:string;maxBytes:number})=>Promise<FileRead>;
 export interface CatalogEntry {
  contentId:string; version?:string; reviewLevel?:string; language:string; languageBasis:'declared'|'source-path'; title:string; content:string; mediaType:string;
@@ -12,6 +14,7 @@ export interface CatalogEntry {
 export interface CatalogEnvelope {
  schemaVersion:typeof LANGUAGE_CATALOG_SCHEMA; identity:CatalogIdentity; queryKey:string; discoverySha256:string;
  entries:CatalogEntry[]; discoveryComplete:boolean; scanComplete:boolean; complete:boolean;
+ accountingVersion:typeof SCAN_ACCOUNTING_VERSION; attemptedReads:number; attemptedBytes:number; networkBytes:number; cacheBytes:number; acceptedBytes:number;
  scannedFiles:number; expectedFiles:number|null; pendingFiles:string[]; failedFiles:Array<{path:string;code:string}>;
  conflicts:string[]; issues:string[]; nextCursor:string|null; localizationMetadataSha256?:string;
 }
@@ -38,21 +41,32 @@ export async function buildLanguageCatalog(input:{
  let e:CatalogEnvelope;
  if(input.previous||input.cursor){
   if(!input.previous||!input.cursor)throw Error('Continuation requires prior envelope and cursor');
-  const prev=input.previous;const cursor=decode(input.cursor) as {state?:string;discovery?:string;query?:string;identity?:string;schema?:number};
+  const prev=input.previous;if(prev.accountingVersion!==SCAN_ACCOUNTING_VERSION)throw Error('Scan accounting changed; restart without cursor');const cursor=decode(input.cursor) as {state?:string;discovery?:string;query?:string;identity?:string;schema?:number};
   if(prev.nextCursor!==input.cursor||cursor.state!==await hash(stateForCursor(prev))||cursor.discovery!==discoverySha256||cursor.identity!==JSON.stringify(id)||cursor.query!==queryKey||cursor.schema!==LANGUAGE_CATALOG_SCHEMA)throw Error('Stale or mismatched cursor');
   if(prev.schemaVersion!==LANGUAGE_CATALOG_SCHEMA||prev.discoverySha256!==discoverySha256||JSON.stringify(prev.identity)!==JSON.stringify(id)||prev.queryKey!==queryKey)throw Error('Prior catalog mismatch');
   e=structuredClone(prev);
- }else e={schemaVersion:LANGUAGE_CATALOG_SCHEMA,identity:{...id},queryKey,discoverySha256,entries:[],discoveryComplete:d.exhaustive&&!d.truncated&&!(d.issues?.length),scanComplete:false,complete:false,scannedFiles:0,expectedFiles:d.exhaustive&&!d.truncated&&!(d.issues?.length)?paths.length:null,pendingFiles:paths,failedFiles:[],conflicts:[],issues:[...(d.issues??[]),...(d.truncated?['truncated-discovery']:[])],nextCursor:null};
+ }else e={accountingVersion:SCAN_ACCOUNTING_VERSION,attemptedReads:0,attemptedBytes:0,networkBytes:0,cacheBytes:0,acceptedBytes:0,schemaVersion:LANGUAGE_CATALOG_SCHEMA,identity:{...id},queryKey,discoverySha256,entries:[],discoveryComplete:d.exhaustive&&!d.truncated&&!(d.issues?.length),scanComplete:false,complete:false,scannedFiles:0,expectedFiles:d.exhaustive&&!d.truncated&&!(d.issues?.length)?paths.length:null,pendingFiles:paths,failedFiles:[],conflicts:[],issues:[...(d.issues??[]),...(d.truncated?['truncated-discovery']:[])],nextCursor:null};
  const issues=(code:string)=>{if(!e.issues.includes(code))e.issues.push(code);};
  const failed=(path:string,code:string)=>{if(!e.failedFiles.some(f=>f.path===path&&f.code===code))e.failedFiles.push({path,code});};
  let used=0,count=0;
  while(e.pendingFiles.length&&count<maxFiles&&used<maxBytes){
-  const path=e.pendingFiles.shift()!;count++;e.scannedFiles++;
-  let response:FileRead;try{response=await input.read({path,revision:id.revision,maxBytes:maxBytes-used});}catch{failed(path,'read-error');continue;}
-  if(response.status!=='found'){failed(path,response.status==='missing'?'missing-file':'read-error');continue;}
+  const path=e.pendingFiles.shift()!;count++;e.attemptedReads++;
+  const remaining=maxBytes-used;
+  let response:FileRead;try{response=await input.read({path,revision:id.revision,maxBytes:remaining});}catch{e.scannedFiles++;failed(path,'read-error');continue;}
+  const body=response.status==='found'?bytes(response.content):undefined;
+  // Injected readers without accounting report their returned bytes as inspected, not network traffic.
+  const accounting=response.accounting??{attemptedBytes:body?.byteLength??0,networkBytes:0,cacheBytes:0};
+  used+=accounting.attemptedBytes;e.attemptedBytes+=accounting.attemptedBytes;e.networkBytes+=accounting.networkBytes;e.cacheBytes+=accounting.cacheBytes;
+  if(response.status==='budget-exhausted'||(body&&body.byteLength>remaining)){
+   if(remaining===maxBytes||accounting.attemptedBytes>maxBytes){e.scannedFiles++;failed(path,'oversized-file');}
+   else e.pendingFiles.unshift(path);
+   break; // The delivered over-limit chunk is counted; no subsequent file is read.
+  }
+  e.scannedFiles++;
+  if(response.status!=='found'){failed(path,response.status==='missing'?'missing-file':response.code??'read-error');continue;}
   if(response.path!==path||response.revision!==id.revision){failed(path,'reader-identity-mismatch');continue;}
-  const body=bytes(response.content);if(body.byteLength>maxBytes-used){failed(path,'byte-limit');break;}used+=body.byteLength;
-  const contentFileSha256=await hash(body);let rows:unknown;try{rows=JSON.parse(new TextDecoder('utf-8',{fatal:true,ignoreBOM:false}).decode(body));}catch{failed(path,'invalid-json');continue;}
+  e.acceptedBytes+=body!.byteLength;
+  const contentFileSha256=await hash(body!);let rows:unknown;try{rows=JSON.parse(new TextDecoder('utf-8',{fatal:true,ignoreBOM:false}).decode(body!));}catch{failed(path,'invalid-json');continue;}
   if(!Array.isArray(rows)){failed(path,'non-array-content');continue;}
   for(const raw of rows){
    if(!raw||typeof raw!=='object'){failed(path,'invalid-article');continue;}const row=raw as Record<string,unknown>;
