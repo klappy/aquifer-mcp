@@ -62,3 +62,29 @@ it('preserves bytes already read when a stream genuinely fails',async()=>{
  vi.stubGlobal('fetch',async()=>new Response(new ReadableStream<Uint8Array>({pull(c){if(pulls++===0)c.enqueue(new Uint8Array(120));else c.error(Error('private transport detail'));}},{highWaterMark:0})));
  const result=await sourceCatalog(identity,{} as Env,store);expect(result).toMatchObject({networkBytes:120,attemptedBytes:120,acceptedBytes:0,scannedFiles:1});expect(result.failedFiles).toEqual([{path:'eng/json/1.content.json',code:'read-error'}]);expect(JSON.stringify(result)).not.toContain('private transport');
 });
+
+it.each([false,true])('explicit budget admits Luke/Acts-sized JSON and resumes without losing source identity, cached=%s',async cached=>{
+ const id={...identity,resourceCode:'FIATranslationGuide',language:'spa'},store=storage();
+ const paths=['spa/json/42.content.json','spa/json/44.content.json'],sizes=[2381491,2396802];
+ const bodies=sizes.map((size,i)=>{const raw=JSON.stringify([{content_id:i?'spa-act-p1':'spa-luk-p1-v1.1',language:'spa',content:'<p>Size-matched synthetic fixture</p>'}]);return raw+' '.repeat(size-new TextEncoder().encode(raw).byteLength);});
+ const prefix=`raw/pinned-v2/BibleAquifer/FIATranslationGuide/${revision}/`;
+ await store.putJSON(prefix+'spa/metadata.json',JSON.stringify({resource_metadata:{language:'spa'},scripture_burrito:{format:'scripture burrito',ingredients:Object.fromEntries(paths.map(p=>[p.slice(4),{}]))}}));
+ if(cached)for(let i=0;i<paths.length;i++)await store.putJSON(prefix+paths[i],bodies[i]);
+ const fetch=vi.fn(async(url:string)=>new Response(bodies[paths.findIndex(p=>url.endsWith(p))]));vi.stubGlobal('fetch',fetch);
+ const defaultScan=await sourceCatalog(id,{} as Env,store);expect(defaultScan.failedFiles).toEqual([{path:paths[0],code:'oversized-file'}]);
+ const first=await sourceCatalog(id,{} as Env,store,undefined,3_000_000);
+ expect(first.failedFiles).toEqual([]);expect(first.entries.map(e=>e.contentId)).toEqual(['spa-luk-p1-v1.1']);expect(first.pendingFiles).toEqual([paths[1]]);
+ const last=await sourceCatalog(id,{} as Env,store,first.nextCursor!,3_000_000);
+ expect(last.complete).toBe(true);expect(last.entries).toHaveLength(2);expect(last.failedFiles).toEqual([]);
+ for(let i=0;i<2;i++){const hash=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(bodies[i]))),x=>x.toString(16).padStart(2,'0')).join('');expect(last.entries[i]).toMatchObject({contentPath:paths[i],contentFileSha256:hash,revision,language:'spa'});}
+});
+it.each([0,-1,1.5,8_000_001,NaN,Infinity,'3000000',null])('rejects invalid explicit scan budget %s before any I/O',async budget=>{
+ const fetch=vi.fn();vi.stubGlobal('fetch',fetch);const store=storage(),read=vi.spyOn(store,'getJSON');
+ await expect(sourceCatalog(identity,{} as Env,store,undefined,budget)).rejects.toThrow('scan_max_bytes');expect(fetch).not.toHaveBeenCalled();expect(read).not.toHaveBeenCalled();
+});
+it('accepts the existing maximum but classifies a larger body without retrying it forever',async()=>{
+ const store=storage(),prefix=`raw/pinned-v2/BibleAquifer/FIAKeyTerms/${revision}/eng/`;
+ await store.putJSON(prefix+'metadata.json',JSON.stringify({resource_metadata:{language:'eng'},scripture_burrito:{format:'scripture burrito',ingredients:{'json/1.content.json':{}}}}));
+ vi.stubGlobal('fetch',async()=>new Response(' '.repeat(8_000_001)));
+ const result=await sourceCatalog(identity,{} as Env,store,undefined,8_000_000);expect(result.complete).toBe(false);expect(result.nextCursor).toBeNull();expect(result.failedFiles).toEqual([{path:'eng/json/1.content.json',code:'oversized-file'}]);
+});

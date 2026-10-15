@@ -517,3 +517,12 @@ Recommended self-report headers (honor-system unless verified):
 Browse accepts an optional `modality` (`audio`, `video`, `image`, `text`), independent of collection type. Results include structured source identity, original-file and HTML hashes, explicit completeness, and a `scan_cursor` when further bounded scanning is needed. Counts are provisional until complete. Page numbers select among verified entries; `scan_cursor` advances source scanning. Omit the cursor to restart failed scans.
 
 Get accepts `include_media: true` and the same scan cursor while retaining formatted article text. Media URLs are references, not proof of playback, narrator identity or asset licensing. Matching-language collection rights are reported separately when known. No audio/video asset is downloaded by these tools.
+
+
+For larger source JSON files, `get` with `include_media: true` and `browse` accept optional `scan_max_bytes` (integer 1–8,000,000; default remains 2,000,000). This bounds each content-scan invocation, not the full multi-call scan or metadata/tree discovery. A delivered chunk may cross the allowance before immediate cancellation; counters include it. For example:
+
+```json
+{"resource_code":"FIATranslationGuide","language":"spa","content_id":"spa-luk-p1-v1.1","include_media":true,"scan_max_bytes":3000000}
+```
+
+Repeat the same arguments plus returned `scan_cursor` for each continuation. If a prior scan reports `oversized-file`, restart **without** its cursor and explicitly choose a sufficient allowance (up to 8,000,000); increasing the allowance on a cursor does not retry files already classified as failures. Omitting the option on any continuation restores the 2,000,000 default. Files beyond the maximum remain explicit failures. This retrieves original JSON article content and source-bound media references; formatted text can contain the source HTML. It does not add raw Markdown-file retrieval or prove media playback.

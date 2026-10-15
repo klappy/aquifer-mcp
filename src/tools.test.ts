@@ -1875,3 +1875,14 @@ describe('source media handler compatibility',()=>{
 });
 
 it('media get failure without cursor tells caller to restart',async()=>{const env={AQUIFER_CACHE:createMockKV(),AQUIFER_ORG:'BibleAquifer'} as Env;const storage=createMockStorage();mockGetOrBuildIndex.mockResolvedValue(buildMockIndex([FIA_MAPS_ENTRY]));mockFetchJson.mockImplementation(async(url:string)=>url.endsWith('metadata.json')?{resource_metadata:FIA_MAPS_ENTRY,scripture_burrito:{ingredients:{'json/1.content.json':{}}}}:null);const result=await handleGet({resource_code:'FIAMaps',language:'eng',content_id:'absent',include_media:true},env,storage) as any;expect(result.structuredContent.complete).toBe(false);expect(result.structuredContent.nextCursor).toBeNull();expect(result.content[0].text).toContain('Restart without scan_cursor');});
+
+it.each(['get','browse'])('%s forwards explicit scan allowance to the real catalog reader',async tool=>{
+ const env={AQUIFER_CACHE:createMockKV(),AQUIFER_ORG:'BibleAquifer'} as Env,storage=createMockStorage();mockGetOrBuildIndex.mockResolvedValue(buildMockIndex([FIA_MAPS_ENTRY]));
+ const article={...MAP_ARTICLE,content:'x'.repeat(2_100_000)};
+ mockFetchJson.mockImplementation(async(url:string)=>url.endsWith('metadata.json')?{resource_metadata:FIA_MAPS_ENTRY,scripture_burrito:{ingredients:{'json/1.content.json':{}}}}:url.endsWith('1.content.json')?[article]:null);
+ const args={resource_code:'FIAMaps',language:'eng',content_id:String(article.content_id),include_media:true};
+ const handler=tool==='get'?handleGet:handleBrowse;
+ const blocked=await handler(args,env,storage) as any;expect(blocked.structuredContent.complete).toBe(false);expect(blocked.structuredContent.failedFiles[0].code).toBe('oversized-file');
+ const result=await handler({...args,scan_max_bytes:3_000_000},env,storage) as any;expect(result.structuredContent.complete).toBe(true);
+ if(tool==='get')expect(result.structuredContent.article.contentId).toBe(String(article.content_id));else expect(result.structuredContent.entries).toHaveLength(1);
+});

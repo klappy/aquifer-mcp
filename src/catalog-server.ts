@@ -8,7 +8,8 @@ async function boundedText(response:Response,limit:number){
  for(;;){const part=await reader.read();if(part.done)break;size+=part.value.byteLength;if(size>limit){await reader.cancel();throw Error('Source response exceeds byte budget');}chunks.push(part.value);}
  const all=new Uint8Array(size);let offset=0;for(const part of chunks){all.set(part,offset);offset+=part.length;}return new TextDecoder('utf-8',{fatal:true,ignoreBOM:true}).decode(all);
 }
-export async function sourceCatalog(identity:CatalogIdentity, env:Env, storage:AquiferStorage, cursor?:string){
+export async function sourceCatalog(identity:CatalogIdentity, env:Env, storage:AquiferStorage, cursor?:string,maxBytes:unknown=2_000_000){
+ if(typeof maxBytes!=='number'||!Number.isInteger(maxBytes)||maxBytes<1||maxBytes>8_000_000)throw Error('scan_max_bytes must be an integer between 1 and 8000000');
  pinnedCatalogUrl(identity,`${identity.language}/metadata.json`);
  const headers:Record<string,string>={'User-Agent':'aquifer-mcp','Accept':'application/vnd.github+json'};
  if(env.GITHUB_TOKEN)headers.Authorization=`Bearer ${env.GITHUB_TOKEN}`;
@@ -49,7 +50,7 @@ export async function sourceCatalog(identity:CatalogIdentity, env:Env, storage:A
  }
  let previous:CatalogEnvelope|undefined;
  if(cursor){if(cursor.length>4096||!/^[\w-]+$/.test(cursor))throw Error('Invalid scan cursor');const saved=await storage.getJSON<CatalogEnvelope>(`catalog-state/v2/${cursor}`);if(!saved.data)throw Error('Scan snapshot unavailable; restart without cursor');previous=saved.data;}
- const envelope=await buildLanguageCatalog({identity,discovery,previous,cursor,read:async({path,revision,maxBytes})=>{
+ const envelope=await buildLanguageCatalog({identity,discovery,previous,cursor,maxBytes,read:async({path,revision,maxBytes})=>{
   const key=`raw/pinned-v2/${identity.organization}/${identity.resourceCode}/${revision}/${path}`;
   const cached=await storage.getJSON<string>(key);
   if(cached.data!==null){
